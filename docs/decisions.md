@@ -186,3 +186,25 @@ question in `prd.md` §6.
   model, so swapping engines later is an implementation change, not a breaking one.
   **Still to verify:** an actual `PublishAot=true` publish, which needs the CLI (CLI-17)
   and is the only real proof for Q10.
+
+### Proposed decisions (pending review): reviewer flags from the Okf.Core port review (2026-08-14)
+
+- **`type: 0` — §11 vs ACC-2 (decides lint behavior).** Spec §11 says "non-empty
+  `type`"; the reference implementation applies Python truthiness, so `type: 0`,
+  `type: false`, `type: no` count as *missing*. These conflict, and `okf lint` must
+  pick one. **Proposal: follow the reference implementation (ACC-2)** — interop
+  parity with Google's own tooling beats a literal §11 reading, and no real bundle
+  puts falsy scalars in `type`. Revisit if the spec clarifies.
+- **YAML alias/anchor node sharing (hazard, deferred).** `a: &x {...}` / `b: *x`
+  parse to the *same* mutable node; in-place stamping (CORE-14) through one path
+  would silently edit the other. No reference bundle uses anchors. Proposal: before
+  CORE-14 ships, deep-copy shared nodes at parse time (or reject anchors with a
+  diagnostic). Do not ship stamping without one of the two.
+- **YAML tags are silently dropped** (`!!str 5` re-emits as `5`) — a retype under a
+  strict CORE-2 reading. No bundle uses tags. Proposal: accept as a documented
+  limitation until a real producer emits tags.
+- **`OkfValue.IsTruthy` is public** and named for a Python concept. Proposal: narrow
+  to internal (or rename to a §11-shaped name) before v1 freezes the API.
+- **Duplicate frontmatter keys are rejected** (YamlDotNet) where PyYAML reads
+  last-wins — pinned as a deliberate sixth deviation by test; rejecting is the
+  stricter, better §11 behavior.
