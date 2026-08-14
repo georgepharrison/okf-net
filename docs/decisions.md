@@ -229,6 +229,14 @@ question in `prd.md` §6.
   usage-versus-lint-failure distinction would have to override a framework's own error
   paths anyway; and the binary must publish NativeAOT-clean with nothing reflective on
   the path. Revisit if the command surface grows past what one `switch` reads well.
+- **Q10 (NativeAOT) is answered by verification, not argument.** `dotnet publish -r
+  linux-x64` with `PublishAot=true` succeeds with **zero trim/AOT warnings** and yields a
+  **4.0 MB** self-contained binary that lints all four reference bundles in ~16 ms. The
+  YAML choice (YamlDotNet through the representation model and event emitter only) holds
+  up: no serializer, no reflection, no static-context source generator needed. The
+  fallback to trim-safe self-contained non-AOT is therefore not required. `Okf.Cli` sets
+  `PublishAot=true` in the csproj so the AOT analyzers run on *every* build and an
+  AOT-hostile dependency fails the build rather than the release.
 - **Q8 (near-duplicate heuristic) for MVP: title-or-filename collision after
   normalization** (lowercase, drop everything that is not a letter or digit), compared
   within a bundle, reported on the later concept in path order. Cheap, deterministic, and
