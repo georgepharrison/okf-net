@@ -1,0 +1,69 @@
+# .releaserc.yml
+# Semantic release config for okf-net.
+#
+# Pre-1.0 phase: `main` is configured as a prerelease branch (tag e.g.
+# 1.0.0-rc.1) so every merge to main ships an installable prerelease
+# without committing to API/format stability yet.
+#
+# Future flip (tracked in docs/decisions.md): once the toolset reaches a
+# stable 1.0, swap `main` to a plain (non-prerelease) release branch and add
+# a `dev` branch with `prerelease: true`/`beta` for the pre-release channel.
+#
+# IMPORTANT — release-branch requirement: semantic-release requires at
+# least one non-prerelease "release" branch to exist on the remote, or it
+# fails with ERELEASEBRANCHES. The maintenance glob below
+# ('+([0-9])?(.{+([0-9]),x}).x') only satisfies that requirement once a
+# matching branch (e.g. 1.x) actually exists on the remote — an unmatched
+# glob expands to nothing and does NOT count. Verified against
+# semantic-release/semantic-release#2503, where a maintainer confirms this
+# is intended behavior (not a bug) for a repo whose only branch is a
+# prerelease `main`. Until a real maintenance branch exists, the `release`
+# CI job will fail with ERELEASEBRANCHES; the documented workaround (see
+# that issue) is to push a placeholder release branch in the meantime.
+branches:
+  - name: main
+    prerelease: rc
+  - "+([0-9])?(.{+([0-9]),x}).x"
+
+plugins:
+  # Analyze commits to determine version bump
+  - - "@semantic-release/commit-analyzer"
+    - preset: conventionalcommits
+      releaseRules:
+        - type: feat
+          release: minor
+        - type: fix
+          release: patch
+        - type: docs
+          release: patch
+        - type: refactor
+          release: patch
+        - type: perf
+          release: patch
+        - type: ci
+          release: patch
+
+  # Generate release notes from commits
+  - - "@semantic-release/release-notes-generator"
+    - preset: conventionalcommits
+      presetConfig:
+        types:
+          - type: feat
+            section: "Features"
+          - type: fix
+            section: "Bug Fixes"
+          - type: docs
+            section: "Documentation"
+          - type: refactor
+            section: "Refactoring"
+          - type: perf
+            section: "Performance"
+          - type: ci
+            section: "CI/CD"
+          - type: chore
+            section: "Chores"
+            hidden: true
+
+  # Create GitLab release with notes
+  - - "@semantic-release/gitlab"
+    - gitlabUrl: https://gitlab.tychostation.dev

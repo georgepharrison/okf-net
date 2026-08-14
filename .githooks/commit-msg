@@ -1,43 +1,11 @@
 #!/usr/bin/env bash
 # Enforce Conventional Commits v1.0.0 (https://www.conventionalcommits.org/en/v1.0.0/)
 # on the first line of the commit message.
+#
+# Delegates to scripts/check-commit-msg.sh, which is also used by the
+# `check-commit` mise task, so the hook and the task share one source of
+# truth for the validation rules.
 set -euo pipefail
 
-commit_msg_file="$1"
-first_line="$(head -n 1 "$commit_msg_file")"
-
-# Skip merge commits.
-if [[ "$first_line" == "Merge "* ]]; then
-  exit 0
-fi
-
-# Skip fixup!/squash! commits (git --fixup / --squash).
-if [[ "$first_line" == "fixup!"* || "$first_line" == "squash!"* ]]; then
-  exit 0
-fi
-
-types="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
-pattern="^(${types})(\([^)]+\))?!?: .+"
-
-if [[ ! "$first_line" =~ $pattern ]]; then
-  cat >&2 <<EOF
-Error: commit message does not follow Conventional Commits v1.0.0.
-
-  <type>[optional scope][!]: <description>
-
-Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
-
-Example:
-  feat(cli): add okf lint command
-
-  feat!: drop support for legacy frontmatter
-
-Your first line was:
-  ${first_line}
-
-See: https://www.conventionalcommits.org/en/v1.0.0/
-EOF
-  exit 1
-fi
-
-exit 0
+repo_root="$(git rev-parse --show-toplevel)"
+exec "$repo_root/scripts/check-commit-msg.sh" "$1"

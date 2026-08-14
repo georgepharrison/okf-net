@@ -4,3 +4,11 @@
 [tasks.setup]
 description = "Install git hooks"
 run = "git config core.hooksPath .githooks"
+
+[tasks.lint]
+description = "Lint all markdown files (excluding dot-directories) with markdownlint-cli2"
+run = 'markdownlint-cli2 "**/*.md" "#**/.*/**"'
+
+[tasks.check-commit]
+description = 'Validate a commit message against Conventional Commits. No args = check HEAD; pass -- -m "<message>" for a literal string, or -- <file> for a file. Shares scripts/check-commit-msg.sh with the commit-msg git hook.'
+run = "scripts/check-commit-msg.sh"
