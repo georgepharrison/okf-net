@@ -1,0 +1,6 @@
+[tools]
+"npm:markdownlint-cli2" = "latest"
+
+[tasks.setup]
+description = "Install git hooks"
+run = "git config core.hooksPath .githooks"
