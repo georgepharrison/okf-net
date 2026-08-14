@@ -10,6 +10,14 @@ run = "git config core.hooksPath .githooks"
 description = "Lint all markdown files (excluding dot-directories) with markdownlint-cli2"
 run = 'markdownlint-cli2 "**/*.md" "#**/.*/**"'
 
+[tasks.build]
+description = "Build the solution"
+run = "dotnet build Okf.sln"
+
+[tasks.test]
+description = "Run the test suite"
+run = "dotnet test Okf.sln"
+
 [tasks.check-commit]
 description = 'Validate a commit message against Conventional Commits. No args = check HEAD; pass -- -m "<message>" for a literal string, or -- <file> for a file. Shares scripts/check-commit-msg.sh with the commit-msg git hook.'
 run = "scripts/check-commit-msg.sh"

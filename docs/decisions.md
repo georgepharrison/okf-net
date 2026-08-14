@@ -169,3 +169,20 @@ question in `prd.md` §6.
   the self-hosted GitLab instance's built-in NuGet registry (instance configuration to be
   verified at first publish). Serialization-library choice (AOT-compatible YAML) remains
   open — that part of Q10 is left open.
+
+### Proposed decision (pending review): YAML library
+
+- **YamlDotNet, used through its representation model and event emitter only — never its
+  serializer.** Candidates were YamlDotNet (with the `[YamlStaticContext]` source generator
+  for AOT) and VYaml (source-generated, AOT-first). VYaml's strength is fast typed
+  serialization of known shapes; okf-net needs the opposite (PRD CORE-2): frontmatter must
+  round-trip with unknown producer keys, insertion order, and scalar form intact, which
+  means a *structure-preserving* parse, not deserialization into types. YamlDotNet's
+  `YamlStream`/`YamlNode` and its `Emitter` do exactly that, and both are reflection-free —
+  so the AOT question never reaches the static-context source generator at all: `Okf.Core`
+  builds with `IsAotCompatible=true` and no trim or AOT warnings, because no
+  reflection-based serializer is on the path. The dependency is confined to one internal
+  file (`src/Okf.Core/YamlBridge.cs`); the public API exposes only okf-net's own `OkfValue`
+  model, so swapping engines later is an implementation change, not a breaking one.
+  **Still to verify:** an actual `PublishAot=true` publish, which needs the CLI (CLI-17)
+  and is the only real proof for Q10.
