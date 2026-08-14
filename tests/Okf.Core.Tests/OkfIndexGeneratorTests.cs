@@ -308,7 +308,7 @@ public class OkfIndexGeneratorTests
 
     private static string Snapshot(TempBundle bundle) =>
         string.Join(
-            "\n \n",
+            "\n\0\n",
             Directory.EnumerateFiles(bundle.Root, "index.md", SearchOption.AllDirectories)
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .Select(path => path + "\n" + File.ReadAllText(path)));
