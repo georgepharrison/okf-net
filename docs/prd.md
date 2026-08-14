@@ -1,0 +1,509 @@
+# okf-net — Product Requirements
+
+> **Status:** MVP requirements. Rationale for every decision referenced here lives in
+> [decisions.md](decisions.md); this document states *what must be built and how it is
+> verified*, not *why*. Where the two disagree, decisions.md wins and this document is
+> wrong.
+>
+> Format under implementation: OKF v0.2, specified in
+> `~/code/knowledge-catalog/okf/SPEC.md` (referred to below as "the spec", cited by
+> section, e.g. §11).
+
+## 1. Overview
+
+okf-net is a .NET toolset for producing, validating, and consuming **OKF v0.2 knowledge
+bundles**: directory trees of markdown files with YAML frontmatter. It ships as a
+library (`Okf.Core`), a single CLI binary (`okf`) that also hosts an MCP server
+(`okf mcp`), and a pair of agent skills.
+
+The format is the interop layer. Nothing okf-net produces requires okf-net to consume —
+a bundle stays `cat`-readable and `git clone`-portable (spec §1).
+
+### 1.1 Users
+
+- **Solo knowledge-keeper (primary).** Keeps a personal vault at `~/okf/`, captures
+  knowledge as it is learned, and wants it retrievable months later without remembering
+  where it was filed.
+- **Dev teams with project bundles.** Commit an `okf/` vault beside their code; the
+  bundle is reviewed like code, maintained by a custodian agent through git hooks and
+  CI, and behaves identically on every machine and in CI.
+- **Consuming agents, including non-human ones.** Reach bundles through progressive
+  disclosure (index files), the CLI, or MCP. Consumption is read-only and never requires
+  executing bundle-supplied code.
+- **Foreign-bundle consumers.** Point okf-net at a bundle it did not produce (e.g.
+  Google's published bundles) and get lint, index synthesis, and search with no
+  in-bundle cooperation.
+
+### 1.2 Goals
+
+1. Make OKF v0.2 conformance (§11) mechanically checkable in a hook or CI job, in one
+   process invocation, with no server and no network.
+2. Make any bundle — ours or foreign — navigable and searchable by an agent that can
+   only run a command.
+3. Make the trust, freshness, and provenance families (§5) actionable: derivable,
+   reportable, and stampable.
+4. Keep the toolset out of the bundle: bundles are consume-only artifacts, the toolset is
+   referenced by version and never vendored per project (decisions §1).
+5. Ship as a self-contained binary so the implementation language never leaks to
+   consumers (decisions §3).
+
+### 1.3 Non-goals for MVP
+
+The following are explicitly **out of scope** for MVP and tracked as roadmap in §5:
+
+- **Bundler** — packaging a bundle for consume-only distribution.
+- **Static site generator** — rendering a bundle as a browsable site.
+- **Pi extension / widget** — the TypeScript shim and any UI surface.
+- **Vectorization / semantic index** — sqlite-vec or equivalent.
+- **Custodian staleness-refresh loop** — automated re-derivation of expired concepts and
+  the acknowledgment workflow around it.
+
+Also out of scope, permanently or until a concrete need appears: executing executors or
+attesters (§10 is *recorded and surfaced*, never run by okf-net), defining a type
+taxonomy, and any storage or serving layer beyond the filesystem.
+
+## 2. MVP functional requirements
+
+Requirements are testable statements with acceptance criteria. IDs are stable; future
+work references them.
+
+Build order is fixed by decisions §"MVP build order": Core parse/validate → `okf index` →
+`okf search` → `okf mcp` → skills.
+
+### 2.1 Okf.Core
+
+`Okf.Core` holds **all** logic. The CLI and MCP server are thin adapters over it
+(decisions §4). Every requirement below is satisfied by the library and is unit-testable
+without a process boundary.
+
+- **CORE-1 — Frontmatter parse.** Parse a UTF-8 markdown file into `(frontmatter, body)`
+  per spec §4.
+  - A file whose first line is not `---` parses as empty frontmatter with the entire text
+    as body (no error).
+  - An opened but unterminated `---` block is an error.
+  - Frontmatter that is valid YAML but not a mapping is an error.
+  - Invalid YAML is an error carrying the underlying parser message.
+  - A single leading newline between the closing `---` and the body is consumed.
+- **CORE-2 — Unknown-key preservation.** Round-tripping a document preserves every
+  frontmatter key, including ones the library does not model (spec §4.1: consumers SHOULD
+  preserve unknown keys and MUST NOT reject unrecognized fields).
+  - Parse → serialize of any concept in the four reference bundles (§4) preserves all
+    keys and their insertion order; keys are not alphabetized.
+  - Producer extensions (e.g. acme_retail's `not:`) survive a round trip unchanged.
+  - Scalars are not re-typed by the round trip (dates, quoted version strings such as
+    `okf_version: "0.2"`, and numeric-looking strings keep their original form).
+- **CORE-3 — Conformance validation (§11).** Report whether a bundle tree is conformant.
+  - Every non-reserved `.md` file has a parseable frontmatter block → else non-conformant.
+  - Every such frontmatter has a non-empty `type` → else non-conformant.
+  - Reserved files (`index.md`, `log.md`) follow §8/§9 structure when present → else
+    non-conformant.
+  - Nothing else makes a bundle non-conformant. Missing optional fields, unknown `type`
+    values, unknown keys, broken cross-links, and missing `index.md` files MUST NOT be
+    reported as conformance failures (§11).
+  - Non-`.md` files in the tree are ignored (the reference bundles carry `viz.html` and
+    `.py` attesters and remain conformant).
+- **CORE-4 — Reserved-file structure checks.** Validate `index.md` against §8 and `log.md`
+  against §9.
+  - `index.md`: no frontmatter, except a bundle-root `index.md` MAY carry `okf_version`
+    (§12); body is one or more `#` sections of `* [Title](link) - description` bullets.
+  - `log.md`: `##` date headings in ISO `YYYY-MM-DD` form, newest first; entry prose is
+    unconstrained (the leading bold word is convention, not requirement).
+- **CORE-5 — `verified` normalization (§5.2).** A bare `{ by, at }` mapping is treated as
+  a one-element list.
+  - Absent key → empty list; bare mapping → one element; list → itself with non-mapping
+    elements dropped; any other YAML shape → empty list.
+- **CORE-6 — Trust-tier derivation (§5.3).** Derive `unverified` | `machine-confirmed` |
+  `human-reviewed` from the normalized `verified` list.
+  - No verification events → `unverified`.
+  - Any event whose `by` starts with `human:` → `human-reviewed`.
+  - Otherwise → `machine-confirmed`.
+  - Derivation reads only `verified`; `generated`, `status`, and `sources` never affect
+    the tier.
+- **CORE-7 — Staleness (§5.5).** A concept is stale when `today >= stale_after`.
+  - Absent or empty `stale_after` → not stale.
+  - A YAML-native date and an ISO `YYYY-MM-DD` string behave identically.
+  - A datetime value is compared on its date part.
+  - An unparseable value → not stale (never an error).
+  - The comparison date is injectable, so staleness is deterministic in tests.
+- **CORE-8 — Source-drift signal.** Report, per concept, whether any `sources[].last_modified`
+  is later than `generated.at` (decisions §5's compensating control for cited-live
+  sources).
+  - Concepts lacking `generated.at` or lacking source `last_modified` values produce no
+    signal.
+- **CORE-9 — Index generation (§8).** Generate `index.md` for every directory in a bundle
+  that contains indexable content.
+  - Entries are grouped under `#` headings and rendered as
+    `* [Title](relative-link) - description`.
+  - Title falls back to the filename stem when `title` is absent; the description is the
+    concept's frontmatter `description` and is omitted (with its separator) when absent.
+  - Subdirectories are listed as entries linking to the subdirectory's own index.
+  - `index.md` and `log.md` are never listed as entries.
+  - Generation is deterministic: identical input tree → byte-identical output, with no
+    network or model call. (How subdirectory descriptions are obtained without a model is
+    open — see Q1.)
+  - For bundles we produce, the bundle-root `index.md` carries `okf_version: "0.2"`
+    frontmatter (§12, decisions §2), and its first entry links the bundle's
+    `about-this-bundle.md` concept.
+  - Regeneration is idempotent and preserves nothing hand-written — generated index files
+    are outputs, and drift is a lint concern (CLI-9).
+- **CORE-10 — On-the-fly index synthesis.** For a bundle (or directory) with no
+  `index.md`, synthesize the equivalent listing in memory without writing to disk
+  (spec §8: consumers MAY synthesize).
+  - Synthesis uses the same renderer as CORE-9, so a synthesized listing and a generated
+    file are identical for the same tree.
+  - Synthesis never writes into a bundle the tool does not own.
+- **CORE-11 — Search.** Search a bundle tree and return ranked concept matches.
+  - Matches over frontmatter (`title`, `description`, `tags`, `type`) and body text.
+  - Each result carries: concept ID (path minus `.md`, spec §2), bundle, title, type,
+    description, trust tier, stale flag, and a match snippet.
+  - Filterable by `type` and `tags`.
+  - Results are returned as data, not formatted text, so the CLI and MCP render the same
+    result set differently. (Ranking/matching semantics are open — see Q7.)
+- **CORE-12 — Concept read.** Load a single concept by ID, returning frontmatter, body,
+  derived trust tier, and stale flag.
+  - IDs are validated and confined to the bundle root; `..` traversal and absolute paths
+    are rejected.
+- **CORE-13 — Vault and bundle discovery.** Given a starting directory, discover the
+  project vault, the bundle roots inside it, and registered vaults.
+  - Walk up from the start directory for a directory named `okf/`; the nearest one wins.
+  - `OKF_HOME` overrides the personal-vault location; the default personal vault is
+    `~/okf/` (visible, not hidden).
+  - A bundle root is a directory under `<vault>/bundles/`; a directory pointed at
+    directly (a foreign bundle) is also a valid bundle root.
+  - Discovery is pure: it reads the filesystem and configuration and performs no writes.
+- **CORE-14 — Stamping.** Provide the two stamp operations, writing only the fields
+  decisions §7 permits.
+  - Generation stamping writes `generated.{by,at}` and nothing else.
+  - Verification stamping appends `{ by, at }` to `verified`, normalizing a pre-existing
+    bare mapping into a list first.
+  - Stamping preserves all other keys, key order, and the body byte-for-byte.
+  - An actor value is validated against the §7 convention (`<producer>/<version>`,
+    `human:<id>`, `process:<id>`).
+- **CORE-15 — Acknowledgment state.** Derive whether a concept is unacknowledged:
+  `generated.at` is newer than the latest `verified[].at`, **or** `status: draft`
+  (decisions §7). No new frontmatter field is introduced.
+
+### 2.2 `okf` CLI
+
+The CLI is a thin wrapper over `Okf.Core` (decisions §4). It must be usable from a git
+hook: single process, no daemon, no network, meaningful exit code.
+
+- **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
+  - Default target is the project vault found by walking up for `okf/`.
+  - With no project vault and no explicit path, the command targets the personal vault
+    (`OKF_HOME`, else `~/okf/`).
+  - An explicit path argument overrides discovery and may point at any bundle root,
+    including a foreign one.
+  - Resolution is reported in `--verbose` output so "which bundle did it read" is never a
+    guess.
+- **CLI-2 — Registry.** `~/.config/okf/` holds the registry of known bundles.
+  - `okf register [path]` adds an entry; it is idempotent (re-registering the same path is
+    a no-op success).
+  - `okf unregister [path]` removes an entry; removing an unknown entry is a no-op
+    success.
+  - The personal vault is an ordinary registry entry with no special-casing
+    (decisions §6).
+  - Auto-registration is **off** by default; a global setting opts into it.
+- **CLI-3 — Search scope.** Search defaults to project-only.
+  - With a project vault resolved, only that vault's bundles are searched — identical
+    results on every machine and in CI.
+  - Registry entries (including the personal vault) are included only when configuration
+    or an explicit flag opts them in.
+- **CLI-4 — Configuration precedence.** CLI args > project config > global config in
+  `~/.config/okf/` (decisions §6).
+  - A setting present at a higher layer wins; lower layers still supply unset keys.
+  - The project config is committed and is the team contract; the global config is
+    per-machine.
+  - `--verbose` reports the effective value and its source layer for any setting that
+    changed behavior. (File names/format are open — see Q4.)
+- **CLI-5 — Lint default severity.** `okf lint` errors **only** on spec §11 conformance.
+  - A bundle that is conformant but carries every warning in CLI-7 exits 0 by default.
+  - A bundle that violates §11 exits non-zero regardless of configuration.
+  - Principle: defaults block only what the spec says; every additional block is consumer
+    configuration (decisions §7).
+- **CLI-6 — Roslyn-style severity configuration.** Any warning is promotable to error and
+  demotable to hidden/none, per rule.
+  - Per-rule severity is set in configuration and overridable by CLI flag, honoring
+    CLI-4 precedence.
+  - `treatAllWarningsAsErrors` promotes every warning in one setting.
+  - An unknown rule identifier in configuration is itself reported (a typo must not
+    silently disable a rule).
+- **CLI-7 — Warning set.** `okf lint` implements exactly this warning set (decisions §7);
+  each is an independently addressable rule.
+
+  | Warning | Fires when | Default |
+  | --- | --- | --- |
+  | Citation integrity | A body footnote label has no matching `sources[].id`, or a `sources[].id` is never cited | warning |
+  | Staleness | `today >= stale_after` | warning, never blocks by default |
+  | Source drift | A `sources[].last_modified` is newer than `generated.at` (CORE-8) | warning, never blocks by default |
+  | Broken internal link | A bundle-internal markdown link resolves to no file (§6.1: consumers MUST tolerate) | warning, never an error by default (see Q5) |
+  | Near-duplicate concept | Two concepts are judged near-identical (see Q8) | warning |
+  | Missing `description` | A concept has no `description` (§4.1 recommends it; index entries degrade without it) | warning |
+  | Missing `tags` | A concept has no `tags` | off (opt-in) |
+  | Unregistered tag | A tag is absent from the bundle's tag registry (beyond-spec extension) | off (opt-in) |
+  | Self-verification | Any `verified[].by` equals `generated.by` | warning |
+  | Human actor on CI commit | `generated.by` is a `human:` actor on a CI-authored commit | warning (see Q9) |
+
+- **CLI-8 — `okf init` scaffolding.** `okf init` creates the project layout from
+  decisions §2.
+  - Creates `okf/README.md` (repo-facing, deliberately outside every bundle root),
+    `okf/bundles/<name>/`, and `okf/custodian/`.
+  - The new bundle gets a generated root `index.md` with `okf_version: "0.2"` and an
+    `about-this-bundle.md` concept naming the toolset, the custodian, the update cadence,
+    and the consumption options (plain reading / MCP).
+  - Writes a project config that promotes to **error**: mutation of `references/` after
+    capture, and hand-edit drift in generated files.
+  - Refuses to overwrite existing files; re-running on an initialized project is a
+    reported no-op.
+- **CLI-9 — Generated-drift and `references/` rules.** The two rules `okf init` promotes
+  must exist as rules.
+  - Generated drift: an on-disk generated file differs from what `okf index` would emit
+    for the same tree.
+  - `references/` mutation: a tracked file under `references/` changed after its capturing
+    commit. Detection is git-based; outside a git work tree the rule reports as
+    inapplicable rather than failing. (Scope against concept documents living in
+    `references/` is open — see Q3.)
+- **CLI-10 — `okf index`.** Write generated index files for a bundle.
+  - `--check` writes nothing and exits non-zero when any index would change (the CI/hook
+    form of CLI-9).
+  - Output is byte-stable across runs and across machines.
+- **CLI-11 — `okf search`.** Query resolved bundles from the command line.
+  - Supports `--type`, `--tag`, and a result limit.
+  - Human-readable default output; `--json` emits the full CORE-11 result records,
+    including trust tier and stale flag.
+  - Exits 0 with an empty result set (no matches is not an error).
+- **CLI-12 — `okf inbox`.** List unacknowledged concepts (CORE-15) across the resolved
+  scope.
+  - Each row shows concept ID, why it is unacknowledged (regenerated since verification /
+    draft), trust tier, and stale flag.
+  - Ordering is deterministic. `--json` is supported.
+- **CLI-13 — `okf verify`.** Stamp human verification on one or more concepts.
+  - Writes `verified: { by: human:<id>, at: <now> }` via CORE-14, where `<id>` comes from
+    configuration (see Q6).
+  - Refuses to stamp when no human id is configured, with an actionable message.
+  - After stamping, the concept no longer appears in `okf inbox` unless it is `draft`.
+  - Never edits the body and never touches `generated`.
+- **CLI-14 — Exit codes.** Exit codes are part of the contract because hooks and CI branch
+  on them.
+  - `0` — success; no diagnostics at error severity.
+  - `1` — diagnostics at error severity (lint failures, `--check` drift).
+  - `2` — usage or environment failure (bad arguments, unknown rule id, unresolvable
+    vault, unreadable file).
+  - Warnings alone never change the exit code unless promoted (CLI-6).
+- **CLI-15 — Machine-readable diagnostics.** Every lint diagnostic carries a stable rule
+  identifier, severity, file path, and line/column where determinable, and is emitable as
+  JSON.
+  - Human output is stable enough to grep; JSON output is the contract for CI
+    annotations. (Identifier scheme is open — see Q2.)
+- **CLI-16 — Offline and hermetic.** No command makes a network call or invokes a model.
+  - The full MVP surface runs with networking disabled.
+- **CLI-17 — Distribution.** The CLI ships as a self-contained, single-file binary
+  installable without a .NET SDK (decisions §3).
+  - A release produces binaries for the supported targets and a `curl | sh` install path.
+  - (Targets, RIDs, and whether AOT survives the YAML dependency are open — see Q10.)
+
+### 2.3 `okf mcp`
+
+- **MCP-1 — Subcommand-hosted server.** `okf mcp` starts an MCP server over stdio from the
+  same binary (kcmd precedent, decisions §4).
+  - No separate install, package, or port; the server is an adapter over `Okf.Core`, not a
+    second implementation.
+- **MCP-2 — Tool surface.** The server exposes at minimum `search`, `read`, and `list`
+  over the resolved vaults.
+  - `search` mirrors CORE-11 including `type`/`tag` filters and returns structured
+    results.
+  - `read` returns one concept's frontmatter, body, trust tier, and stale flag (CORE-12).
+  - `list` returns a directory listing, using a generated index when present and a
+    synthesized one otherwise (CORE-10), so progressive disclosure works on foreign
+    bundles.
+- **MCP-3 — Scope parity.** The server resolves vaults and applies search scope by the
+  same rules as the CLI (CLI-1, CLI-3, CLI-4).
+  - Identical query, identical working directory, identical results between `okf search`
+    and the MCP `search` tool.
+- **MCP-4 — Read-only.** MVP exposes no write tool. Stamping and index generation stay CLI
+  operations.
+- **MCP-5 — Containment.** Every path returned or accepted is confined to a resolved
+  bundle root; traversal outside it is rejected.
+
+### 2.4 Skills
+
+Two skills ship in `skills/` with releases (decisions repo layout). They are prose
+instructions for agents; they call the CLI rather than reimplementing anything.
+
+- **SKILL-1 — Capture skill exists.** `skills/` contains a capture skill that turns
+  something just learned into a concept in the right bundle.
+- **SKILL-2 — Search before create.** The capture skill searches the resolved bundles
+  before writing, and either extends the matching concept or states why a new one is
+  warranted.
+- **SKILL-3 — Capture vs cite.** The skill applies the decisions §5 test — *if this source
+  changed or vanished tomorrow, could the custodian still re-verify the concept?*
+  - Yes → cite via `sources[].resource` with `last_modified` and a version pin where
+    available.
+  - No → capture the artifact into `references/` and cite the captured copy, keeping the
+    original URL as a courtesy field.
+  - Lossy formats (PDF, video) are captured as a packet (original + `extracted.md`);
+    everything else is captured flat.
+- **SKILL-4 — Citation form.** Claims attributable to a source are footnoted with a label
+  equal to the `sources[].id` (§5.1), never a positional reference and never a body
+  citations list.
+- **SKILL-5 — Stamping discipline.** An agent writing content updates `generated.{by,at}`
+  only.
+  - The skill never writes `verified` for its own generation (no self-verification).
+  - A non-generating agent MAY record a machine-confirmed verification; human review is
+    `okf verify`.
+- **SKILL-6 — `references/` immutability.** Both skills treat `references/` as read-only
+  after capture: new evidence is a new file, never an edit of an existing one.
+- **SKILL-7 — Custodian skill exists.** `skills/` contains a custodian skill covering
+  discovery and enrichment (prose writing) for a maintained bundle.
+  - It regenerates indexes via `okf index` rather than hand-editing them.
+  - It records notable updates in `log.md` per §9.
+  - It surfaces its output for review (draft status → `okf inbox`; CI runs open a PR),
+    rather than silently landing machine-derived insight.
+- **SKILL-8 — No hidden tool references.** Tooling a bundle depends on is wired through
+  declarative frontmatter pointers (`executor.resource`, `attester.resource`, §10), never
+  buried in prose (decisions §1).
+
+## 3. CLI surface
+
+| Command | Purpose | Key flags | Exit codes |
+| --- | --- | --- | --- |
+| `okf lint [path]` | Validate §11 conformance plus the configured warning set | `--json`, per-rule severity override, `--treat-all-warnings-as-errors` | 0 clean · 1 errors present · 2 usage/environment |
+| `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift) | 0 written/no drift · 1 drift under `--check` · 2 usage |
+| `okf search <query>` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--json`, scope opt-in | 0 (including no matches) · 2 usage |
+| `okf inbox` | List unacknowledged concepts (regenerated-since-verified or `draft`) | `--json` | 0 · 2 usage |
+| `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | — | 0 stamped · 1 refused (no configured human id, unknown concept) · 2 usage |
+| `okf register [path]` | Add a bundle/vault to the registry (idempotent) | — | 0 · 2 usage |
+| `okf unregister [path]` | Remove a registry entry (idempotent) | — | 0 · 2 usage |
+| `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | — | 0 created · 1 refused (would overwrite) · 2 usage |
+| `okf mcp` | Run the stdio MCP server (search/read/list) | — | 0 clean shutdown · 2 startup failure |
+
+Global flags apply to every command: `--verbose` (report vault resolution and effective
+configuration), `--json` where output is data, and the configuration overrides governed by
+CLI-4.
+
+## 4. Acceptance and validation strategy
+
+- **ACC-1 — Foreign-bundle acid test.** `okf lint` reports all four bundles in
+  `~/code/knowledge-catalog/okf/bundles/` — `acme_retail`, `ga4`, `stackoverflow`,
+  `crypto_bitcoin` — as **conformant**, exiting 0 under default severity.
+  - These bundles are checked as-is, unmodified, from their upstream location.
+  - They exercise: `viz.html` and `.py` files in the tree, `references/` holding
+    first-class concepts, `Attested Computation` concepts with `executor`/`attester`
+    wiring, the `not:` producer extension, bare-mapping `verified`, and root indexes
+    without `okf_version`.
+  - Warnings are permitted and expected; any **error** on these bundles is a defect in
+    okf-net, not in the bundles.
+- **ACC-2 — Port fidelity.** `Okf.Core` matches the behavior of
+  `okf/src/reference_agent/bundle/document.py` for `parse`, `serialize`, `validate`,
+  `normalize_verified`, `trust_tier`, and `is_stale` (decisions §3: port, do not import).
+  - A shared table of inputs and expected outputs covers each edge case in CORE-1, CORE-5,
+    CORE-6, and CORE-7; the C# result equals the documented Python result for every row.
+  - Divergences that are deliberate (e.g. serializer formatting) are recorded in the test
+    as intentional, with the reason, rather than being silently accepted.
+- **ACC-3 — Index parity.** `okf index` output on the reference bundles matches the
+  structure produced by `reference_agent`'s index generator: grouped `#` sections,
+  `* [Title](link) - description` bullets, subdirectory entries linking to child indexes.
+  - Where our output deliberately differs (root `okf_version` frontmatter, deterministic
+    subdirectory descriptions), the difference is enumerated and tested, not incidental.
+- **ACC-4 — Round-trip corpus test.** Parse → serialize over every `.md` file in the four
+  reference bundles preserves all frontmatter keys, their order, and the body.
+- **ACC-5 — Dogfood bundle.** This repo carries its own OKF bundle documenting the toolset,
+  maintained by the shipped custodian skill and linted by CI.
+  - Its bundle root is a subdirectory, never `docs/` itself — `docs/decisions.md` and
+    `docs/prd.md` have no frontmatter and would make `docs/` non-conformant
+    (decisions §2's README trap).
+  - CI runs `okf lint` and `okf index --check` on it; the dogfood bundle failing either is
+    a release blocker.
+  - The repo never contains Ringo's knowledge — only its own dogfood bundle.
+- **ACC-6 — Hook and CI viability.** The lint and index-check paths run to completion in a
+  `pre-commit`/`pre-push` hook and in the GitLab `validate` stage without network access,
+  and their exit codes gate the pipeline per CLI-14.
+- **ACC-7 — Determinism.** Running any command twice on an unchanged tree produces
+  identical output and identical exit codes; index generation is byte-stable across
+  machines.
+
+## 5. Post-MVP roadmap
+
+Rationale and open spikes for each item are logged in
+[decisions.md](decisions.md#open-items-tracked-in-session-task-list-mirrored-here).
+
+**Bundler.** Packages a bundle for consume-only distribution by stripping custodian
+machinery (skill, scripts, recipe config, hooks) so a consumer receives only readable
+markdown. Requires a spike on cross-bundle concept references: whether a reference to a
+concept in another bundle is inlined, vendored, or left as a deliberately dangling link,
+and how the bundler records the choice.
+
+**Static site generator.** Replaces the Obsidian dependency with a generated browsable
+site; GitLab Pages and plain file handoff are the target outputs, with
+`reference_agent visualize`'s self-contained `viz.html` as prior art. Must surface the
+OKF v0.2 trust and lifecycle frontmatter — trust tier, `stale_after`, verified-by-agent
+versus verified-by-human — as first-class UI, not buried metadata. **Pending input from
+Ringo on exactly how those fields should be displayed.** Likely the first component to
+split out of the monorepo, on release-cadence grounds.
+
+**Custodian staleness-refresh and acknowledgment loop.** When a version-pinned source's
+`stale_after` expires, the custodian fetches release notes from the pinned version to
+current, updates or drafts the affected concept, and derives an impact analysis. Output
+surfaces as `status: draft` → `okf inbox` → a CI-opened PR, making the PR the reviewable
+(and ignorable) inbox for machine-derived insight. Builds directly on CORE-15 and CLI-12.
+
+**Pi shim and widget.** A thin TypeScript extension for the Pi host that shells out to the
+CLI or speaks to `okf mcp`; no logic of its own. A Pi widget (UI surface) follows the
+shim and depends on the same display decisions as the site generator.
+
+**Vectorization spike.** An optional semantic index (sqlite-vec or similar), strictly
+opt-in, used only as a fallback when progressive disclosure fails to surface the right
+concept. The index is a generated artifact and never authoritative; the bundle remains
+complete without it. Would also supply a better near-duplicate detector than the MVP
+heuristic (Q8).
+
+## 6. Open questions
+
+Genuinely undecided as of this document; none of these are settled in decisions.md.
+
+- **Q1 — Subdirectory descriptions in generated indexes.** The reference implementation
+  synthesizes directory descriptions with an LLM call. `okf index` must be deterministic
+  and offline (CLI-16). Options: a deterministic fallback string, a per-directory concept
+  or marker file the custodian writes, or an `index.md`-adjacent description field. Blocks
+  full CORE-9 parity with ACC-3.
+- **Q2 — Diagnostic identifier scheme.** Roslyn-style severity configuration (CLI-6) needs
+  stable per-rule identifiers. Numeric codes (`OKF0007`) versus kebab rule names
+  (`citation-integrity`) versus both is undecided, and the choice is effectively permanent
+  once configs exist in the wild.
+- **Q3 — `references/` semantics collision.** decisions §5 makes `references/` the
+  read-only capture zone; spec §6.3 and all four Google bundles use `references/` for
+  ordinary concept documents. Does the mutation guard (CLI-9) cover everything under
+  `references/`, or only captured artifacts — and if the latter, how does lint tell a
+  captured artifact from an authored concept?
+- **Q4 — Config file names and format.** decisions §6 fixes the *precedence* (CLI > project
+  > global JSON in `~/.config/okf/`) but not the filenames, the project config's format, or
+  where the project config sits relative to `okf/`. Also unresolved: precedence when both a
+  project vault and `OKF_HOME` are in play.
+- **Q5 — Are any warnings exempt from promotion?** decisions §7 says broken internal links
+  are "never error" while staleness "never blocks by default". If the first is a hard
+  exemption, `treatAllWarningsAsErrors` must skip it — which contradicts "any warning
+  promotable to error". One of the two readings has to give.
+- **Q6 — Human identity for `okf verify`.** `human:<id-from-config>` — which layer holds the
+  id (global-only, or project-overridable), and what happens when it is unset: hard refusal
+  (as CLI-13 currently assumes) or derivation from `git config user.email`.
+- **Q7 — Search semantics and output contract.** Substring versus tokenized matching,
+  whether frontmatter fields are weighted above body text, ranking, and snippet extraction
+  are all unspecified. MCP consumers depend on the structured shape, so the result record
+  should be fixed before `okf mcp` ships.
+- **Q8 — Near-duplicate detection in MVP.** With vectorization deferred, what heuristic
+  backs the near-duplicate warning: title/description similarity, shingled body hashing, or
+  drop the rule from MVP and reintroduce it with the vectorization spike.
+- **Q9 — Detecting a CI-authored commit.** The "human actor on CI commit" warning needs a
+  reliable signal (`CI=true`, a GitLab-specific variable, an explicit `--ci` flag, or the
+  commit's committer identity). Without one the rule cannot fire correctly in a local hook.
+- **Q10 — .NET target and AOT viability.** Target framework is unpinned, and NativeAOT
+  single-file (decisions §3) may conflict with a reflection-based YAML library. Either a
+  trim-safe YAML path is proven or the fallback to self-contained non-AOT is taken
+  knowingly. No packaging or publish job exists in `.gitlab-ci.yml` yet.
+- **Q11 — `okf verify` and `okf inbox` scope granularity.** Whether they operate per bundle,
+  per vault, or across the registry by default, and whether `verify` accepts a directory or
+  glob rather than one concept at a time.
+- **Q12 — Machine verification surface.** decisions §7 allows non-generating agents to
+  record machine-confirmed verifications, but no command exposes it (CLI-13 is human-only).
+  Whether that is a flag on `okf verify`, a separate command, or deliberately left to the
+  custodian writing frontmatter directly is unsettled.
