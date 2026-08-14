@@ -60,12 +60,13 @@ lint:
     # Keep the package cache inside the workspace so GitLab can cache it.
     NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
   cache:
+    # GitLab allows at most 2 files in cache:key:files; key on the two src
+    # csprojs (test projects reference the same packages, so churn there
+    # rarely warrants a fresh cache).
     key:
       files:
         - src/Okf.Core/Okf.Core.csproj
         - src/Okf.Cli/Okf.Cli.csproj
-        - tests/Okf.Core.Tests/Okf.Core.Tests.csproj
-        - tests/Okf.Cli.Tests/Okf.Cli.Tests.csproj
     paths:
       - .nuget/packages
   rules:
