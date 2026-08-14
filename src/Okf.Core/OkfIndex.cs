@@ -221,10 +221,12 @@ public sealed class OkfIndexOptions
 /// and may repeat, so ordering by it is neither total nor stable, whereas a directory
 /// cannot hold two files of the same name.</para>
 /// <para><b>Marker.</b> Every generated file carries
-/// <see cref="GeneratedMarker" /> on its own line. It is what lets drift detection tell an
+/// <see cref="GeneratedMarker" /> on its own line, first in the file — after the
+/// frontmatter on the bundle-root index. It is what lets drift detection tell an
 /// index okf-net wrote from one a foreign producer hand-styled: only the former can drift
 /// (PRD ACC-1). An HTML comment is used because §8 permits no frontmatter outside the
-/// bundle root, and because it survives every markdown renderer invisibly.</para>
+/// bundle root, and because it survives every markdown renderer invisibly. The position is
+/// part of the signal, not decoration; see <see cref="IsGenerated" />.</para>
 /// </remarks>
 public static class OkfIndexGenerator
 {
@@ -237,9 +239,23 @@ public static class OkfIndexGenerator
     /// <summary>The frontmatter the bundle-root index carries, and the only index frontmatter (§8, §12).</summary>
     public const string RootFrontmatter = "okf_version: \"0.2\"";
 
-    /// <summary>Whether a file's text carries the generated marker.</summary>
+    /// <summary>
+    /// Whether a file's text carries the generated marker where a generated file carries
+    /// it: as the first non-blank line, after a frontmatter block if there is one.
+    /// </summary>
     /// <param name="text">The file's text.</param>
     /// <returns><see langword="true" /> when okf-net wrote the file.</returns>
+    /// <remarks>
+    /// The position matters. Scanning the whole file for the marker would claim any
+    /// hand-written index that merely quotes it — an index that documents okf, say, or one
+    /// with the marker in a fenced block — and claiming it has teeth: the file would be
+    /// reported as drift (<c>OKF0306</c>, and a non-zero <c>okf index --check</c>) and
+    /// then overwritten as an "update" rather than as the replacement of hand-written
+    /// content it is. A foreign index must never be blamed for drift (PRD ACC-1), so only
+    /// a file that *declares itself* generated at the top is treated as ours. Reading is
+    /// otherwise tolerant: CRLF endings, trailing whitespace, leading blank lines, and an
+    /// edited root frontmatter block all still round-trip to <see langword="true" />.
+    /// </remarks>
     public static bool IsGenerated(string? text)
     {
         if (text is null)
@@ -247,16 +263,42 @@ public static class OkfIndexGenerator
             return false;
         }
 
-        foreach (var line in text.Split('\n'))
+        var lines = text.Split('\n');
+        var start = 0;
+
+        if (Line(lines, 0) is OkfDocument.FrontmatterDelimiter)
         {
-            if (string.Equals(line.Trim(), GeneratedMarker, StringComparison.Ordinal))
+            // Skip the frontmatter block the bundle-root index carries (§8, §12). An
+            // unterminated one is not something the renderer can have produced.
+            start = -1;
+            for (var i = 1; i < lines.Length; i++)
             {
-                return true;
+                if (Line(lines, i) is OkfDocument.FrontmatterDelimiter)
+                {
+                    start = i + 1;
+                    break;
+                }
+            }
+
+            if (start < 0)
+            {
+                return false;
+            }
+        }
+
+        for (var i = start; i < lines.Length; i++)
+        {
+            if (Line(lines, i) is { Length: > 0 } line)
+            {
+                return string.Equals(line, GeneratedMarker, StringComparison.Ordinal);
             }
         }
 
         return false;
     }
+
+    private static string Line(string[] lines, int index) =>
+        index < lines.Length ? lines[index].Trim() : string.Empty;
 
     /// <summary>
     /// Works out every <c>index.md</c> the bundle should carry and how each stands against

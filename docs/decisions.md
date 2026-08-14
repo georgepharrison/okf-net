@@ -316,6 +316,15 @@ question in `prd.md` §6.
   sidecar manifest because a bundle must stay complete as plain markdown (§1) and a
   manifest is one more file to lose; and rather than content hashing because deleting
   the marker is how a consumer *opts out*, which is a feature, not an evasion.
+  **The position is part of the signal.** Detection reads the marker only where the
+  renderer writes it — the first non-blank line, after a frontmatter block if there is
+  one — rather than scanning the file for the string. Scanning would claim any
+  hand-written index that merely *quotes* the marker (one documenting okf, one carrying
+  the line in a fenced block), and claiming it has teeth: that index would be reported
+  as drift and then overwritten as an "update" instead of as the replacement of
+  hand-written content it is. Reading stays tolerant otherwise — CRLF endings, trailing
+  whitespace, leading blank lines, and an edited root frontmatter block all still read
+  as marked.
 - **Ordering rule, as shipped.** Entries are grouped into `#` sections, one per concept
   `type` (missing/falsy `type` → `Other`), plus a `Subdirectories` section. Concept
   sections come **first**, ordered case-insensitively then ordinally by heading text;
