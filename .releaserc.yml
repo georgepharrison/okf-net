@@ -10,20 +10,23 @@
 # a `dev` branch with `prerelease: true`/`beta` for the pre-release channel.
 #
 # IMPORTANT — release-branch requirement: semantic-release requires at
-# least one non-prerelease "release" branch to exist on the remote, or it
-# fails with ERELEASEBRANCHES. The maintenance glob below
-# ('+([0-9])?(.{+([0-9]),x}).x') only satisfies that requirement once a
-# matching branch (e.g. 1.x) actually exists on the remote — an unmatched
-# glob expands to nothing and does NOT count. Verified against
-# semantic-release/semantic-release#2503, where a maintainer confirms this
-# is intended behavior (not a bug) for a repo whose only branch is a
-# prerelease `main`. Until a real maintenance branch exists, the `release`
-# CI job will fail with ERELEASEBRANCHES; the documented workaround (see
-# that issue) is to push a placeholder release branch in the meantime.
+# least one RELEASE-type branch (plain name: no range, no prerelease) to
+# exist on the remote, or it fails with ERELEASEBRANCHES. Two traps,
+# both verified empirically on this repo (2026-08-14):
+#   1. An unmatched maintenance glob expands to nothing and does not
+#      count (semantic-release/semantic-release#2503 — intended behavior).
+#   2. A branch named like `1.x` DOES match the glob but is classified as
+#      a MAINTENANCE-type branch, which also does not count toward the
+#      release-branch minimum. Only a plain-named branch does.
+# Hence `stable` below: a placeholder release-type branch (pushed,
+# pointing at main, never built — the release CI job runs on main only).
+# On the future flip: make `main` the release branch, add `dev` as the
+# prerelease channel, delete `stable`.
 branches:
+  - "+([0-9])?(.{+([0-9]),x}).x"
+  - stable
   - name: main
     prerelease: rc
-  - "+([0-9])?(.{+([0-9]),x}).x"
 
 plugins:
   # Analyze commits to determine version bump
