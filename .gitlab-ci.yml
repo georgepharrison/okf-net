@@ -80,7 +80,13 @@ build:
 test:
   extends: .dotnet
   stage: validate
+  variables:
+    # ACC-1/ACC-6: the acceptance test lints Google's reference bundles; give
+    # the runner a shallow clone so the test runs instead of skipping.
+    OKF_REFERENCE_BUNDLES: "$CI_PROJECT_DIR/.reference/knowledge-catalog/okf/bundles"
   script:
+    - apt-get update -qq && apt-get install -y -qq git >/dev/null
+    - git clone --depth 1 https://github.com/GoogleCloudPlatform/knowledge-catalog.git .reference/knowledge-catalog
     - dotnet test Okf.sln --configuration Release
 
 commit-check:

@@ -271,3 +271,22 @@ question in `prd.md` §6.
   headings in newest-first order. Anything stricter risks erroring on a foreign bundle,
   which ACC-1 forbids. (d) A link that resolves *outside* the bundle root is not
   bundle-internal and is not reported at all.
+
+### Proposed decisions (pending review): lint review flags (2026-08-14)
+
+- **Q1/Q8 reconciliation needed:** OKF0303's filename-collision arm fires on every
+  pair of `<subdir>/about.md` files, but Q1 makes `about.md` the designated
+  subdirectory-description carrier. Proposal: exempt `about.md` (and `index`-like
+  reserved names) from the filename arm — to be fixed in the `okf index` milestone.
+- **OKF0003 entry-form strictness:** §8 doesn't say an index may contain only
+  `[Title](link)` bullets; a foreign bundle with prose bullets would hard-error.
+  Proposal: keep for our own generated indexes, but demote non-entry bullets to
+  info for consumed bundles if a real foreign bundle ever trips it.
+- **Scanner false positives (low):** footnote refs/links inside inline code spans or
+  4-space-indented code blocks are still scanned; only fenced blocks are skipped.
+  Accepted for now (info/warning severities only).
+- **Footnote definitions count as citations:** a `sources[].id` that appears only in
+  a footnote *definition* (never referenced in prose) escapes OKF0102. Accepted;
+  revisit if it masks real drift.
+- **`okf version` prints the assembly default (1.0.0)** until CLI-17 release
+  plumbing stamps the real version at publish time.
