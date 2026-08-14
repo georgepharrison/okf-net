@@ -42,7 +42,9 @@ public sealed class OkfBundle
     /// <summary>
     /// Every <c>.md</c> file in the tree, in a deterministic order (ordinal by
     /// bundle-relative path). Dot-directories are skipped: <c>.git</c> and friends are
-    /// not bundle content.
+    /// not bundle content. Symlinked subdirectories are skipped too — following them
+    /// either walks out of the bundle root, which nothing may do, or walks a cycle back
+    /// into it, which never terminates on its own.
     /// </summary>
     /// <returns>The absolute paths of the bundle's markdown files.</returns>
     public IReadOnlyList<string> MarkdownFiles()
@@ -75,11 +77,16 @@ public sealed class OkfBundle
             }
         }
 
-        foreach (var child in Directory.EnumerateDirectories(directory))
+        foreach (var child in new DirectoryInfo(directory).EnumerateDirectories())
         {
-            if (!Path.GetFileName(child).StartsWith('.'))
+            // A directory symlink is never descended into. Pointing one at an ancestor
+            // makes the walk recur until the OS refuses the path — every level of which
+            // re-lints the same files under a longer name — and pointing one outside the
+            // bundle would lint files the bundle does not contain. `LinkTarget` is
+            // non-null exactly for symlinks and other reparse points.
+            if (!child.Name.StartsWith('.') && child.LinkTarget is null)
             {
-                Collect(child, files);
+                Collect(child.FullName, files);
             }
         }
     }

@@ -41,6 +41,35 @@ public class OkfLinterTests
         Assert.Equal(1, result.FileCount);
     }
 
+    [SkippableFact]
+    public void ASymlinkedSubdirectoryIsNotWalked()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("sub/clean.md", CleanConcept);
+
+        using var outside = new TempBundle("outside");
+        outside.Add("stranger.md", CleanConcept);
+
+        // `back` is a cycle: descending it re-lints `sub/clean.md` under an ever-longer
+        // path until the OS refuses, reporting the same file dozens of times as a
+        // near-duplicate of itself. `elsewhere` escapes the bundle root entirely.
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(bundle.Root, "sub", "back"), bundle.Root);
+            Directory.CreateSymbolicLink(Path.Combine(bundle.Root, "elsewhere"), outside.Root);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Windows needs Developer Mode or elevation to create a directory symlink.
+            throw new SkipException($"This platform will not create directory symlinks: {exception.Message}");
+        }
+
+        var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(bundle.Bundle);
+
+        Assert.Equal(1, result.FileCount);
+        Assert.Empty(result.Diagnostics);
+    }
+
     [Fact]
     public void OKF0001FiresForAMissingOrUnparseableFrontmatterBlock()
     {
