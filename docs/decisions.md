@@ -36,6 +36,8 @@ Key vocabulary:
     README.md          # repo-facing docs, safely outside bundle roots
     bundles/<name>/    # one or many bundle roots
     custodian/         # skill + prompt + recipe config + hook scripts (strippable)
+    raw/               # drop zone for captured artifacts (see "Open-question
+                        # resolutions" below; supersedes the no-raw-layer call in §5)
   ```
 
 - **Entry-point convention** for bundles we produce: root `index.md` always generated, carries `okf_version: "0.2"` frontmatter (§12); its first entry links an `about-this-bundle.md` concept (type: Guide/Playbook) naming the toolset, custodian, update cadence, and consumption options (plain reading / MCP).
@@ -59,6 +61,7 @@ Key vocabulary:
   - Yes (repo code, own DB, context7/version-pinned docs, git tag) → **cite** via `sources[].resource` (+ `last_modified`, version pin). Spec-native (§5.1, incl. scope descriptors).
   - No (blog posts, videos, PDFs, saved HTML) → **capture into `references/`**, cite the captured copy; original URL kept as courtesy field.
 - `references/` = archive of evidence that can't defend itself. It is the **read-only zone** (the one pi-llm-wiki guardrail kept). No separate `raw/` layer.
+  - **Superseded by [Open-question resolutions (2026-08-14)](#open-question-resolutions-2026-08-14), Q3.** A separate `raw/` layer outside bundle roots was reintroduced; `references/` reverts to plain spec §6.3 semantics and immutability is now tracked on `raw/` items via a capture manifest, not by directory name. Left as-is here for history — see that section for the current rule.
 - **Flat by default; packet (original artifact + `extracted.md`) only for lossy formats** (PDF, video).
 - Compensating control for cited-live sources: `stale_after` + source `last_modified` vs concept `generated.at` drift checks.
 
@@ -122,3 +125,47 @@ Process note: BMAD judged overkill for MVP (SPEC.md is the PRD; these sessions w
 - `toolbox/mdcode/` — library→CLI→MCP layering precedent (`kcmd mcp`); `docs/concept.md` has the `kb` scope / Documents Layout (Google converging on markdown-first)
 - `toolbox/enrichment/` — minimal enrichment harness: prompt + MCP tools dir + skills dir + per-item loop + one write-tool
 - `python -m reference_agent visualize --bundle <path>` — works on any conformant bundle, no GCP creds
+
+## Open-question resolutions (2026-08-14)
+
+Ringo's resolutions for several of PRD §6's open questions. Each is also reflected at its
+question in `prd.md` §6.
+
+- **Q1 (index subdirectory descriptions).** Concept entries use frontmatter `description`.
+  Subdirectory entries use the `description` of `<subdir>/about.md` when present; else the
+  entry is emitted with no blurb. `okf index` stays deterministic and offline; the
+  custodian may author `about.md` files later.
+- **Q2 (diagnostic IDs).** `OKF####` numeric IDs, Roslyn-style, with reserved category
+  ranges: conformance `00xx`, provenance `01xx`, trust `02xx`, hygiene `03xx`. Severity
+  config references IDs; docs may give kebab nicknames. (The internal source may use one
+  easter-egg constant name; it is not a shipped ID.)
+- **Q3 (`references/` collision).** Reintroduce a `raw/` layer **outside** bundle roots:
+  `<project>/okf/raw/` (sibling of `bundles/`; personal vault `~/okf/raw/`). `raw/` is the
+  drop zone: users drop artifacts there; the custodian also pulls external material there.
+  Ingestion turns `raw/` items into ordinary spec-conformant concepts under the bundle's
+  `references/`, which now carries **no** okf-net-specific semantics (spec §6.3 meaning
+  restored, foreign bundles unaffected). Immutability applies to `raw/` items after
+  ingestion, tracked via a capture manifest — not by directory name inside bundles.
+  Placement rationale: dropped `.md` files inside a bundle root would be frontmatter-less
+  "concepts" and break §11 conformance; also the bundler ships only `bundles/`, so
+  originals are producer-side archive and distributed bundles carry the extracted
+  `references/` concepts plus original-URL frontmatter (accepted trade-off). This
+  supersedes the earlier "`references/` is the read-only zone / no separate `raw/` layer"
+  decision in §5 above — see the superseded-by note there.
+- **Q4 (config).** Global config file is `~/.config/okf/okf.json`. Precedence: CLI args >
+  `OKF_HOME` env var > project config > global file.
+- **Q5 (broken-links contradiction).** Adopt Roslyn's four severities (hidden/info/warning/
+  error) for all diagnostics. Broken internal links default to `info`. "Never an error"
+  applies to DEFAULTS only; consumer config may promote any diagnostic (their vault, their
+  rules) — consistent with the standing principle that defaults block only spec
+  conformance.
+- **Q6 (verify actor).** `okf verify` stamps `human:<id>` from `verify.actor` in okf
+  config; default fallback is `git config --global user.email` — deliberately GLOBAL,
+  never repo-local, because repo-local email is often an agent identity (okf-net itself is
+  the example: local `user.email` is `ringo.harrison+agent@gmail.com`).
+- **Q10 (partial).** Target framework `net10.0` (mise now pins dotnet 10). NativeAOT
+  preferred; if incompatible (e.g. Roslyn extensibility later, or reflection-heavy deps),
+  fall back to trim-safe self-contained non-AOT. Distribution: publish NuGet packages to
+  the self-hosted GitLab instance's built-in NuGet registry (instance configuration to be
+  verified at first publish). Serialization-library choice (AOT-compatible YAML) remains
+  open — that part of Q10 is left open.

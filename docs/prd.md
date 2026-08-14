@@ -136,11 +136,12 @@ without a process boundary.
     `* [Title](relative-link) - description`.
   - Title falls back to the filename stem when `title` is absent; the description is the
     concept's frontmatter `description` and is omitted (with its separator) when absent.
-  - Subdirectories are listed as entries linking to the subdirectory's own index.
+  - Subdirectories are listed as entries linking to the subdirectory's own index, with the
+    description taken from that subdirectory's `about.md` frontmatter `description` when
+    present; when `about.md` is absent, the entry is emitted with no blurb (Q1, resolved).
   - `index.md` and `log.md` are never listed as entries.
   - Generation is deterministic: identical input tree → byte-identical output, with no
-    network or model call. (How subdirectory descriptions are obtained without a model is
-    open — see Q1.)
+    network or model call.
   - For bundles we produce, the bundle-root `index.md` carries `okf_version: "0.2"`
     frontmatter (§12, decisions §2), and its first entry links the bundle's
     `about-this-bundle.md` concept.
@@ -209,23 +210,27 @@ hook: single process, no daemon, no network, meaningful exit code.
     results on every machine and in CI.
   - Registry entries (including the personal vault) are included only when configuration
     or an explicit flag opts them in.
-- **CLI-4 — Configuration precedence.** CLI args > project config > global config in
-  `~/.config/okf/` (decisions §6).
+- **CLI-4 — Configuration precedence.** CLI args > `OKF_HOME` environment variable >
+  project config > global config at `~/.config/okf/okf.json` (decisions §6, Q4 resolved).
   - A setting present at a higher layer wins; lower layers still supply unset keys.
   - The project config is committed and is the team contract; the global config is
     per-machine.
   - `--verbose` reports the effective value and its source layer for any setting that
-    changed behavior. (File names/format are open — see Q4.)
+    changed behavior.
 - **CLI-5 — Lint default severity.** `okf lint` errors **only** on spec §11 conformance.
   - A bundle that is conformant but carries every warning in CLI-7 exits 0 by default.
   - A bundle that violates §11 exits non-zero regardless of configuration.
   - Principle: defaults block only what the spec says; every additional block is consumer
     configuration (decisions §7).
-- **CLI-6 — Roslyn-style severity configuration.** Any warning is promotable to error and
-  demotable to hidden/none, per rule.
+- **CLI-6 — Roslyn-style severity configuration.** okf-net adopts Roslyn's four severities
+  — hidden, info, warning, error — for every diagnostic (Q5, resolved); any diagnostic is
+  reconfigurable to any of the four, per rule, with no exemptions.
   - Per-rule severity is set in configuration and overridable by CLI flag, honoring
     CLI-4 precedence.
-  - `treatAllWarningsAsErrors` promotes every warning in one setting.
+  - `treatAllWarningsAsErrors` promotes every diagnostic currently at **warning** severity
+    to error. Broken internal link defaults to **info**, not warning, so this setting does
+    not touch it by itself — consumer configuration may still promote it explicitly, same
+    as any rule.
   - An unknown rule identifier in configuration is itself reported (a typo must not
     silently disable a rule).
 - **CLI-7 — Warning set.** `okf lint` implements exactly this warning set (decisions §7);
@@ -236,7 +241,7 @@ hook: single process, no daemon, no network, meaningful exit code.
   | Citation integrity | A body footnote label has no matching `sources[].id`, or a `sources[].id` is never cited | warning |
   | Staleness | `today >= stale_after` | warning, never blocks by default |
   | Source drift | A `sources[].last_modified` is newer than `generated.at` (CORE-8) | warning, never blocks by default |
-  | Broken internal link | A bundle-internal markdown link resolves to no file (§6.1: consumers MUST tolerate) | warning, never an error by default (see Q5) |
+  | Broken internal link | A bundle-internal markdown link resolves to no file (§6.1: consumers MUST tolerate) | info by default; promotable like any diagnostic (Q5, resolved) |
   | Near-duplicate concept | Two concepts are judged near-identical (see Q8) | warning |
   | Missing `description` | A concept has no `description` (§4.1 recommends it; index entries degrade without it) | warning |
   | Missing `tags` | A concept has no `tags` | off (opt-in) |
@@ -247,22 +252,24 @@ hook: single process, no daemon, no network, meaningful exit code.
 - **CLI-8 — `okf init` scaffolding.** `okf init` creates the project layout from
   decisions §2.
   - Creates `okf/README.md` (repo-facing, deliberately outside every bundle root),
-    `okf/bundles/<name>/`, and `okf/custodian/`.
+    `okf/bundles/<name>/`, `okf/custodian/`, and `okf/raw/` (the drop zone for captured
+    artifacts, sibling of `bundles/`; Q3, resolved).
   - The new bundle gets a generated root `index.md` with `okf_version: "0.2"` and an
     `about-this-bundle.md` concept naming the toolset, the custodian, the update cadence,
     and the consumption options (plain reading / MCP).
-  - Writes a project config that promotes to **error**: mutation of `references/` after
-    capture, and hand-edit drift in generated files.
+  - Writes a project config that promotes to **error**: mutation, after ingestion, of a
+    `raw/` item tracked in the capture manifest, and hand-edit drift in generated files.
   - Refuses to overwrite existing files; re-running on an initialized project is a
     reported no-op.
-- **CLI-9 — Generated-drift and `references/` rules.** The two rules `okf init` promotes
-  must exist as rules.
+- **CLI-9 — Generated-drift and `raw/` ingestion-immutability rules.** The two rules
+  `okf init` promotes must exist as rules.
   - Generated drift: an on-disk generated file differs from what `okf index` would emit
     for the same tree.
-  - `references/` mutation: a tracked file under `references/` changed after its capturing
-    commit. Detection is git-based; outside a git work tree the rule reports as
-    inapplicable rather than failing. (Scope against concept documents living in
-    `references/` is open — see Q3.)
+  - `raw/` mutation: a `raw/` item recorded as ingested in the capture manifest changed
+    after its capture. Detection is git-based; outside a git work tree the rule reports as
+    inapplicable rather than failing. `references/` carries no okf-net-specific semantics
+    (Q3, resolved) — files under it are ordinary spec §6.3 concepts, validated the same as
+    any other concept (CORE-1, CORE-3), and this rule does not apply to them.
 - **CLI-10 — `okf index`.** Write generated index files for a bundle.
   - `--check` writes nothing and exits non-zero when any index would change (the CI/hook
     form of CLI-9).
@@ -278,9 +285,12 @@ hook: single process, no daemon, no network, meaningful exit code.
     draft), trust tier, and stale flag.
   - Ordering is deterministic. `--json` is supported.
 - **CLI-13 — `okf verify`.** Stamp human verification on one or more concepts.
-  - Writes `verified: { by: human:<id>, at: <now> }` via CORE-14, where `<id>` comes from
-    configuration (see Q6).
-  - Refuses to stamp when no human id is configured, with an actionable message.
+  - Writes `verified: { by: human:<id>, at: <now> }` via CORE-14, where `<id>` is
+    `verify.actor` from okf config, falling back to `git config --global user.email` when
+    unset (Q6, resolved). The fallback reads the **global** git config only, never
+    repo-local.
+  - Refuses to stamp, with an actionable message, only when neither `verify.actor` nor the
+    global git email is available.
   - After stamping, the concept no longer appears in `okf inbox` unless it is `draft`.
   - Never edits the body and never touches `generated`.
 - **CLI-14 — Exit codes.** Exit codes are part of the contract because hooks and CI branch
@@ -294,13 +304,24 @@ hook: single process, no daemon, no network, meaningful exit code.
   identifier, severity, file path, and line/column where determinable, and is emitable as
   JSON.
   - Human output is stable enough to grep; JSON output is the contract for CI
-    annotations. (Identifier scheme is open — see Q2.)
+    annotations.
+  - Rule identifiers are `OKF####` numeric codes with reserved category ranges —
+    conformance `00xx`, provenance `01xx`, trust `02xx`, hygiene `03xx` — per Q2
+    (resolved). Docs may also give kebab nicknames; nicknames are not valid configuration
+    keys.
 - **CLI-16 — Offline and hermetic.** No command makes a network call or invokes a model.
   - The full MVP surface runs with networking disabled.
 - **CLI-17 — Distribution.** The CLI ships as a self-contained, single-file binary
-  installable without a .NET SDK (decisions §3).
+  installable without a .NET SDK (decisions §3), targeting `net10.0` (Q10, partially
+  resolved).
+  - NativeAOT is preferred; a trim-safe self-contained non-AOT publish is the documented
+    fallback if AOT proves incompatible with a dependency.
+  - `Okf.Core` additionally publishes as a NuGet package to the self-hosted GitLab
+    instance's built-in NuGet registry (instance configuration to be verified at first
+    publish).
   - A release produces binaries for the supported targets and a `curl | sh` install path.
-  - (Targets, RIDs, and whether AOT survives the YAML dependency are open — see Q10.)
+  - (Specific RIDs, and whether AOT survives the still-undecided YAML serialization
+    library, remain open — see Q10.)
 
 ### 2.3 `okf mcp`
 
@@ -339,8 +360,10 @@ instructions for agents; they call the CLI rather than reimplementing anything.
   changed or vanished tomorrow, could the custodian still re-verify the concept?*
   - Yes → cite via `sources[].resource` with `last_modified` and a version pin where
     available.
-  - No → capture the artifact into `references/` and cite the captured copy, keeping the
-    original URL as a courtesy field.
+  - No → capture the artifact into `raw/` (the drop zone, outside every bundle root; Q3,
+    resolved), then ingest it into an ordinary spec-conformant concept under the bundle's
+    `references/`; cite the ingested concept, keeping the original URL as a courtesy
+    field.
   - Lossy formats (PDF, video) are captured as a packet (original + `extracted.md`);
     everything else is captured flat.
 - **SKILL-4 — Citation form.** Claims attributable to a source are footnoted with a label
@@ -351,8 +374,9 @@ instructions for agents; they call the CLI rather than reimplementing anything.
   - The skill never writes `verified` for its own generation (no self-verification).
   - A non-generating agent MAY record a machine-confirmed verification; human review is
     `okf verify`.
-- **SKILL-6 — `references/` immutability.** Both skills treat `references/` as read-only
-  after capture: new evidence is a new file, never an edit of an existing one.
+- **SKILL-6 — `raw/` immutability.** Both skills treat an ingested `raw/` item as
+  read-only, tracked via its capture-manifest entry rather than by directory name inside a
+  bundle (Q3, resolved): new evidence is a new file, never an edit of an existing one.
 - **SKILL-7 — Custodian skill exists.** `skills/` contains a custodian skill covering
   discovery and enrichment (prose writing) for a maintained bundle.
   - It regenerates indexes via `okf index` rather than hand-editing them.
@@ -371,7 +395,7 @@ instructions for agents; they call the CLI rather than reimplementing anything.
 | `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift) | 0 written/no drift · 1 drift under `--check` · 2 usage |
 | `okf search <query>` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--json`, scope opt-in | 0 (including no matches) · 2 usage |
 | `okf inbox` | List unacknowledged concepts (regenerated-since-verified or `draft`) | `--json` | 0 · 2 usage |
-| `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | — | 0 stamped · 1 refused (no configured human id, unknown concept) · 2 usage |
+| `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | — | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage |
 | `okf register [path]` | Add a bundle/vault to the registry (idempotent) | — | 0 · 2 usage |
 | `okf unregister [path]` | Remove a registry entry (idempotent) | — | 0 · 2 usage |
 | `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | — | 0 created · 1 refused (would overwrite) · 2 usage |
@@ -459,33 +483,52 @@ heuristic (Q8).
 
 ## 6. Open questions
 
-Genuinely undecided as of this document; none of these are settled in decisions.md.
+Genuinely undecided as of this document unless marked RESOLVED, in which case the
+decision (and its rationale) is recorded in decisions.md.
 
-- **Q1 — Subdirectory descriptions in generated indexes.** The reference implementation
-  synthesizes directory descriptions with an LLM call. `okf index` must be deterministic
-  and offline (CLI-16). Options: a deterministic fallback string, a per-directory concept
-  or marker file the custodian writes, or an `index.md`-adjacent description field. Blocks
-  full CORE-9 parity with ACC-3.
-- **Q2 — Diagnostic identifier scheme.** Roslyn-style severity configuration (CLI-6) needs
-  stable per-rule identifiers. Numeric codes (`OKF0007`) versus kebab rule names
-  (`citation-integrity`) versus both is undecided, and the choice is effectively permanent
-  once configs exist in the wild.
-- **Q3 — `references/` semantics collision.** decisions §5 makes `references/` the
-  read-only capture zone; spec §6.3 and all four Google bundles use `references/` for
-  ordinary concept documents. Does the mutation guard (CLI-9) cover everything under
-  `references/`, or only captured artifacts — and if the latter, how does lint tell a
-  captured artifact from an authored concept?
-- **Q4 — Config file names and format.** decisions §6 fixes the *precedence* (CLI > project
-  > global JSON in `~/.config/okf/`) but not the filenames, the project config's format, or
-  where the project config sits relative to `okf/`. Also unresolved: precedence when both a
-  project vault and `OKF_HOME` are in play.
-- **Q5 — Are any warnings exempt from promotion?** decisions §7 says broken internal links
-  are "never error" while staleness "never blocks by default". If the first is a hard
-  exemption, `treatAllWarningsAsErrors` must skip it — which contradicts "any warning
-  promotable to error". One of the two readings has to give.
-- **Q6 — Human identity for `okf verify`.** `human:<id-from-config>` — which layer holds the
-  id (global-only, or project-overridable), and what happens when it is unset: hard refusal
-  (as CLI-13 currently assumes) or derivation from `git config user.email`.
+- **Q1 — Subdirectory descriptions in generated indexes. RESOLVED (2026-08-14, see
+  decisions.md).** Concept entries use frontmatter `description` (unchanged). Subdirectory
+  entries use the `description` of that subdirectory's `about.md` when present; when
+  `about.md` is absent, the subdirectory entry is emitted with no blurb. `okf index`
+  remains deterministic and offline (CLI-16) — no LLM call, no fallback synthesis. The
+  custodian may author `about.md` files later to enrich index output.
+- **Q2 — Diagnostic identifier scheme. RESOLVED (2026-08-14, see decisions.md).**
+  Diagnostic IDs are `OKF####` numeric codes, Roslyn-style, with reserved category ranges:
+  conformance `00xx`, provenance `01xx`, trust `02xx`, hygiene `03xx`. Severity
+  configuration (CLI-6) references rules by ID; documentation may additionally give kebab
+  nicknames, which are prose only, never configuration keys. (The internal source may use
+  one easter-egg constant name; it is not a shipped ID.)
+- **Q3 — `references/` semantics collision. RESOLVED (2026-08-14, see decisions.md).**
+  Reintroduces a `raw/` layer **outside** bundle roots: `<project>/okf/raw/` (sibling of
+  `bundles/`; personal vault `~/okf/raw/`). `raw/` is the drop zone — users drop artifacts
+  there and the custodian pulls external material there too. Ingestion turns `raw/` items
+  into ordinary spec-conformant concepts under the bundle's `references/`, which now
+  carries **no** okf-net-specific semantics — spec §6.3's meaning is restored and foreign
+  bundles are unaffected. Immutability applies to `raw/` items after ingestion, tracked via
+  a capture manifest, not by directory name inside a bundle. (Dropping bare `.md` files
+  inside a bundle root would be frontmatter-less "concepts" and break §11 conformance;
+  also, the bundler ships only `bundles/`, so `raw/` originals are producer-side archive
+  and distributed bundles carry only the extracted `references/` concepts plus
+  original-URL frontmatter — an accepted trade-off.)
+- **Q4 — Config file names and format. RESOLVED (2026-08-14, see decisions.md).** The
+  global config file is `~/.config/okf/okf.json`. Precedence: CLI args > `OKF_HOME`
+  environment variable > project config > global file. (The project config's exact
+  filename and its placement relative to `okf/` remain implementation detail, not blocked
+  on this resolution.)
+- **Q5 — Are any warnings exempt from promotion? RESOLVED (2026-08-14, see
+  decisions.md).** No warning is exempt. okf-net adopts Roslyn's four severities
+  (hidden/info/warning/error) for all diagnostics. Broken internal links default to
+  **info**, not warning. "Never an error" describes the *default* severity only;
+  consumer configuration may promote any diagnostic, including broken internal links —
+  consistent with the standing principle that defaults block only spec conformance, and
+  every additional block is consumer choice (their vault, their rules).
+- **Q6 — Human identity for `okf verify`. RESOLVED (2026-08-14, see decisions.md).**
+  `okf verify` stamps `human:<id>` from `verify.actor` in okf config. When unset, it falls
+  back to `git config --global user.email` — deliberately the **global** git config only,
+  never repo-local, because repo-local `user.email` is frequently an agent identity (this
+  repo is the example: local `user.email` is `ringo.harrison+agent@gmail.com`). This
+  replaces CLI-13's hard-refusal assumption with a fallback chain; refusal is now reserved
+  for the case where both `verify.actor` and the global git email are unset.
 - **Q7 — Search semantics and output contract.** Substring versus tokenized matching,
   whether frontmatter fields are weighted above body text, ranking, and snippet extraction
   are all unspecified. MCP consumers depend on the structured shape, so the result record
@@ -496,10 +539,15 @@ Genuinely undecided as of this document; none of these are settled in decisions.
 - **Q9 — Detecting a CI-authored commit.** The "human actor on CI commit" warning needs a
   reliable signal (`CI=true`, a GitLab-specific variable, an explicit `--ci` flag, or the
   commit's committer identity). Without one the rule cannot fire correctly in a local hook.
-- **Q10 — .NET target and AOT viability.** Target framework is unpinned, and NativeAOT
-  single-file (decisions §3) may conflict with a reflection-based YAML library. Either a
-  trim-safe YAML path is proven or the fallback to self-contained non-AOT is taken
-  knowingly. No packaging or publish job exists in `.gitlab-ci.yml` yet.
+- **Q10 — .NET target and AOT viability. PARTIALLY RESOLVED (2026-08-14, see
+  decisions.md).** Target framework is `net10.0` (mise pins `dotnet = "10"`). NativeAOT
+  single-file is preferred; if it proves incompatible (e.g. Roslyn-based extensibility
+  added later, or a reflection-heavy dependency), the toolset falls back to a trim-safe,
+  self-contained non-AOT publish knowingly, per decisions §3. Distribution target is NuGet
+  packages published to the self-hosted GitLab instance's built-in NuGet registry
+  (instance configuration to be verified at first publish). **Still open:** the
+  AOT-compatible YAML serialization library choice — no packaging or publish job exists in
+  `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.
 - **Q11 — `okf verify` and `okf inbox` scope granularity.** Whether they operate per bundle,
   per vault, or across the registry by default, and whether `verify` accepts a directory or
   glob rather than one concept at a time.
