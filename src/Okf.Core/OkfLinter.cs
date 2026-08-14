@@ -105,22 +105,25 @@ public sealed class OkfLinter
         var titles = new Dictionary<string, string>(StringComparer.Ordinal);
         var stems = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        // Every file's text and, for concepts, its parsed frontmatter, kept so the
-        // index-drift rule reuses the walk instead of repeating it. Surfacing OKF0306 in
-        // `okf lint` therefore costs one in-memory render per directory and no extra file
-        // read or YAML parse.
+        // What the index-drift rule needs out of this walk, kept so it reuses the walk
+        // instead of repeating it: every `index.md`'s text, to compare against, and every
+        // concept's parsed frontmatter, to render from. Surfacing OKF0306 in `okf lint`
+        // therefore costs one in-memory render per directory and no extra file read or
+        // YAML parse. Only index texts are kept — the generator never asks for a concept's
+        // text once its frontmatter is to hand — so the walk does not accumulate the whole
+        // bundle in memory to answer one rule.
         var texts = new Dictionary<string, string>(StringComparer.Ordinal);
         var frontmatters = new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
 
         foreach (var file in files)
         {
             var text = File.ReadAllText(file);
-            texts[file] = text;
             var layout = FileLayout.Of(text);
             var name = Path.GetFileName(file);
 
             if (string.Equals(name, OkfBundle.IndexFileName, StringComparison.Ordinal))
             {
+                texts[file] = text;
                 CheckIndexFile(bundle, file, layout, diagnostics);
             }
             else if (string.Equals(name, OkfBundle.LogFileName, StringComparison.Ordinal))

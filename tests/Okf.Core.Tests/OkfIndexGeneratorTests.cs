@@ -366,6 +366,39 @@ public class OkfIndexGeneratorTests
         Assert.DoesNotContain(OkfRules.GeneratedIndexDrift, bundle.LintIds());
     }
 
+    [Fact]
+    public void PlanningFromSuppliedCachesReadsNothingButTheIndexesThemselves()
+    {
+        // What lets `okf lint` surface OKF0306 for no extra file read or YAML parse: given
+        // a concept's frontmatter, the generator never wants its text. The linter caches
+        // on that promise and keeps only index texts, so pin it — a generator that started
+        // asking for concept text would silently turn one lint walk back into two.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders", "The orders."))
+            .Add("sub/about.md", Concept("Overview", "About", "The subdirectory."));
+
+        var files = bundle.Bundle.MarkdownFiles();
+        var asked = new List<string>();
+
+        var plan = OkfIndexGenerator.Plan(
+            bundle.Bundle,
+            new OkfIndexOptions
+            {
+                Files = files,
+                ReadText = path =>
+                {
+                    asked.Add(path);
+                    return null;
+                },
+                // The linter's cache is a dictionary lookup: a miss is null, never a read.
+                ReadFrontmatter = path =>
+                    File.Exists(path) ? OkfDocument.Parse(File.ReadAllText(path)).Frontmatter : null,
+            });
+
+        Assert.NotEmpty(plan.Indexes);
+        Assert.All(asked, path => Assert.Equal(OkfBundle.IndexFileName, Path.GetFileName(path)));
+    }
+
     private static OkfIndex Root(TempBundle bundle) => Index(bundle, "index.md");
 
     private static OkfIndex Index(TempBundle bundle, string relativePath)
