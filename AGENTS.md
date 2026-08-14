@@ -13,6 +13,13 @@ implementation choices in this repo.
 - **Markdown lint.** Linted with `markdownlint-cli2` (config in
   `.markdownlint.yaml`). Dot-folders (e.g. `.claude/`, `.github/`) are
   excluded.
+- **Dependencies must be Apache-2.0-compatible.** Only permissively licensed
+  NuGet packages (MIT, Apache 2.0, BSD). Check the license of the EXACT
+  version being added — packages change licenses between majors
+  (FluentAssertions went proprietary at v8; do not use it at any version —
+  use **Shouldly** when an assertion library is wanted, else plain xunit
+  `Assert`). No copyleft (GPL/LGPL/MPL) and no source-available commercial
+  licenses in shipped or test code.
 - **Tests must be shown to constrain the code.** A test added alongside new
   behavior must be demonstrated to FAIL without that behavior (write it
   first, or temporarily revert the change and run it), OR derive its expected
