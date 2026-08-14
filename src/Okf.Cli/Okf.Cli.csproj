@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>okf</AssemblyName>
+    <RootNamespace>Okf.Cli</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- PRD CLI-17 / decisions.md Q10: NativeAOT single-file is the preferred publish
+         mode. Declaring it here runs the AOT and trim analyzers on every build, so an
+         AOT-hostile dependency fails the build rather than the release. -->
+    <PublishAot>true</PublishAot>
+    <!-- Every comparison in okf-net is ordinal or invariant, so ICU is dead weight.
+         Deliberately NOT set: UseSystemResourceKeys, which would reduce framework
+         exception messages to resource keys — okf surfaces those messages to users. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Okf.Core\Okf.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Okf.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

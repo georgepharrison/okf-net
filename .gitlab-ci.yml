@@ -63,7 +63,9 @@ lint:
     key:
       files:
         - src/Okf.Core/Okf.Core.csproj
+        - src/Okf.Cli/Okf.Cli.csproj
         - tests/Okf.Core.Tests/Okf.Core.Tests.csproj
+        - tests/Okf.Cli.Tests/Okf.Cli.Tests.csproj
     paths:
       - .nuget/packages
   rules:

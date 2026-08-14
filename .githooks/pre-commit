@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Lint staged markdown files with markdownlint-cli2, excluding anything under
-# a dot-directory (e.g. .claude/, .github/).
+# a dot-directory (e.g. .claude/, .github/) and the test fixture bundles, which
+# are deliberately malformed inputs for `okf lint`. Mirrors the exclusions in
+# mise.toml's `lint` task.
 set -euo pipefail
 
 mapfile -t staged_md < <(
   git diff --cached --name-only --diff-filter=ACM -- '*.md' |
-    grep -vE '(^|/)\.[^/]+/'
+    grep -vE '(^|/)\.[^/]+/' |
+    grep -vE '^tests/[^/]+/fixtures/'
 )
 
 if [[ ${#staged_md[@]} -eq 0 ]]; then

@@ -7,8 +7,11 @@ description = "Install git hooks"
 run = "git config core.hooksPath .githooks"
 
 [tasks.lint]
-description = "Lint all markdown files (excluding dot-directories) with markdownlint-cli2"
-run = 'markdownlint-cli2 "**/*.md" "#**/.*/**"'
+description = "Lint all markdown files (excluding dot-directories and test fixtures) with markdownlint-cli2"
+# Test fixture bundles are deliberately malformed OKF documents — some of them are
+# malformed markdown too — so they are lint inputs for `okf lint`, never for
+# markdownlint. The same exclusion lives in .githooks/pre-commit.
+run = 'markdownlint-cli2 "**/*.md" "#**/.*/**" "#tests/**/fixtures/**"'
 
 [tasks.build]
 description = "Build the solution"
@@ -17,6 +20,10 @@ run = "dotnet build Okf.sln"
 [tasks.test]
 description = "Run the test suite"
 run = "dotnet test Okf.sln"
+
+[tasks.cli]
+description = 'Run the okf CLI locally, e.g. `mise run cli -- lint ~/code/knowledge-catalog/okf/bundles/ga4`'
+run = "dotnet run --project src/Okf.Cli --"
 
 [tasks.check-commit]
 description = 'Validate a commit message against Conventional Commits. No args = check HEAD; pass -- -m "<message>" for a literal string, or -- <file> for a file. Shares scripts/check-commit-msg.sh with the commit-msg git hook.'

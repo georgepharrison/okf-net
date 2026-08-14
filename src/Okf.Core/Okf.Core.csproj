@@ -15,4 +15,11 @@
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The lint helpers (markdown scanning, link resolution, frontmatter line
+         bookkeeping) are internal: implementation detail of the rules, not public API.
+         Their edge cases are still worth direct unit tests. -->
+    <InternalsVisibleTo Include="Okf.Core.Tests" />
+  </ItemGroup>
+
 </Project>

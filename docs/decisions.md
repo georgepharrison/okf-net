@@ -208,3 +208,58 @@ question in `prd.md` §6.
 - **Duplicate frontmatter keys are rejected** (YamlDotNet) where PyYAML reads
   last-wins — pinned as a deliberate sixth deviation by test; rejecting is the
   stricter, better §11 behavior.
+
+### Proposed decisions (pending review): the `okf lint` milestone (2026-08-14)
+
+- **Project config file: `<project>/okf/okf.json`** — the vault root, sibling of
+  `bundles/`, `custodian/`, and `raw/`. Q4 fixed the *global* file
+  (`~/.config/okf/okf.json`) and left the project file's name and placement as
+  implementation detail. Proposal: same filename, at the vault root, because the vault
+  is what discovery already resolves (CORE-13) — a command that found the bundles has
+  therefore found the config, with no second search — and because a committed
+  `okf/okf.json` reads as team contract in review the way a repo-root dotfile does not.
+  Effective precedence as shipped: built-in defaults → global file → project file → CLI
+  args. `OKF_HOME` is deliberately *not* a severity layer: it moves the personal vault
+  (which bundles get linted), never a rule's severity.
+- **`XDG_CONFIG_HOME` is honored for the global config**, falling back to
+  `~/.config/okf/okf.json`. A widening of Q4, not a contradiction: the resolved location
+  is the same on a stock machine.
+- **CLI argument parsing is hand-rolled, not `System.CommandLine`.** The MVP surface is
+  a verb plus a handful of flags; the exit-code contract (CLI-14) and the
+  usage-versus-lint-failure distinction would have to override a framework's own error
+  paths anyway; and the binary must publish NativeAOT-clean with nothing reflective on
+  the path. Revisit if the command surface grows past what one `switch` reads well.
+- **Q8 (near-duplicate heuristic) for MVP: title-or-filename collision after
+  normalization** (lowercase, drop everything that is not a letter or digit), compared
+  within a bundle, reported on the later concept in path order. Cheap, deterministic, and
+  zero false positives on the four reference bundles. The vectorization spike replaces
+  it later; the rule id (`OKF0303`) does not change when it does.
+- **Diagnostic ids as shipped** (Q2's ranges, filled in):
+
+  | Id | Nickname | Check | Default |
+  | --- | --- | --- | --- |
+  | `OKF0001` | unparseable-frontmatter | No frontmatter block, or one that does not parse (§11.1) | error |
+  | `OKF0002` | missing-type | No non-empty `type` (§11.2) | error |
+  | `OKF0003` | invalid-index-structure | `index.md` breaks §8 | error |
+  | `OKF0004` | invalid-log-structure | `log.md` breaks §9 | error |
+  | `OKF0101` | uncited-footnote | Footnote label joins to no `sources[].id` | warning |
+  | `OKF0102` | unused-source-id | `sources[].id` is never cited | warning |
+  | `OKF0103` | source-drift | `sources[].last_modified` > `generated.at` (CORE-8) | warning |
+  | `OKF0201` | self-verification | A `verified[].by` equals `generated.by` | warning |
+  | `OKF0202` | stale-concept | `today >= stale_after` (§5.5) | warning |
+  | `OKF0301` | missing-description | No `description` | warning |
+  | `OKF0302` | broken-internal-link | Bundle-internal link resolves to nothing (§6.1) | info |
+  | `OKF0303` | near-duplicate-concept | Title or filename collision | warning |
+  | `OKF0304` | missing-tags | No `tags` | hidden (opt-in) |
+  | `OKF0305` | unregistered-tag | Tag absent from `lint.tagRegistry` | hidden (opt-in) |
+
+- **Deferred out of this milestone, deliberately.** (a) CLI-9's two rules —
+  generated-file drift and `raw/` ingestion immutability — wait on `okf index` and the
+  capture manifest respectively; neither has a rule id yet. (b) CLI-7's "human actor on a
+  CI commit" warning waits on Q9 (no reliable CI signal is decided). (c) Reserved-file
+  structure checks are deliberately light: `index.md` is checked for the frontmatter rule
+  (§8/§12), for at least one `#` heading when it has content, and for the
+  `* [Title](link) - description` entry form; `log.md` is checked for ISO `##` date
+  headings in newest-first order. Anything stricter risks erroring on a foreign bundle,
+  which ACC-1 forbids. (d) A link that resolves *outside* the bundle root is not
+  bundle-internal and is not reported at all.
