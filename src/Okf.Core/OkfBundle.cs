@@ -13,6 +13,16 @@ public sealed class OkfBundle
     /// <summary>The reserved filename for an update history (spec §3.1, §9).</summary>
     public const string LogFileName = "log.md";
 
+    /// <summary>
+    /// The filename that carries a subdirectory's own description, used as the blurb on
+    /// the entry that links that subdirectory from its parent's <c>index.md</c>
+    /// (decisions.md Q1). It is an ordinary concept — not a spec §3.1 reserved name — so
+    /// it is validated and listed like any other.
+    /// </summary>
+    public const string AboutFileName = "about.md";
+
+    private static readonly string[] Conventional = [AboutFileName];
+
     /// <summary>Initializes a bundle.</summary>
     /// <param name="root">The bundle root directory.</param>
     public OkfBundle(string root)
@@ -37,6 +47,27 @@ public sealed class OkfBundle
         var name = Path.GetFileName(path);
         return string.Equals(name, IndexFileName, StringComparison.Ordinal)
             || string.Equals(name, LogFileName, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether a filename is a convention-bearing concept name — one whose name is fixed
+    /// by okf-net's own conventions rather than chosen to describe the content, and which
+    /// is therefore expected to repeat once per subdirectory. Currently just
+    /// <see cref="AboutFileName" /> (decisions.md Q1).
+    /// </summary>
+    /// <param name="path">A path or filename.</param>
+    /// <returns><see langword="true" /> when the name is convention-bearing.</returns>
+    /// <remarks>
+    /// Near-duplicate detection (<c>OKF0303</c>) skips these: a bundle with an
+    /// <c>about.md</c> in every subdirectory is following the convention, not repeating
+    /// itself, and Q1 makes those files the designated carriers of subdirectory
+    /// descriptions. Their identity is their directory, not their name.
+    /// </remarks>
+    public static bool IsConventionalFile(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var name = Path.GetFileName(path);
+        return Conventional.Contains(name, StringComparer.Ordinal);
     }
 
     /// <summary>

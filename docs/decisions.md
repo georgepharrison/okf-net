@@ -278,6 +278,15 @@ question in `prd.md` §6.
   pair of `<subdir>/about.md` files, but Q1 makes `about.md` the designated
   subdirectory-description carrier. Proposal: exempt `about.md` (and `index`-like
   reserved names) from the filename arm — to be fixed in the `okf index` milestone.
+  **Implemented in the `okf index` milestone, widened to both arms.** A
+  convention-bearing filename (`OkfBundle.IsConventionalFile`, currently just
+  `about.md`) is exempt from the *title* arm as well as the filename arm, and such a
+  file neither reports a collision nor seeds one for a later file. Rationale for the
+  widening: the generic title that accompanies a conventional filename (`title: About`)
+  is as much a convention as the name is, so leaving the title arm alone reproduces the
+  same false positive one frontmatter key over. A conventional file's identity is its
+  directory, not its name. `index.md`/`log.md` needed no exemption — §3.1 reserved
+  names are never linted as concepts, so they never reach OKF0303.
 - **OKF0003 entry-form strictness:** §8 doesn't say an index may contain only
   `[Title](link)` bullets; a foreign bundle with prose bullets would hard-error.
   Proposal: keep for our own generated indexes, but demote non-entry bullets to

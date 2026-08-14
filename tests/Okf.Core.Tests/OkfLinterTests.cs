@@ -382,6 +382,41 @@ public class OkfLinterTests
     }
 
     [Fact]
+    public void OKF0303ExemptsTheConventionalAboutFilename()
+    {
+        // Q1 makes `<subdir>/about.md` the designated carrier of a subdirectory's
+        // description, so one per subdirectory is the convention working, not a
+        // near-duplicate. Both arms are exempt: the shared filename and the generic
+        // title that usually goes with it.
+        using var bundle = new TempBundle();
+        bundle.Add("tables/about.md", Concept("About"))
+            .Add("metrics/about.md", Concept("About"))
+            .Add("policies/about.md", Concept("Policies, and about them"));
+
+        Assert.Empty(bundle.Lint());
+    }
+
+    [Fact]
+    public void OKF0303StillCatchesRealCollisionsBesideExemptAboutFiles()
+    {
+        // The exemption is scoped to the conventional name: ordinary concepts colliding
+        // across subdirectories still report, and an about.md is never the file a later
+        // collision is reported against.
+        using var bundle = new TempBundle();
+        bundle.Add("tables/about.md", Concept("About"))
+            .Add("metrics/about.md", Concept("About"))
+            .Add("tables/orders.md", Concept("Orders"))
+            .Add("metrics/orders.md", Concept("Something else"));
+
+        var diagnostic = Assert.Single(bundle.Lint());
+
+        Assert.Equal(OkfRules.NearDuplicateConcept, diagnostic.RuleId);
+        Assert.Contains("filename", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Contains("metrics/orders.md", diagnostic.Message, StringComparison.Ordinal);
+        Assert.EndsWith(Path.Combine("tables", "orders.md"), diagnostic.Path, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OKF0305OnlyFiresWhenATagRegistryIsConfigured()
     {
         using var bundle = new TempBundle();

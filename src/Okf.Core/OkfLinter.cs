@@ -429,6 +429,18 @@ public sealed class OkfLinter
 
         // Near-duplicate detection, MVP heuristic (PRD Q8): a title or filename collision
         // up to case and punctuation. Vectorization would do better and is post-MVP.
+        //
+        // Convention-bearing filenames are exempt from both arms (the Q1/Q8
+        // reconciliation). `about.md` is the designated carrier of a subdirectory's
+        // description, so a well-maintained bundle holds one per subdirectory; neither
+        // that name nor the generic title that usually accompanies it says anything about
+        // the content, and reporting them would punish following the convention. Such a
+        // file neither reports a collision nor seeds one for a later file.
+        if (OkfBundle.IsConventionalFile(path))
+        {
+            return;
+        }
+
         var reportedAgainst = (string?)null;
         if (Text(frontmatter, "title") is { } title && Normalize(title) is { Length: > 0 } normalizedTitle)
         {
