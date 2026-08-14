@@ -174,6 +174,21 @@ public class OkfDocumentParseTests
     }
 
     [Fact]
+    public void ParseRejectsDuplicateFrontmatterKeys_DeviationFromReference()
+    {
+        // DELIBERATE DEVIATION, pinned here so it stays a decision rather than an
+        // accident. PyYAML's safe_load accepts duplicate mapping keys and keeps the
+        // last; YAML 1.2 requires keys to be unique and the loader okf-net uses
+        // enforces that. A duplicate key is an authoring bug §11 reporting should
+        // surface rather than silently discard — but it does mean a document the
+        // reference agent reads without complaint is an error here.
+        var ex = Assert.Throws<OkfDocumentException>(
+            () => OkfDocument.Parse("---\ntype: X\ntype: Y\n---\n\nBody.\n"));
+
+        Assert.StartsWith("Invalid YAML in frontmatter:", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseEmptyTextYieldsEmptyDocument()
     {
         var doc = OkfDocument.Parse(string.Empty);
