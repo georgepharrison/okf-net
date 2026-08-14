@@ -151,6 +151,29 @@ public class OkfDocumentParseTests
     }
 
     [Fact]
+    public void RoundTripKeepsAnUnquotedNullAsNullNotAnEmptyString()
+    {
+        // PRD CORE-2: a round trip must not retype a scalar. `stale_after:` is YAML
+        // null; emitting it as `''` would hand every downstream consumer an empty
+        // string instead, so it is written as the explicit `null` the reference
+        // dumper produces.
+        var doc = OkfDocument.Parse("---\ntype: X\nstale_after:\n---\n\nBody.\n");
+
+        Assert.True(Assert.IsType<OkfScalar>(doc.Frontmatter["stale_after"]).IsNull);
+
+        var serialized = doc.Serialize();
+        Assert.Contains("stale_after: null", serialized, StringComparison.Ordinal);
+        Assert.True(Assert.IsType<OkfScalar>(OkfDocument.Parse(serialized).Frontmatter["stale_after"]).IsNull);
+
+        // Idempotent from there on, and a code-built empty string stays a string.
+        Assert.Equal(serialized, OkfDocument.Parse(serialized).Serialize());
+        Assert.Contains(
+            "title: ''",
+            new OkfDocument(new OkfMapping { { "title", string.Empty } }, "Body.").Serialize(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseEmptyTextYieldsEmptyDocument()
     {
         var doc = OkfDocument.Parse(string.Empty);

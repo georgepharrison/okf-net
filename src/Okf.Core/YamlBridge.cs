@@ -117,10 +117,18 @@ internal static class YamlBridge
         switch (value)
         {
             case OkfScalar scalar:
+                // An unquoted empty scalar is YAML null (`key:` with no value).
+                // YamlDotNet's emitter cannot write an empty *plain* scalar and
+                // falls back to `''`, which would silently retype a null into an
+                // empty string on round trip (PRD CORE-2). Emit the explicit
+                // `null` PyYAML's dumper uses instead. A code-built `Scalar("")`
+                // keeps style `Any` and still emits `''`, because that one really
+                // is an empty string.
+                var text = scalar is { Style: OkfScalarStyle.Plain, Value.Length: 0 } ? "null" : scalar.Value;
                 emitter.Emit(new Scalar(
                     AnchorName.Empty,
                     TagName.Empty,
-                    scalar.Value,
+                    text,
                     ToYaml(scalar.Style),
                     isPlainImplicit: true,
                     isQuotedImplicit: true));
