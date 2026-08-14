@@ -75,12 +75,14 @@ public sealed class OkfScalar : OkfValue
     private static readonly string[] NullTexts = ["", "~", "null", "Null", "NULL"];
 
     // PyYAML resolves YAML 1.1 booleans, so `no` and `off` are false, not strings.
+    // This is exactly PyYAML's bool resolver pattern: the single letters `y`/`n`
+    // that YAML 1.1 also lists are *not* included, so `type: n` is the string "n"
+    // and therefore a non-empty `type` under §11.
     private static readonly string[] FalseTexts =
     [
         "false", "False", "FALSE",
         "no", "No", "NO",
         "off", "Off", "OFF",
-        "n", "N",
     ];
 
     /// <summary>Initializes a new scalar.</summary>
@@ -136,10 +138,27 @@ public sealed class OkfScalar : OkfValue
             return false;
         }
 
+        // PyYAML's YAML 1.1 int resolver spells octal as a bare leading zero (there
+        // is no `0o` form) and takes only a lowercase `0x`/`0b` prefix, so `0o0`,
+        // `0X0` and `0B0` are ordinary *strings*, not the number zero.
         var digits = t[0] is '+' or '-' ? t[1..] : t;
-        if (digits.Length > 2 && digits[0] == '0' && (digits[1] is 'x' or 'X' or 'b' or 'B' or 'o' or 'O'))
+        if (digits.Length > 2 && digits[0] == '0' && digits[1] is 'x' or 'b')
         {
             return digits[2..].All(c => c == '0');
+        }
+
+        // PyYAML's YAML 1.1 float resolver requires a `.` in the mantissa and an
+        // explicitly signed exponent, so `0e0` and `0e+0` are strings while
+        // `.0e+0` is the number zero. .NET's parser is laxer than that.
+        var exponent = digits.IndexOfAny(['e', 'E']);
+        if (exponent >= 0)
+        {
+            var point = digits.IndexOf('.', StringComparison.Ordinal);
+            if (point < 0 || point > exponent
+                || exponent + 1 >= digits.Length || digits[exponent + 1] is not ('+' or '-'))
+            {
+                return false;
+            }
         }
 
         return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d == 0;

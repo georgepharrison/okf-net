@@ -38,8 +38,31 @@ public class OkfDocumentTrustTests
     [InlineData("type: 0", false)]
     [InlineData("type: false", false)]
     [InlineData("type: no", false)]
+    [InlineData("type: off", false)]
     [InlineData("type: []", false)]
     [InlineData("type: {}", false)]
+    // PyYAML's bool resolver does not list the single letters YAML 1.1 also allows,
+    // so `y` and `n` stay strings — and a one-letter `type` is non-empty under §11.
+    [InlineData("type: n", true)]
+    [InlineData("type: N", true)]
+    [InlineData("type: y", true)]
+    [InlineData("type: Y", true)]
+    // PyYAML's number resolvers: octal is a bare leading zero (there is no `0o`
+    // form in YAML 1.1), the `0x`/`0b` prefixes are lowercase-only, and a float
+    // needs a `.` plus an explicitly signed exponent. So `00` is the number zero
+    // and `010` is octal 8, while `0o0`, `0X0` and `0e0` are ordinary strings.
+    [InlineData("type: 00", false)]
+    [InlineData("type: 0x0", false)]
+    [InlineData("type: 0b0", false)]
+    [InlineData("type: .0", false)]
+    [InlineData("type: 0.0e+0", false)]
+    [InlineData("type: -0", false)]
+    [InlineData("type: 010", true)]
+    [InlineData("type: 0o0", true)]
+    [InlineData("type: 0X0", true)]
+    [InlineData("type: 0B0", true)]
+    [InlineData("type: 0e0", true)]
+    [InlineData("type: 08", true)]
     public void ValidateUsesReferenceTruthinessForRequiredKeys(string frontmatter, bool valid)
     {
         // The reference implementation tests `not self.frontmatter.get(k)`, so the
