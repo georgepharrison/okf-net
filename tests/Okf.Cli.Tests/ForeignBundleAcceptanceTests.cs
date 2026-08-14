@@ -33,7 +33,13 @@ public class ForeignBundleAcceptanceTests
 
         Assert.Empty(errors);
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
-        Assert.Contains("0 errors", run.Summary, StringComparison.Ordinal);
+
+        // Anchored on the separator: a bare "0 errors" is also a substring of "10 errors".
+        Assert.Contains(": 0 errors,", run.Summary, StringComparison.Ordinal);
+
+        // The bundle was actually read. Without this the assertions above are satisfied
+        // by an empty directory, which is how a silently mis-resolved path would look.
+        Assert.DoesNotContain("Checked 0 files", run.Summary, StringComparison.Ordinal);
     }
 
     [SkippableFact]
@@ -51,6 +57,7 @@ public class ForeignBundleAcceptanceTests
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.DoesNotContain(": error OKF", run.Output, StringComparison.Ordinal);
         Assert.Contains("in 4 bundles", run.Summary, StringComparison.Ordinal);
+        Assert.Contains(": 0 errors,", run.Summary, StringComparison.Ordinal);
     }
 
     private static string ReferenceBundles() =>
