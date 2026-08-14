@@ -1,4 +1,5 @@
 [tools]
+dotnet = "10"
 "npm:markdownlint-cli2" = "latest"
 
 [tasks.setup]
