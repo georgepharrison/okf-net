@@ -21,6 +21,19 @@ run = "dotnet build Okf.sln"
 description = "Run the test suite"
 run = "dotnet test Okf.sln"
 
+[tasks.licenses]
+description = "Generate a CycloneDX SBOM of the solution and check every dependency license against scripts/licenses-allowed.json (AGENTS.md: dependencies must be Apache-2.0-compatible)"
+# The CycloneDX tool is pinned in .config/dotnet-tools.json; the command it
+# installs is `dotnet-CycloneDX`, which `dotnet CycloneDX` resolves. Test
+# projects are deliberately NOT excluded (no -t/--exclude-test-projects): the
+# dependency rule covers test code too, which is where the FluentAssertions-v8
+# trap lives. Keep these steps in step with the `licenses` job in .gitlab-ci.yml.
+run = [
+  "dotnet tool restore",
+  "dotnet CycloneDX Okf.sln --output artifacts/sbom --filename bom.json --output-format Json",
+  "python3 scripts/check-licenses.py",
+]
+
 [tasks.cli]
 description = 'Run the okf CLI locally, e.g. `mise run cli -- lint ~/code/knowledge-catalog/okf/bundles/ga4`'
 run = "dotnet run --project src/Okf.Cli --"
