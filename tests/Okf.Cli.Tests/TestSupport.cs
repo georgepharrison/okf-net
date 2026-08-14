@@ -13,12 +13,13 @@ internal sealed record CliRun(int ExitCode, string Output, string Error)
         Output.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0).ToArray();
 
     /// <summary>The diagnostic lines only — stdout minus the summary line.</summary>
-    public string[] DiagnosticLines =>
-        [.. OutputLines.Where(line => !line.StartsWith("Checked ", StringComparison.Ordinal))];
+    public string[] DiagnosticLines => [.. OutputLines.Where(line => !IsSummary(line))];
 
-    /// <summary>The summary line.</summary>
-    public string Summary =>
-        OutputLines.LastOrDefault(line => line.StartsWith("Checked ", StringComparison.Ordinal)) ?? string.Empty;
+    /// <summary>
+    /// The summary line: <c>okf lint</c>'s and <c>okf index --check</c>'s <c>Checked …</c>
+    /// line, or <c>okf index</c>'s <c>Generated …</c> line.
+    /// </summary>
+    public string Summary => OutputLines.LastOrDefault(IsSummary) ?? string.Empty;
 
     /// <summary>The rule ids reported, in output order.</summary>
     public string[] RuleIds =>
@@ -26,6 +27,10 @@ internal sealed record CliRun(int ExitCode, string Output, string Error)
             .Select(line => line.Split(' ').FirstOrDefault(token => token.StartsWith("OKF", StringComparison.Ordinal)))
             .Where(id => id is not null)
             .Select(id => id!.TrimEnd(':'))];
+
+    private static bool IsSummary(string line) =>
+        line.StartsWith("Checked ", StringComparison.Ordinal)
+        || line.StartsWith("Generated ", StringComparison.Ordinal);
 }
 
 /// <summary>Runs the CLI in process, so tests are hermetic and fast.</summary>

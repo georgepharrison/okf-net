@@ -117,6 +117,12 @@ public static class OkfRules
     /// <summary>A tag is absent from the bundle's configured tag registry (beyond-spec extension).</summary>
     public const string UnregisteredTag = "OKF0305";
 
+    /// <summary>
+    /// A generated <c>index.md</c> no longer matches what <c>okf index</c> would emit for
+    /// the tree (PRD CLI-9's generated-drift rule).
+    /// </summary>
+    public const string GeneratedIndexDrift = "OKF0306";
+
     private static readonly OkfRule[] Catalog =
     [
         new(
@@ -203,6 +209,12 @@ public static class OkfRules
             OkfRuleCategory.Hygiene,
             OkfSeverity.Hidden,
             "A tag is absent from the configured tag registry (opt-in: configure lint.tagRegistry)."),
+        new(
+            GeneratedIndexDrift,
+            "generated-index-drift",
+            OkfRuleCategory.Hygiene,
+            OkfSeverity.Warning,
+            "A generated index.md differs from what `okf index` would emit (run `okf index`)."),
     ];
 
     private static readonly Dictionary<string, OkfRule> ById =

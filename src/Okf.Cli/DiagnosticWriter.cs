@@ -87,7 +87,14 @@ internal static class DiagnosticWriter
         return Encoding.UTF8.GetString(buffer.ToArray()) + Environment.NewLine;
     }
 
-    private static string Display(string path, string baseDirectory)
+    /// <summary>
+    /// Renders a path for output: relative to the working directory when it sits under
+    /// it, absolute otherwise, always with <c>/</c> separators.
+    /// </summary>
+    /// <param name="path">The absolute path.</param>
+    /// <param name="baseDirectory">The directory to report relative to.</param>
+    /// <returns>The display form.</returns>
+    public static string Display(string path, string baseDirectory)
     {
         var relative = Path.GetRelativePath(baseDirectory, path);
         return relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)
@@ -95,7 +102,12 @@ internal static class DiagnosticWriter
             : relative.Replace(Path.DirectorySeparatorChar, '/');
     }
 
-    private static string Plural(int count, string singular, string? plural = null) =>
+    /// <summary>Renders a count with its noun, pluralized.</summary>
+    /// <param name="count">The count.</param>
+    /// <param name="singular">The singular noun.</param>
+    /// <param name="plural">The plural noun, when it is not the singular plus <c>s</c>.</param>
+    /// <returns>The rendered phrase, e.g. <c>3 files</c>.</returns>
+    public static string Plural(int count, string singular, string? plural = null) =>
         count == 1
             ? $"1 {singular}"
             : $"{count.ToString(CultureInfo.InvariantCulture)} {plural ?? singular + "s"}";

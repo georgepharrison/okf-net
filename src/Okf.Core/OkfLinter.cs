@@ -105,9 +105,17 @@ public sealed class OkfLinter
         var titles = new Dictionary<string, string>(StringComparer.Ordinal);
         var stems = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        // Every file's text and, for concepts, its parsed frontmatter, kept so the
+        // index-drift rule reuses the walk instead of repeating it. Surfacing OKF0306 in
+        // `okf lint` therefore costs one in-memory render per directory and no extra file
+        // read or YAML parse.
+        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
+        var frontmatters = new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
+
         foreach (var file in files)
         {
             var text = File.ReadAllText(file);
+            texts[file] = text;
             var layout = FileLayout.Of(text);
             var name = Path.GetFileName(file);
 
@@ -121,11 +129,64 @@ public sealed class OkfLinter
             }
             else
             {
-                CheckConcept(bundle, file, layout, titles, stems, diagnostics);
+                OkfDocument? document = null;
+                OkfDocumentException? failure = null;
+                try
+                {
+                    document = OkfDocument.Parse(layout.Text);
+                }
+                catch (OkfDocumentException exception)
+                {
+                    failure = exception;
+                }
+
+                if (document is not null)
+                {
+                    frontmatters[file] = document.Frontmatter;
+                }
+
+                CheckConcept(bundle, file, layout, document, failure, titles, stems, diagnostics);
             }
         }
 
+        CheckGeneratedIndexes(bundle, files, texts, frontmatters, diagnostics);
+
         return files.Count;
+    }
+
+    private void CheckGeneratedIndexes(
+        OkfBundle bundle,
+        IReadOnlyList<string> files,
+        Dictionary<string, string> texts,
+        Dictionary<string, OkfMapping> frontmatters,
+        List<OkfDiagnostic> diagnostics)
+    {
+        if (this.options.Severities.Resolve(OkfRules.GeneratedIndexDrift) == OkfSeverity.Hidden)
+        {
+            // Nothing would be reported, so nothing is rendered.
+            return;
+        }
+
+        var plan = OkfIndexGenerator.Plan(
+            bundle,
+            new OkfIndexOptions
+            {
+                Files = files,
+                ReadText = path => texts.GetValueOrDefault(path),
+                ReadFrontmatter = path => frontmatters.GetValueOrDefault(path),
+            });
+
+        foreach (var index in plan.Drift)
+        {
+            // Only indexes okf-net wrote can drift: a foreign bundle's hand-styled index
+            // carries no marker and is left alone, which is what keeps PRD ACC-1 passing
+            // on Google's reference bundles.
+            var message = index.Status == OkfIndexStatus.Orphaned
+                ? "This generated index.md describes a directory with nothing left to index; delete it or add concepts (§8)."
+                : "This generated index.md no longer matches the directory; run `okf index` to regenerate it (§8).";
+
+            diagnostics.Add(Diagnostic(OkfRules.GeneratedIndexDrift, message, index.Path, 1, bundle));
+        }
     }
 
     private static string? Text(OkfMapping mapping, string key) =>
@@ -325,22 +386,19 @@ public sealed class OkfLinter
         OkfBundle bundle,
         string path,
         FileLayout layout,
+        OkfDocument? document,
+        OkfDocumentException? failure,
         Dictionary<string, string> titles,
         Dictionary<string, string> stems,
         List<OkfDiagnostic> diagnostics)
     {
-        OkfDocument document;
-        try
-        {
-            document = OkfDocument.Parse(layout.Text);
-        }
-        catch (OkfDocumentException exception)
+        if (document is null)
         {
             // §11.1: without a parseable frontmatter block nothing else about the file
             // can be judged, so this is the only diagnostic it produces.
             diagnostics.Add(Diagnostic(
                 OkfRules.UnparseableFrontmatter,
-                $"{exception.Message} (§11.1).",
+                $"{failure!.Message} (§11.1).",
                 path,
                 1,
                 bundle));
