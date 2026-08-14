@@ -46,6 +46,41 @@ lint:
   script:
     - mise run lint
 
+# .NET jobs. These deliberately bypass the default image and before_script:
+# dotnet is the only tool they need and the SDK image already ships it, so
+# installing mise (whose sole job here is to provision that same SDK, plus
+# node for markdownlint) would add a minute of setup for nothing. Keep the
+# image tag in step with mise.toml's `dotnet = "10"`.
+.dotnet:
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  before_script: []
+  variables:
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    DOTNET_NOLOGO: "1"
+    # Keep the package cache inside the workspace so GitLab can cache it.
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+  cache:
+    key:
+      files:
+        - src/Okf.Core/Okf.Core.csproj
+        - tests/Okf.Core.Tests/Okf.Core.Tests.csproj
+    paths:
+      - .nuget/packages
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+build:
+  extends: .dotnet
+  stage: validate
+  script:
+    - dotnet build Okf.sln --configuration Release
+
+test:
+  extends: .dotnet
+  stage: validate
+  script:
+    - dotnet test Okf.sln --configuration Release
+
 commit-check:
   stage: validate
   rules:
