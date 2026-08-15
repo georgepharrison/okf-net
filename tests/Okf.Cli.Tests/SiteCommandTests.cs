@@ -100,6 +100,24 @@ public class SiteCommandTests
     }
 
     [Fact]
+    public void GeneratingIntoTheDirectoryHoldingTheBundleIsRefused()
+    {
+        using var tree = new TempTree();
+        var bundles = Path.Combine(tree.Root, "bundles");
+        Directory.CreateDirectory(bundles);
+        tree.CopyFixture("conformant", Path.Combine("bundles", "conformant"));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "site", tree.Root, "--out", bundles);
+
+        // `--out` is not inside a bundle here — it holds one. The site's own per-bundle
+        // subdirectory is named after the bundle, so every page would land back inside it,
+        // which is exactly what the refusal exists to prevent.
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("inside bundle", run.Error, StringComparison.Ordinal);
+        Assert.Empty(Directory.EnumerateFiles(bundles, "*.html", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public void SingleFileWritesExactlyOneFile()
     {
         using var tree = new TempTree();

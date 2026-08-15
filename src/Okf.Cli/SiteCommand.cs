@@ -111,6 +111,20 @@ internal static class SiteCommand
             Today = DateOnly.FromDateTime(DateTime.Now),
         });
 
+        // The directory check above catches `--out` pointing *into* a bundle. It does not
+        // catch `--out` pointing at a bundle's parent, where the site's own per-bundle
+        // subdirectory lands back inside it: `--out <vault>/bundles` writes
+        // `<vault>/bundles/<slug>/**.html` straight into the bundle slugged `<slug>`. The
+        // planned paths answer that exactly, and nothing has been written yet.
+        if (Collision(plan, outputDirectory, workingSet) is { } collision)
+        {
+            error.WriteLine(
+                $"okf: error: --out '{outputDirectory}' would write '{collision.Path}' " +
+                $"inside bundle '{collision.Root}'. " +
+                "Generate the site outside the bundles it renders.");
+            return CliApplication.ExitUsage;
+        }
+
         OkfSiteGenerator.Apply(plan, outputDirectory);
 
         var landing = Path.Combine(outputDirectory, OkfSiteBuilder.IndexHref);
@@ -124,6 +138,33 @@ internal static class SiteCommand
         }
 
         return CliApplication.ExitSuccess;
+    }
+
+    /// <summary>The first planned file that would land inside a bundle being rendered.</summary>
+    /// <param name="plan">The rendered site.</param>
+    /// <param name="outputDirectory">The absolute output directory.</param>
+    /// <param name="workingSet">The bundles being rendered.</param>
+    /// <returns>The offending path and the bundle it falls in, or <see langword="null" />.</returns>
+    private static (string Path, string Root)? Collision(
+        OkfSitePlan plan,
+        string outputDirectory,
+        OkfWorkingSet workingSet)
+    {
+        foreach (var file in plan.Files)
+        {
+            var path = Path.GetFullPath(
+                Path.Combine(outputDirectory, file.Path.Replace('/', Path.DirectorySeparatorChar)));
+
+            foreach (var bundle in workingSet.Bundles)
+            {
+                if (path.StartsWith(bundle.Root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                {
+                    return (path, bundle.Root);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static void WriteReport(

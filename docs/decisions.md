@@ -1877,11 +1877,17 @@ count, nothing reads a clock beyond today's date (injected, per CORE-7), and pag
 ordinal. Two runs over an unchanged vault produce byte-identical output, which a CLI test
 asserts — a site that churned on every run would be unusable to diff or to publish.
 
-**`--out` may not point inside a bundle being rendered.** The next run would otherwise read
-its own HTML, and `okf lint` would find a bundle full of pages. Refused as a usage failure
-(exit 2) before anything is written. Nothing is ever deleted from the output directory
-either: an output directory belongs to the caller, and a generator that removed files it did
-not write is one `--out ~/` away from a disaster.
+**No page a run writes may land inside a bundle it renders.** The next run would otherwise
+read its own HTML, and `okf lint` would find a bundle full of pages. Both directions are
+refused as a usage failure (exit 2) before anything is written: `--out` pointing *into* a
+bundle, checked on the directory before the vault is read, and `--out` pointing at a bundle's
+*parent*, where the site's own per-bundle subdirectory — named after the bundle — lands the
+pages back inside it. The second is checked on the planned paths rather than on the directory,
+because that is the exact question and it costs nothing: the plan is in memory and no file has
+been written. Nothing is ever deleted from the output directory either: an output directory
+belongs to the caller, and a generator that removed files it did not write is one `--out ~/`
+away from a disaster. The corollary is that a page for a concept that has since been deleted
+stays behind until the caller removes it.
 
 **Deliberately not done.** No CI `pages` job — a commented block sits at the end of
 `.gitlab-ci.yml` for whoever enables it, but publishing an unreviewed design to a public URL
