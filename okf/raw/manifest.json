@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "captures": [
+    {
+      "id": "2026-08-14-equipping-agents-with-agent-skills",
+      "form": "flat",
+      "files": [
+        {
+          "path": "2026-08-14-equipping-agents-with-agent-skills.html",
+          "sha256": "5f06488474e380ada57485178e797353597e1ec37d1b17beb01496ed207733b5"
+        }
+      ],
+      "capturedAt": "2026-08-14T23:52:12-05:00",
+      "capturedBy": "claude-fable/5",
+      "originalUrl": "https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills",
+      "title": "Equipping agents for the real world with Agent Skills",
+      "sourceLastModified": "2025-12-18",
+      "ingestion": {
+        "at": "2026-08-14T23:54:00-05:00",
+        "by": "claude-fable/5",
+        "concepts": ["bundles/okf-net/references/agent-skills.md"]
+      }
+    }
+  ]
+}
