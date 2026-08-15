@@ -104,45 +104,24 @@ run = [
 
 [tasks.publish-aot]
 description = "Publish the NativeAOT linux-x64 binary to artifacts/aot, version-stamped from `git describe` (PRD CLI-17)"
-# Version stamping lives HERE, not in MSBuild: shelling out to git from a build
-# would make builds non-deterministic and would fail in a source archive with no
-# `.git`. Directory.Build.props documents the SDK-side contract; this task and the
-# `publish` CI job are its only two callers, and both hand it a bare semver
-# (`-p:Version`) plus a commit (`-p:SourceRevisionId`).
+# The version is derived by scripts/release-version.sh, which is also what `publish-all`
+# calls — one normalization of `git describe`, not two that can drift. Its header explains
+# why the derivation lives in a script rather than in MSBuild, and why the distance/sha
+# trailer is dropped rather than carried into the version.
 #
-# `git describe --tags --always --dirty` is the local source of truth. Its output is
-# normalized rather than passed through, because only the first shape below is a
-# valid version:
-#   v1.0.0-rc.14              exact tag       ->  1.0.0-rc.14
-#   v1.0.0-rc.14-3-g1f334c9   3 commits past  ->  1.0.0-rc.14  (+ sha metadata)
-#   1f334c9                   no tags at all  ->  0.0.0-dev    (+ sha metadata)
-# The distance/sha trailer is DROPPED from the version rather than carried into it;
-# the commit it named travels separately as build metadata, taken from
-# `git rev-parse --short HEAD`, which is where semver §10 puts a commit. (The
-# distance itself is not preserved — the sha is what identifies the build.) Left in
-# the version the trailer would be legal semver that sorts ABOVE the tag it followed
-# — `1.0.0-rc.14-3-g1f334c9` > `1.0.0-rc.14`, because an alphanumeric prerelease
-# identifier outranks a numeric one. That inversion is the trap being avoided.
+# This task and `publish-all` hand the SDK exactly what Directory.Build.props documents: a
+# bare semver in `-p:Version` and a commit in `-p:SourceRevisionId`. The `publish` CI job
+# is the third caller and derives neither — there the tag is the version.
 run = """
 set -eu
 
-describe="$(git describe --tags --always --dirty 2>/dev/null || true)"
-revision="$(git rev-parse --short HEAD 2>/dev/null || true)"
-case "$describe" in
-  *-dirty) revision="${revision:-unknown}.dirty" ;;
-esac
+fields="$(scripts/release-version.sh)"
+version="${fields%%|*}"
+rest="${fields#*|}"
+revision="${rest%%|*}"
+describe="${rest#*|}"
 
-case "$describe" in
-  v[0-9]*)
-    version="${describe#v}"
-    version="$(printf '%s' "$version" | sed -E 's/(-[0-9]+-g[0-9a-f]+)?(-dirty)?$//')"
-    ;;
-  *)
-    version="0.0.0-dev"
-    ;;
-esac
-
-echo "==> publishing okf ${version}${revision:++$revision} (git describe: ${describe:-none})"
+echo "==> publishing okf ${version}${revision:++$revision} (git describe: ${describe})"
 dotnet publish src/Okf.Cli \\
   --configuration Release \\
   --runtime linux-x64 \\
@@ -152,6 +131,108 @@ dotnet publish src/Okf.Cli \\
 
 echo "==> artifacts/aot/okf version reports:"
 ./artifacts/aot/okf version
+"""
+
+[tasks.publish-all]
+description = "Publish all three release binaries into artifacts/<rid>/ — linux-x64 NativeAOT, osx-arm64 and win-x64 trim-safe self-contained (work item #36)"
+# The local rehearsal of what the `publish` CI job uploads. Same three runtime
+# identifiers, same publish arguments, same version stamping — so a build that only
+# breaks for macOS or Windows breaks here rather than in a tag pipeline.
+#
+# WHY TWO PUBLISH MODES AND NOT ONE
+# ---------------------------------
+# NativeAOT compiles to the HOST's native toolchain; `dotnet publish -r osx-arm64
+# -p:PublishAot=true` from Linux cannot work, and there is no Mac or Windows runner to
+# build on. decisions.md Q10 wrote down the fallback for exactly this case — trim-safe
+# self-contained non-AOT, at the cost of size and cold start — and this is the case. So
+# linux-x64 stays AOT and the other two are `--self-contained -p:PublishTrimmed=true
+# -p:PublishSingleFile=true`, which cross-compiles from anywhere because there is no
+# native compile in it: the IL is trimmed, then bundled with a runtime for the target.
+#
+# `-p:PublishAot=false` is required and not merely tidy: Okf.Cli.csproj sets PublishAot
+# for the analyzers, and left on it would try to run ILC for a foreign OS.
+#
+# The trim analyzer still runs under PublishTrimmed, so the trim-safety Q10 verified for
+# AOT is re-verified per RID on every publish, and TreatWarningsAsErrors turns an IL2xxx
+# into a failed publish rather than a footnote.
+#
+# NativeAOT needs a C toolchain and zlib headers on the host (`clang`, `zlib1g-dev` on
+# Debian; `clang`, `zlib` on Arch) — that is the linux-x64 leg only. The other two need
+# nothing but the SDK.
+run = """
+set -eu
+
+fields="$(scripts/release-version.sh)"
+version="${fields%%|*}"
+rest="${fields#*|}"
+revision="${rest%%|*}"
+describe="${rest#*|}"
+
+echo "==> publishing okf ${version}${revision:++$revision} (git describe: ${describe})"
+
+publish() { # publish <rid> [extra msbuild args...]
+  rid="$1"
+  shift
+  echo "==> ${rid} -> artifacts/${rid}"
+  dotnet publish src/Okf.Cli \\
+    --configuration Release \\
+    --runtime "$rid" \\
+    --output "artifacts/${rid}" \\
+    -p:Version="$version" \\
+    ${revision:+-p:SourceRevisionId="$revision"} \\
+    "$@"
+}
+
+publish linux-x64
+publish osx-arm64 --self-contained -p:PublishAot=false -p:PublishTrimmed=true -p:PublishSingleFile=true
+publish win-x64   --self-contained -p:PublishAot=false -p:PublishTrimmed=true -p:PublishSingleFile=true
+
+echo
+echo "==> published"
+for artifact in artifacts/linux-x64/okf artifacts/osx-arm64/okf artifacts/win-x64/okf.exe; do
+  [ -f "$artifact" ] || { echo "    MISSING: $artifact" >&2; exit 1; }
+  printf '    %-26s %10s bytes  %s\\n' \\
+    "$artifact" \\
+    "$(wc -c <"$artifact" | tr -d ' ')" \\
+    "$(file -b "$artifact" 2>/dev/null || echo 'install file(1) to see the format')"
+done
+
+# Only the linux-x64 binary can be executed here; the other two are cross-compiled and
+# their first real run is a tester's. `file` above is the whole static check for them.
+echo "==> artifacts/linux-x64/okf version reports:"
+./artifacts/linux-x64/okf version
+"""
+
+[tasks.lint-ps1]
+description = "Static-analyse install.ps1 with PSScriptAnalyzer (needs pwsh: `mise use -g powershell`). No Windows runner exists, so this is the only mechanical check the PowerShell installer gets."
+# install.ps1 is what install.sh is for Linux and macOS — the one file a stranger pipes
+# into `iex` — and unlike install.sh it has no acceptance suite, because there is no
+# Windows runner in this pipeline and running PowerShell on Linux would not exercise the
+# parts that matter (the USER PATH registry entry, `okf.exe`, LOCALAPPDATA). PSScriptAnalyzer
+# is a parser and rule engine, not an interpreter, so it runs anywhere pwsh does and it
+# catches the class of bug that survives a careful read: an unapproved verb, a cmdlet used
+# with a parameter it does not have, an assignment to an automatic variable.
+#
+# Deliberately NOT in `mise run lint` (which is markdownlint) and not in CI: adding a
+# PowerShell provision step to the pipeline for one file is a worse trade than running it
+# here. The first REAL run of install.ps1 is on a tester's Windows box either way — see
+# README and docs/decisions.md, which both say so out loud.
+run = """
+set -eu
+command -v pwsh >/dev/null 2>&1 || {
+  echo "pwsh is not installed — \\`mise use -g powershell\\`, then \\`pwsh -c 'Install-Module PSScriptAnalyzer -Scope CurrentUser'\\`" >&2
+  exit 2
+}
+pwsh -NoProfile -Command '
+  $ErrorActionPreference = "Stop"
+  if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+    Write-Error "PSScriptAnalyzer is not installed: pwsh -c \"Install-Module PSScriptAnalyzer -Scope CurrentUser\""
+  }
+  Import-Module PSScriptAnalyzer
+  $findings = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error,Warning,Information
+  if ($findings) { $findings | Format-Table -AutoSize | Out-String | Write-Host; exit 1 }
+  Write-Host "install.ps1: no PSScriptAnalyzer findings"
+'
 """
 
 [tasks.check-commit]
