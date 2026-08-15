@@ -103,9 +103,18 @@ public sealed class OkfBundle
     /// Windows they are not identical, because the separator is <c>\</c> (0x5C), which
     /// sorts ABOVE the letters, where <c>/</c> (0x2F) sorts below them — so
     /// <c>a/b.md</c> and <c>aZ.md</c> come out in opposite orders on the two platforms.
-    /// That order is not internal: it is the order of <c>okf lint</c>'s diagnostics and of
-    /// <c>okf index --json</c>'s entries, both of which a consumer may diff. Sorting on
-    /// the bundle-relative path fixes it to the spec's separator instead of the host's.
+    /// That order is not internal: <c>okf inbox</c> emits its items in exactly this order
+    /// (<see cref="OkfInboxScanner.Scan" /> appends as it walks and never re-sorts), and it decides
+    /// which of two near-duplicate concepts <see cref="OkfLinter" /> keeps as the original
+    /// and which gets OKF0303 — so on Windows the walk would name the other file. Sorting
+    /// on the bundle-relative path fixes both to the spec's separator instead of the host's.
+    ///
+    /// Two orders a reader might expect to find here are decided elsewhere, and each has to
+    /// be fixed where it is decided. <c>okf index --json</c>'s entry order is the index
+    /// PLAN's sort, which rebuilds its own list and re-sorts (see
+    /// <c>OkfIndexGenerator.Plan</c>). <c>okf lint</c>'s diagnostic order is
+    /// <see cref="OkfDiagnostic.CompareTo" />, which totally re-sorts by path and so
+    /// discards this order entirely. Neither inherits anything from the walk.
     /// (The bundler is unaffected either way — it re-sorts its entries by their
     /// <c>/</c>-paths — but it should not have to be the only thing that is.)
     /// </remarks>

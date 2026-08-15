@@ -152,6 +152,71 @@ public class OkfBundlePathTests
         Assert.Contains(outcome.Results, result => result.Path == "topics/deep/widgets.md");
     }
 
+    /// <summary>
+    /// <c>okf lint</c>'s output order is decided by <see cref="OkfDiagnostic.CompareTo" />,
+    /// not by the bundle walk, and it must not be the host separator's order either.
+    /// </summary>
+    /// <remarks>
+    /// <para><see cref="OkfLinter" /> re-sorts every diagnostic before returning, so
+    /// ordering the WALK by the bundle-relative path does not reach this surface: the walk
+    /// order is discarded. The comparator sorts on <see cref="OkfDiagnostic.Path" />, which
+    /// is absolute and native, so on Windows it would compare <c>\</c> (0x5C) where Linux
+    /// compares <c>/</c> (0x2F) and put <c>topics\deep\widgets.md</c> on the far side of
+    /// <c>topicsZ.md</c>. Diagnostics are diffed between runs and between machines (PRD
+    /// ACC-7 asks for byte-identical output over an unchanged tree), so that is a real
+    /// difference in shipped output.</para>
+    /// <para>Unlike the walk assertion above, this one is NOT a POSIX projection: it feeds
+    /// the comparator both spellings directly, so it exercises the Windows case on Linux
+    /// and fails without the fix.</para>
+    /// </remarks>
+    [Fact]
+    public void Diagnostics_order_the_same_way_whichever_separator_the_host_uses()
+    {
+        static OkfDiagnostic At(string path) =>
+            new("OKF0101", OkfSeverity.Error, "message", path);
+
+        // The same two files, spelled the two ways the two platforms spell them.
+        var slashed = new List<OkfDiagnostic>
+        {
+            At("/vault/alpha/topicsZ.md"),
+            At("/vault/alpha/topics/deep/widgets.md"),
+        };
+        var backslashed = new List<OkfDiagnostic>
+        {
+            At(@"C:\vault\alpha\topicsZ.md"),
+            At(@"C:\vault\alpha\topics\deep\widgets.md"),
+        };
+
+        slashed.Sort();
+        backslashed.Sort();
+
+        Assert.Equal(
+            ["/vault/alpha/topics/deep/widgets.md", "/vault/alpha/topicsZ.md"],
+            slashed.Select(diagnostic => diagnostic.Path));
+        Assert.Equal(
+            [@"C:\vault\alpha\topics\deep\widgets.md", @"C:\vault\alpha\topicsZ.md"],
+            backslashed.Select(diagnostic => diagnostic.Path));
+    }
+
+    /// <summary>
+    /// Ordering stays a total order: two paths that differ ONLY in separator spelling are
+    /// still separated, rather than collapsing into "equal" and leaving the sort to decide.
+    /// </summary>
+    [Fact]
+    public void Diagnostics_that_differ_only_in_separator_still_order_deterministically()
+    {
+        static OkfDiagnostic At(string path) =>
+            new("OKF0101", OkfSeverity.Error, "message", path);
+
+        var forward = At("/vault/a/b.md");
+        var back = At(@"/vault/a\b.md");
+
+        Assert.NotEqual(0, forward.CompareTo(back));
+        Assert.Equal(
+            Math.Sign(forward.CompareTo(back)),
+            -Math.Sign(back.CompareTo(forward)));
+    }
+
     /// <summary>A bundle whose shape makes the separator question answerable.</summary>
     private sealed class PathVault : IDisposable
     {
