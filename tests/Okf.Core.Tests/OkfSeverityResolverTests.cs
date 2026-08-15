@@ -78,6 +78,26 @@ public class OkfSeverityResolverTests
     }
 
     [Fact]
+    public void ThePromotionNamesTheLayerThatTurnedItOnRatherThanTheDefaults()
+    {
+        // `global` speaks to the flag and loses, so naming the *winning* layer is the only
+        // way to pass: a resolver that reported the first layer to mention it, or the
+        // defaults, would name something the consumer cannot edit to undo the promotion.
+        var global = new OkfSeverityLayer("global") { TreatAllWarningsAsErrors = false };
+        var project = new OkfSeverityLayer("project") { TreatAllWarningsAsErrors = true };
+        var resolver = new OkfSeverityResolver([global, project]);
+
+        // PRD CLI-6: the source is what sends a consumer to the file they can edit, so it
+        // has to be the layer that set the flag — never the built-in defaults, which set
+        // nothing and cannot be edited.
+        Assert.Equal("project", resolver.TreatAllWarningsAsErrorsSource);
+        Assert.NotEqual(OkfSeverityResolver.DefaultsLayerName, resolver.TreatAllWarningsAsErrorsSource);
+        Assert.Equal(
+            "project (treatAllWarningsAsErrors)",
+            resolver.ResolveWithSource(OkfRules.MissingDescription).Source);
+    }
+
+    [Fact]
     public void ALaterLayerCanTurnTreatAllWarningsAsErrorsBackOff()
     {
         var global = new OkfSeverityLayer("global") { TreatAllWarningsAsErrors = true };

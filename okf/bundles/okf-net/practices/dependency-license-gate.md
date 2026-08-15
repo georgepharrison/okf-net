@@ -3,7 +3,7 @@ type: Playbook
 title: The Dependency License Gate
 description: Every dependency must be Apache-2.0-compatible, checked against an allowlist over a generated SBOM in CI.
 tags: [okf-net, licensing, dependencies, ci, compliance]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T23:28:44-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -57,6 +57,29 @@ The job publishes the SBOM as an artifact **even when the check fails** — the
 rejected SBOM is the one actually worth reading, and there is no license
 scanning UI to fall back on.
 
+# What the gate cannot see: `dotnet` tools
+
+The SBOM is built from the solution's **package graph**. A local `dotnet` tool
+pinned in `.config/dotnet-tools.json` is not referenced by any project, so it
+never appears in the SBOM and the checker never judges it. Adding
+`dotnet-stryker` to the manifest left the component count unchanged.[^decisions]
+
+The rule still covers those tools. A tool that never enters a shipped binary is
+the same situation the MS-PL ruling turned on, and "test-only, never
+redistributed" is a reason to *permit* a permissive license — not a reason to
+skip the check. So the check is manual and its result is written down:
+
+- **Read the license of the exact tool version at install time.** `dotnet tool
+  install` names the version it resolved; the license is in the package
+  (`~/.nuget/packages/<id>/<version>/`), and a `<license type="file">` nuspec
+  entry means there is no SPDX identifier for any scanner to read.
+- **Record the finding in the commit that adds the manifest entry.** That
+  commit is the only review point the tool will ever get.
+
+Deliberately not automated: a second scanner over a file that changes about
+once a milestone would be one more thing to maintain, and it would report on
+something no consumer ever receives.
+
 # The one ruling on record
 
 **MS-PL is allowlisted.** It is OSI-approved and permissive, the ASF lists it
@@ -71,4 +94,4 @@ cite an authority, identify why the restriction cannot reach shipped code,
 and write it down where the next person will look.
 
 [^agents-md]: okf-net — Agent Instructions, "Dependencies must be Apache-2.0-compatible".
-[^decisions]: okf-net — Architecture Decisions, "Ruling: MS-PL is allowlisted".
+[^decisions]: okf-net — Architecture Decisions, "Ruling: MS-PL is allowlisted" and the tool-manifest finding under "mutation testing (work item #11)".

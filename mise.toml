@@ -11,7 +11,12 @@ description = "Lint all markdown files (excluding dot-directories and test fixtu
 # Test fixture bundles are deliberately malformed OKF documents — some of them are
 # malformed markdown too — so they are lint inputs for `okf lint`, never for
 # markdownlint. The same exclusion lives in .githooks/pre-commit.
-run = 'markdownlint-cli2 "**/*.md" "#**/.*/**" "#tests/**/fixtures/**"'
+#
+# artifacts/ is generated output (`mise run mutate` writes a markdown mutation report
+# there) and is gitignored; markdownlint-cli2 does not read .gitignore, so a build
+# product would otherwise decide whether the lint task passes. The pre-commit hook needs
+# no equivalent — it only ever sees staged files.
+run = 'markdownlint-cli2 "**/*.md" "#**/.*/**" "#tests/**/fixtures/**" "#artifacts/**"'
 
 [tasks.build]
 description = "Build the solution"
@@ -32,6 +37,37 @@ run = [
   "dotnet tool restore",
   "dotnet CycloneDX Okf.sln --output artifacts/sbom --filename bom.json --output-format Json",
   "python3 scripts/check-licenses.py",
+]
+
+[tasks.mutate]
+description = "Run Stryker.NET mutation testing over the whole solution — the mechanical check behind AGENTS.md's 'tests must be shown to constrain the code'. Reports land in artifacts/stryker/reports."
+# Solution mode: Stryker discovers every non-test project in Okf.sln, so Okf.Core and
+# Okf.Cli are both mutated in one pass under one score. Everything else lives in
+# stryker-config.json; only the output path is passed here, because Stryker has no
+# config-file key for it (`output` is CLI-only) and artifacts/ is what .gitignore
+# already covers. dotnet-stryker is pinned in .config/dotnet-tools.json.
+#
+# ~8 minutes on 8 cores for ~3400 mutants. Deliberately not part of `mise run test`.
+run = [
+  "dotnet tool restore",
+  "dotnet stryker --output artifacts/stryker --skip-version-check",
+]
+
+[tasks.mutate-quick]
+description = "Mutate only what changed against origin/main (Stryker --since). Minutes instead of ~8, at the cost of a score that describes the diff rather than the solution."
+# `--since:<committish>` needs the ref to exist locally, so `git fetch origin` first if
+# origin/main is stale. Mutants outside the diff are reported with no result, so the
+# score printed here is NOT comparable to `mise run mutate`: read it as "did my change
+# arrive with tests that kill its mutants", never as the project's score. Written to its
+# own output directory so a partial run cannot overwrite a full baseline report.
+#
+# It only narrows because stryker-config.json's `since.ignore-changes-in` tells Stryker
+# which non-C# paths cannot affect a test. Without it, one touched .md or .yml anywhere
+# in the tree makes Stryker test every mutant ("Non-CSharp files in test project were
+# changed") and the task saves nothing. Test fixtures are deliberately NOT on that list.
+run = [
+  "dotnet tool restore",
+  "dotnet stryker --output artifacts/stryker-since --skip-version-check --since:origin/main",
 ]
 
 [tasks.cli]
