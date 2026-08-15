@@ -34,6 +34,11 @@ consume.
   - `okf bundle` — package your bundles for consume-only distribution
     (tar.gz, zip, or a plain directory) with byte-reproducible archives and a
     manifest recording a `sha256` per file, which `--verify` re-checks
+  - `okf site` — renders the vault as a self-contained static site: a trust
+    dashboard whose tiles are clickable filters, a force-directed graph of
+    cross-links coloured by trust tier, and one browsable page per concept.
+    Hostable on GitLab Pages, openable straight from `file://`, and with
+    `--single-file` reducible to one HTML file you can hand to someone
   - `okf mcp` — the same capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
@@ -122,11 +127,11 @@ violate OKF conformance):
 ## Status
 
 **Prerelease.** `Okf.Core`, the CLI's `init`, `lint`, `index`, `search`,
-`inbox`, `verify` and `bundle` commands, the MCP server and the agent skills
-are built and gated in CI; the registry (`okf register`), the site generator
-and the Pi shim are later milestones. Every merge to `main` cuts an `rc` tag,
-and from the first tag cut after the publishing job landed that tag also ships
-a runnable binary and this repo's own knowledge bundle — see
+`inbox`, `verify`, `bundle` and `site` commands, the MCP server and the agent
+skills are built and gated in CI; the registry (`okf register`) and the Pi
+shim are later milestones. Every merge to `main` cuts an `rc` tag, and from
+the first tag cut after the publishing job landed that tag also ships a
+runnable binary and this repo's own knowledge bundle — see
 [Install](#install-prerelease-binaries), which says plainly that none exists
 yet. Usable from source, deliberately not yet stable.
 

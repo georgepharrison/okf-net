@@ -1757,3 +1757,264 @@ delete an argument guard (`ArgumentNullException.ThrowIfNull`), and a tail of eq
 Prepend` before a sort, `separator <= 0` where the value cannot be 0, and the `IsZip`
 magic-byte conjunction, which no input distinguishes because a file that starts `P` but
 not `PK` is not a zip either way.
+
+### Proposed decisions (pending review): the static site milestone (work item #6, 2026-08-15)
+
+`okf site [path] --out <dir>` renders a resolved vault as a static website. Ringo's
+design input on the work item is the specification: a trust dashboard of rounded stat
+tiles that are **clickable filters**, an Obsidian-style force-directed graph, browsable
+concepts. Editing and verifying are deliberately out of scope; they have their own item.
+Google's `reference_agent/viewer` is the prior art — its embedded-JSON bundle, its rewired
+internal links and its backlink index all survive here; its CDN-loaded Cytoscape and
+`marked` do not, for reasons below.
+
+**Multi-page by default, single file on request.** One HTML file per markdown file,
+mirroring the bundle tree, plus `index.html` (the landing page), `dashboard.html` and
+`graph.html`. That is
+what makes a URL name a concept: a deep link is shareable, the back button works, and a
+browser tab title says which concept you are reading. `--single-file` emits the same site
+as one `index.html` carrying every article as embedded JSON, routed on the fragment, for
+the other thing Ringo asked for — handing someone a knowledge base as one attachment.
+The second mode was cheap **because** the first was built as a model plus fragment
+builders rather than as a template: `OkfSiteBuilder` produces an `OkfSiteModel`, and two
+emitters consume it, sharing every fragment. Only link resolution differs (a relative
+`.html` path versus `#c=<id>`), which is why the model is built per mode instead of once.
+Cost of the single-file mode, stated: a concept's own heading anchors do not survive,
+because the fragment is spent on routing.
+
+**Every link is relative; nothing is loaded at run time.** The site must work identically
+from GitLab Pages and from a `file://` path, which rules out absolute-root hrefs, and it
+must make no network request, which rules out a CDN. Both are also privacy positions: a
+knowledge site that fetched a script on every page view would report the reader's browsing
+to a third party, and a vault is exactly the kind of reading nobody wants reported.
+
+**No third-party JavaScript at all — not vendored, not CDN-loaded.** The work item offered
+Cytoscape (Google's choice), D3 or vis, all permissively licensed. All three were declined
+in favour of ~250 lines of our own: a Fruchterman-Reingold layout on a `<canvas>`, plus the
+dashboard's filtering. The reasoning is not "not invented here":
+
+- **There is no JavaScript toolchain in this repo to vendor with.** mise installs `dotnet`
+  and `markdownlint-cli2` and nothing else. Vendoring means committing a pre-built
+  `cytoscape.min.js` that nobody here built and nobody here can rebuild — a supply-chain
+  artifact taken on faith, in a repository whose whole dependency posture is an SBOM and a
+  license gate.
+- **The weight is real.** `cytoscape.min.js` is ~400 KB. It would ship inside the `okf`
+  binary, be copied into every generated site, and be inlined into every single-file
+  export. Ringo reads this on a phone.
+- **The feature list is small.** Trust-tier colouring, a type-colouring toggle, click to
+  open, drag, pan, zoom, hover label, stale ring. That is a fraction of what a graph
+  library is for, and the layout is a textbook algorithm.
+
+Markdown is a different question and got the opposite answer: **Markdig 1.3.2 (BSD-2-Clause,
+allowlisted) renders bodies server-side**, so no `marked.js` is needed either. A CommonMark
+implementation is not 250 lines, and rendering at generation time rather than in the reader's
+browser means the pages are readable with JavaScript off. Verified: `mise run licenses` reports
+`Markdig 1.3.2 BSD-2-Clause`, and `mise run publish-aot` is zero-warning with Markdig on the
+NativeAOT path — the published binary generates the dogfood site.
+
+**The stylesheet and the client script ship as embedded resources.** They stay editable,
+diffable, lintable files under `src/Okf.Core/Assets/` and are read back with
+`GetManifestResourceStream`, which is AOT-safe: a manifest resource is data in the image, not
+a type the trimmer has to be told to keep. The alternative — C# string literals — would have
+made a 500-line stylesheet unreviewable.
+
+**Raw HTML in a concept body is escaped, not emitted** (`MarkdownPipelineBuilder.DisableHtml`).
+A bundle is data okf-net did not write (PRD ACC-1), and a generated page is opened from
+`file://`, where a `<script>` smuggled through a body would run with no origin to contain it.
+It also buys the well-formedness guarantee below, which passthrough HTML cannot: nothing
+upstream validates it. The cost is visible and accepted — a foreign bundle using `<br>` shows
+the tag as text. okf-net's own generated-index marker is stripped before rendering, because it
+is the one HTML comment whose provenance the generator knows.
+
+**A link destination carries an allowlisted scheme or none at all** — `http:`, `https:`,
+`mailto:`, or a relative path. Disabling raw HTML shuts one door into the page and not the
+other: `[x](javascript:alert(1))`, `<javascript:alert(1)>` and a reference definition pointing
+at one are all ordinary markdown, none of them is an HTML tag, and each renders an anchor a
+reader can click — on a `file://` page, with no origin to contain it. So the scheme is read on
+the AST before the destination is resolved, and for an image's `src` as well as an anchor's
+`href`. It is read the way a browser reads it rather than the way `Uri` does:
+case-insensitively, and with ASCII whitespace and C0 controls dropped first, because a leading
+space or a tab spliced in by a numeric character reference does not stop a browser navigating
+to a `javascript:` URL, and Markdig has already decoded that reference. A destination outside
+the allowlist is percent-escaped into one inert relative segment and marked `broken` — §6.1
+says mark, never drop, and the reader still sees what was written. The cost is stated: `tel:`
+links and `data:` images are refused as well. Adding a scheme is a one-line change to the
+allowlist; the default is the small set a knowledge site needs.
+
+**Every page is well-formed XML, and the suite parses it.** Attributes are quoted, boolean
+attributes carry values, void elements are self-closed, and inline `<style>`/`<script>` bodies
+are wrapped in a comment-hidden CDATA section (`/*<![CDATA[*/ … /*]]>*/`) — a wrapper browsers
+read as a JavaScript comment. The embedded JSON needs no wrapper: it is written with
+`Utf8JsonWriter`'s **default** encoder rather than `UnsafeRelaxedJsonEscaping`, so `<`, `>` and
+`&` arrive as `\u003C` and its siblings — the payload can neither close its own `<script>`
+element nor break the parse. `OkfSiteGeneratorTests` runs every page of both modes through `XmlReader`;
+an unclosed element or an unescaped ampersand fails a test rather than a reader's browser.
+
+**Only concepts are counted, graphed and back-linked.** Reserved files (§3.1) become pages —
+that is what makes the index hierarchy browsable and what breadcrumbs are built from — but a
+generated `index.md` links every concept in its directory, so letting index links into the
+graph would connect everything to everything, and letting them into "Cited by" would tell a
+reader that a concept is cited by its own table of contents. The tiles count concepts for the
+same reason: counting the tables of contents inflates every number.
+
+**Colour is a status channel, and never the only one.** The five trust and lifecycle tiles
+carry the reserved status palette — human-reviewed `good`, machine-confirmed `warning`,
+unverified neutral, stale `critical`, draft `serious` — and the two structural tiles (Bundles,
+Concepts) carry the accent, so "how much is here" never wears a status hue. Every tile also
+carries a glyph and a word, and every number stays in ink rather than in the status colour;
+that is what keeps the dashboard legible to a reader who cannot separate the hues, and what
+lets the sub-3:1 status steps be used at all. Both themes are selected rather than flipped:
+the dark block re-steps surfaces and inks against the dark plane, and the status hexes, which
+clear 3:1 there, stay put. The graph's optional colour-by-type mode draws from the validated
+categorical order and always ships a legend — past three simultaneous types those hues are
+below the all-pairs separation floor, so the legend and the node labels are doing the work.
+
+**Filter state lives in the URL fragment.** `#f=stale&b=okf-net&t=format&q=…` on the
+dashboard, `#c=<id>` and `#v=dashboard|graph` in single-file mode. A filtered view is
+therefore linkable and survives a reload, which matters most in the case with no server to
+hold state: a `file://` page. The keys compose: a tier tile, a bundle chip, a tag and a
+query are four independent predicates over the same list, and the fragment holds all four.
+
+**The landing page is the vault's index hierarchy, not the dashboard** (Ringo's first
+review of the live site, 2026-08-15). The site is meant to replace Obsidian as a view-only
+surface, and the way a reader enters a vault is the way §4's search doctrine says knowledge
+is found: progressive disclosure — the root `index.md`, rendered, with each entry's
+description under it, and a subdirectory's index one click further in. The dashboard
+answers a different question ("what in here can I trust?"), and answering it first put a
+wall of numbers between a reader and the knowledge. So `index.html` is the front door and
+`dashboard.html` is a destination: the seven tiles survive as a compact strip across the
+top of the landing page, and each one is an ordinary link to `dashboard.html#f=<tile>` —
+the dashboard opens with that filter already applied. A vault with several bundles renders
+one index per bundle, side by side, which is the bundle picker the same markup gives for
+free. Consequences, taken deliberately:
+
+- **The dashboard needed a way home, and it is the one concept pages already use.** A
+  breadcrumb whose root is the site name, plus a `Home` entry in the standing top bar and
+  the brand itself. The graph page gets the same, so the graph stays reachable from both
+  and reachable *out of* from either.
+- **The landing page carries a second rendering of each bundle's root index.** Its body is
+  read at the site root, not at `<slug>/index.html`, so `hub.md` has to resolve to
+  `kb/hub.html` rather than to `hub.html`. That is a second Markdig pass over one file per
+  bundle, not a rewrite of the first pass's output: destinations are resolved on the syntax
+  tree, and text surgery on rendered HTML would have to re-implement the parser's idea of
+  what a link is. `OkfSitePage.RootBodyHtml` holds it, and only a bundle's own root index
+  has one.
+- **Single-file mode routes the same four destinations on the fragment**: nothing (home),
+  `#v=dashboard`, `#v=graph`, `#c=<id>`. The graph moved out of the dashboard view into its
+  own, which also fixed the thing that made it awkward — it now fits its canvas when it is
+  shown rather than when the page loads.
+- **The landing page needs no JavaScript at all.** Its tiles and its index entries are
+  links, so the front door works with scripting off; only the dashboard's filtering does
+  not.
+
+**Every tag is a filter link** (same review). Tags are §4.1's cross-cutting axis, and a
+badge that did nothing when clicked was the one genuinely broken affordance on the page.
+Every tag — in a concept's own panel, on every card in the dashboard's list — is
+an anchor to `dashboard.html#t=<tag>`, composable with the tier, bundle and query filters
+already in the fragment. Three things are true of it at once, deliberately:
+
+- **It is a real link, not a script hook.** With JavaScript off it still navigates to a
+  dashboard that lists everything; with JavaScript on, a tag clicked *on the dashboard*
+  is intercepted so the tag composes with the filters already applied instead of replacing
+  the whole fragment. The client reads the tag from a `data-tag` attribute rather than
+  parsing it back out of the href.
+- **A tag is data okf-net did not write** (PRD ACC-1), so it is escaped twice over: into the
+  href with `encodeURIComponent`/`Uri.EscapeDataString`, which leaves no `<`, `&`, quote or
+  `#` behind to break out of the attribute or to add a key to the fragment grammar; and into
+  the label and `data-tag` with the HTML escaper. Read back, it is `decodeURIComponent` and
+  `textContent`, never `innerHTML`. A theory tests `<b>`, `]]>`, `"…"`, `'…'`, `a&b`,
+  `"><script>…`, `f=stale&b=kb`, `x#y` and `a space` through both emitters, parses every
+  page as XML, and asserts each chip's attribute, label and round-tripped href — the same
+  shape as the hostile-destination theory above it.
+- **The dashboard says which tag it is holding.** A tag filter can arrive from any page in
+  the site, including one the reader has since left, so it renders as a removable chip
+  beside the filter bar; `Clear filters` drops it with the rest. The embedded filter payload
+  already carried each concept's `tags` array, so nothing had to be added to it — a test now
+  pins that, because the array's absence would have made every clicked tag match nothing.
+
+**Shape says what can be clicked; only tags can** (Ringo's second review). Making every tag
+a link left the site with two families wearing one pill: a tag, which filters, and a
+concept's classification — type, trust tier, staleness, lifecycle — which is a reading of
+frontmatter and does nothing when clicked. Desktop hid the problem, because the metadata
+column floats to the right of the body; below 900px it stacks underneath, the two families
+end up adjacent, and Ringo clicked Type and Trust expecting a filter. So the pill is now
+spent on one meaning only. `.chip` — tags, the bundle drill-down, the removable active
+filters — is a bordered pill with a pointer, a hover and a focus ring, and a tag adds a
+mono face and a `#`. Everything informational is `.facts` / `.signal`: a real `<dl>` with a
+small uppercase key, the status dot, its glyph and the word, and no fill, border, hover or
+pointer at all. The status hues are untouched — trust and staleness are what the reserved
+palette is for — but they now sit beside a key rather than inside a shape that promises a
+click. Three consequences worth naming:
+
+- **The `#` is drawn by the stylesheet, not written into the document.** A `::before` keeps
+  the element's text equal to the tag itself, which is what the client reads back and what a
+  screen reader announces; the hostile-tag theory's `Assert.Equal(tag, element.Value)` still
+  holds unchanged.
+- **Grouping does the explaining on narrow layouts.** A concept's panel column split into
+  *About this page* (the classification, plus provenance actors) and *Tags* (the chips, under
+  their own heading, with one line saying what pressing one does). Dashboard cards got the
+  same two rows. A concept with no tags renders no tag panel rather than an empty one.
+- **The distinction is asserted structurally, not eyeballed.** A test walks every page in
+  both emitters and requires that anything carrying `data-tag` is an `<a class="chip">` with
+  an `href`, and that no descendant of a `.facts` list is an interactive element or carries
+  `href`, `tabindex`, `role` or `aria-pressed`. It was shown to fail against both halves of
+  the old markup.
+
+**Generation is deterministic.** The graph's layout uses a seeded PRNG and a fixed iteration
+count, nothing reads a clock beyond today's date (injected, per CORE-7), and page order is
+ordinal. Two runs over an unchanged vault produce byte-identical output, which a CLI test
+asserts — a site that churned on every run would be unusable to diff or to publish.
+
+**No page a run writes may land inside a bundle it renders.** The next run would otherwise
+read its own HTML, and `okf lint` would find a bundle full of pages. Both directions are
+refused as a usage failure (exit 2) before anything is written: `--out` pointing *into* a
+bundle, checked on the directory before the vault is read, and `--out` pointing at a bundle's
+*parent*, where the site's own per-bundle subdirectory — named after the bundle — lands the
+pages back inside it. The second is checked on the planned paths rather than on the directory,
+because that is the exact question and it costs nothing: the plan is in memory and no file has
+been written. Nothing is ever deleted from the output directory either: an output directory
+belongs to the caller, and a generator that removed files it did not write is one `--out ~/`
+away from a disaster. The corollary is that a page for a concept that has since been deleted
+stays behind until the caller removes it.
+
+**Publishing: the default branch, and nothing else.** The `pages` job runs on
+`$CI_DEFAULT_BRANCH` only and publishes at the domain root, so merging is the deploy; it
+replaced a temporary rule that published this branch there while the design was being
+reviewed. It sits in a new `deploy` stage after `validate` — a site whose generator failed
+its own suite should not reach a URL — and does not run on a tag, because a release
+publishes a binary, not a website.
+
+**Branch review environments were built, tried against the real instance, and removed.**
+The design was the documented one: `pages.path_prefix: $CI_COMMIT_REF_SLUG` on a
+`pages_review` job for every non-default branch (GitLab's parallel-deployments feature, one
+deployment per branch under its own path), published as a `review/<slug>` environment whose
+`url` is `$CI_PAGES_URL`, with `pages.expire_in: 1 week` doing the actual cleaning and
+`on_stop`/`auto_stop_in` keeping the environment list honest beside it. That last split
+matters and was checked before it was written: GitLab documents no way for a stopping
+environment to delete a Pages deployment — `pages: false` only suppresses one in that
+pipeline, and the only per-deployment API is an Experiment-status GraphQL mutation needing a
+token a job token is not — so expiry is the mechanism and the stop job's honest contract is
+to mark the environment stopped and say which of the two removes the files.
+
+It does not work here, and the way it does not work is the reason it is gone.
+`pages.path_prefix` and `pages.expire_in` are Premium/Ultimate keywords; this instance is
+GitLab CE 19.0.1 (`/version` reports `"enterprise": false`). The keyword is not rejected:
+`glab ci lint --dry-run` passes it, the pipeline creates the job, the job succeeds — and the
+prefix is then silently ignored. Pipeline 331 on this branch is the evidence:
+`$CI_PAGES_URL` came back as the bare `https://okf-net-28dd30.pages.tychostation.dev`, that
+root returns 200 serving the *branch's* build, and the prefixed path returns 404. A
+feature-branch job that quietly publishes over the production site is strictly worse than no
+feature, and no amount of YAML fixes a keyword the edition does not implement — so both jobs
+were deleted rather than left in place hoping. Ringo's accepted fallback stands: reviewers
+run `mise run site` and open `artifacts/site/index.html` locally. Reinstating branch deploys
+needs a Premium licence or a non-Pages host, and the working YAML is recoverable from this
+branch's history.
+
+**Deliberately not done.** No copying of non-markdown assets into the site, so an image beside a
+concept does not travel with it; the link is left exactly as written, per §6.1's tolerance
+rule. No search index — the dashboard's filter box is a substring match over titles, types,
+tags and descriptions, not BM25; `okf search` is the ranked search, and duplicating its
+scoring in JavaScript would be a second implementation of a judgement the library already
+makes. No dogfood concept was added for the tag registry's sake: a concept about the site
+wants a `site` tag, `okf/okf.json` holds the closed registry, and that file is off-limits on
+this branch (three work items are in flight at once). It is a one-line follow-up.

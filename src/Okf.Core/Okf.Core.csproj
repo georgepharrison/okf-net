@@ -12,7 +12,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.3.2" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The static site's stylesheet and client script ship inside the binary
+         (issue #6). `GetManifestResourceStream` reads them at run time, which is
+         NativeAOT-safe: a manifest resource is data in the image, not a type the
+         trimmer has to be told to keep. The logical names are pinned so they do not
+         move if the folder is ever renamed; `OkfSiteAssets` names them back. -->
+    <EmbeddedResource Include="Assets\site.css" LogicalName="Okf.Core.Assets.site.css" />
+    <EmbeddedResource Include="Assets\site.js" LogicalName="Okf.Core.Assets.site.js" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,528 @@
+/*
+ * okf site — the whole stylesheet. No third-party CSS, no web fonts, no network.
+ *
+ * Colour is a status channel here, not decoration: the five trust/lifecycle tiles
+ * carry the reserved status palette (good / warning / serious / critical) plus a
+ * neutral, and every one of them ships an icon and a label so the colour never
+ * carries the meaning alone. Numbers stay in ink; the hue lives in the tile's
+ * accent bar, its dot and a low-alpha wash.
+ *
+ * Both themes are selected, not flipped: the dark block re-steps the surfaces and
+ * inks against the dark plane and keeps the status hexes, which clear 3:1 there.
+ *
+ * Shape is the affordance channel, and it is spent on one distinction only: a PILL
+ * is something you can press (`.chip` — tag filters, the bundle drill-down, the
+ * removable active filters), and everything else is a reading you cannot. Type,
+ * trust tier, staleness, lifecycle, provenance actors and source signals are all
+ * `.facts` / `.signal`: a muted key, the status dot, its glyph and the word, with
+ * no fill, no border, no hover and no pointer. That is what stops the two families
+ * reading as one on a narrow layout, where the metadata column stacks under the
+ * body and the reader has only the shapes to go on.
+ */
+
+:root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;
+  --plane: #f9f9f7;
+  --surface-2: #f2f1ed;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --hairline: #e1e0d9;
+  --rule: #c3c2b7;
+  --accent: #2a78d6;
+  --accent-ink: #1c5cab;
+
+  /* Status palette — fixed, never themed, never reused as a series colour. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --neutral: #898781;
+
+  /* Categorical slots, in the fixed validated order. Used only by the graph's
+     optional "colour by type" mode, which always ships a legend. */
+  --cat-1: #2a78d6;
+  --cat-2: #eb6834;
+  --cat-3: #1baf7a;
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
+  --cat-6: #008300;
+  --cat-7: #4a3aa7;
+  --cat-8: #e34948;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 1px 2px rgb(11 11 11 / 6%), 0 1px 6px rgb(11 11 11 / 4%);
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --surface-2: #232322;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hairline: #2c2c2a;
+    --rule: #383835;
+    --accent: #3987e5;
+    --accent-ink: #86b6ef;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 1px 6px rgb(0 0 0 / 30%);
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-7: #9085e9;
+    --cat-8: #e66767;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-1: #1a1a19;
+  --plane: #0d0d0d;
+  --surface-2: #232322;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --hairline: #2c2c2a;
+  --rule: #383835;
+  --accent: #3987e5;
+  --accent-ink: #86b6ef;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 1px 6px rgb(0 0 0 / 30%);
+  --cat-1: #3987e5;
+  --cat-2: #d95926;
+  --cat-3: #199e70;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
+  --cat-6: #008300;
+  --cat-7: #9085e9;
+  --cat-8: #e66767;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--accent-ink); }
+a.broken { color: var(--critical); text-decoration: underline dotted; }
+a.external::after { content: " \2197"; font-size: 0.85em; color: var(--muted); }
+
+code, pre, .mono { font-family: var(--mono); font-size: 0.92em; }
+
+pre {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+
+:not(pre) > code {
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ---------- shell ---------- */
+
+.shell { max-width: 1120px; margin: 0 auto; padding: 0 16px 64px; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--plane) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.topbar-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: baseline;
+}
+
+.brand { font-weight: 650; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
+.brand-sub { color: var(--muted); font-size: 0.85rem; }
+.topnav { margin-left: auto; display: flex; gap: 14px; font-size: 0.92rem; }
+.topnav a[aria-current="page"] { font-weight: 650; color: var(--ink); }
+
+h1 { font-size: 1.7rem; line-height: 1.25; letter-spacing: -0.015em; margin: 0 0 6px; }
+h2 { font-size: 1.25rem; margin: 32px 0 10px; letter-spacing: -0.01em; }
+h3 { font-size: 1.05rem; margin: 24px 0 8px; }
+.page-head { padding: 26px 0 6px; }
+.lede { color: var(--ink-2); margin: 0 0 4px; max-width: 68ch; }
+
+/* ---------- breadcrumbs ---------- */
+
+.crumbs { font-size: 0.85rem; color: var(--muted); padding: 16px 0 0; }
+.crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+.crumbs li + li::before { content: "/"; color: var(--rule); padding-right: 6px; }
+
+/* ---------- tiles ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 18px 0 8px;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 96px;
+  padding: 13px 14px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--shadow);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+/* The landing page's strip: the same tiles, compact, and links rather than toggles —
+   each one opens the dashboard with its own filter already applied. */
+.tiles-strip { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; margin: 14px 0 6px; }
+.tile-compact { min-height: 68px; padding: 10px 11px 9px; text-decoration: none; }
+.tile-compact .tile-value { font-size: 1.4rem; }
+.tile-compact .tile-label { font-size: 0.74rem; }
+
+.tile::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--tile-color, var(--rule));
+}
+
+.tile[data-tone] { background: color-mix(in oklab, var(--tile-color) 8%, var(--surface-1)); }
+.tile:hover { border-color: var(--rule); }
+.tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tile[aria-pressed="true"] {
+  border-color: var(--tile-color, var(--accent));
+  box-shadow: 0 0 0 2px var(--tile-color, var(--accent)) inset, var(--shadow);
+  background: color-mix(in oklab, var(--tile-color, var(--accent)) 16%, var(--surface-1));
+}
+
+.tile-value { font-size: 2rem; font-weight: 640; line-height: 1.05; letter-spacing: -0.02em; color: var(--ink); }
+.tile-label { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; font-size: 0.8rem; color: var(--ink-2); }
+/* The name moves to its own line whole rather than hyphenating mid-word. */
+.tile-name { white-space: nowrap; }
+.tile-label .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--tile-color, var(--rule)); flex: none; }
+.tile-label .glyph { font-size: 0.9em; color: var(--ink-2); }
+.tile-note { font-size: 0.74rem; color: var(--muted); }
+
+.tone-good { --tile-color: var(--good); }
+.tone-warning { --tile-color: var(--warning); }
+.tone-serious { --tile-color: var(--serious); }
+.tone-critical { --tile-color: var(--critical); }
+.tone-neutral { --tile-color: var(--neutral); }
+.tone-accent { --tile-color: var(--accent); }
+
+/* ---------- filter bar ---------- */
+
+.filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  margin: 14px 0 6px;
+}
+
+.filterbar input[type="search"] {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--ink);
+  font: inherit;
+}
+
+/* The pill: the site's one shape for "press me". Worn by the bundle drill-down, the
+   removable active filters and every tag, and by nothing that only states a fact. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  /* --rule, not --hairline: the outline is the whole affordance now that nothing
+     informational is pill-shaped, so it has to be visible in both themes. */
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+a.chip { text-decoration: none; }
+.chip:hover { border-color: var(--accent); color: var(--ink); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: color-mix(in oklab, var(--accent) 14%, var(--surface-1)); }
+.chip .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* A tag chip carries a `#` drawn here rather than written into the document, so the
+   element's text stays the tag itself — what the client reads back and what a screen
+   reader announces — while the reader still sees a tag and not a status. */
+.chip-tag { gap: 1px; padding: 3px 10px; font-family: var(--mono); font-size: 0.74rem; }
+.chip-tag::before { content: "#"; color: var(--muted); }
+.chip-tag:hover::before { color: var(--accent); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip-removable { border-color: var(--accent); color: var(--ink); background: color-mix(in oklab, var(--accent) 14%, var(--surface-1)); }
+.chip-removable .chip-x { color: var(--muted); font-size: 0.9em; }
+.chip-removable:hover .chip-x { color: var(--critical); }
+
+.active-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+
+.filter-state { font-size: 0.86rem; color: var(--ink-2); margin: 6px 0 0; }
+.filter-state b { font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.bundle-drill { margin: 4px 0 0; display: none; gap: 8px; flex-wrap: wrap; }
+.bundle-drill.open { display: flex; }
+
+/* ---------- concept list ---------- */
+
+.card-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+
+.card {
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--tier-color, var(--rule));
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  padding: 11px 14px;
+}
+
+.card a.card-title { font-weight: 620; text-decoration: none; color: var(--ink); }
+.card a.card-title:hover { text-decoration: underline; }
+.card p { margin: 3px 0 0; color: var(--ink-2); font-size: 0.9rem; }
+/* Two rows, deliberately: what the concept is, then what it is filed under. On the
+   card as on the concept page, the second row is the only one that can be clicked. */
+.card .card-meta { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; }
+.card .card-tags { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.card .path { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+
+.tier-human-reviewed { --tier-color: var(--good); }
+.tier-machine-confirmed { --tier-color: var(--warning); }
+.tier-unverified { --tier-color: var(--neutral); }
+
+/* ---------- facts and signals: stated, never clicked ---------- */
+
+/* A real definition list, laid out in a row: the key is what tells the reader this is
+   a reading of frontmatter and not a control, and it is the half that survives when
+   the colour does not. Nothing in here takes focus or changes under the cursor. */
+.facts { display: flex; flex-wrap: wrap; gap: 1px 18px; margin: 12px 0 0; }
+.facts > div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.facts dd { margin: 0; font-size: 0.85rem; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.facts-tight { gap: 0 14px; margin: 0; }
+.facts-tight dd { font-size: 0.8rem; }
+
+.facts dt, .facts-key {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* A value that carries a status hue. The hue never travels alone: the dot brings a
+   glyph and a word with it, here and on the tiles alike. */
+.signal { display: inline-flex; align-items: baseline; gap: 5px; overflow-wrap: anywhere; }
+.signal .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tile-color, var(--rule)); flex: none; align-self: center; }
+.signal .glyph { color: var(--ink-2); font-size: 0.9em; }
+
+/* ---------- landing page ---------- */
+
+.bundle-picker { display: grid; gap: 14px; margin-top: 8px; }
+.bundle-picker:not(.single) { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+.bundle-index {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  padding: 4px 16px 14px;
+}
+
+.bundle-index h2 { font-size: 1.05rem; margin: 16px 0 4px; }
+.bundle-index h2 a { color: var(--ink); text-decoration: none; }
+.bundle-index h2 a:hover { text-decoration: underline; }
+.bundle-index h2 .count { color: var(--muted); font-size: 0.78rem; font-weight: 400; }
+
+/* The index body is a generated table of contents; its own `# Heading` must not
+   compete with the site title above it. */
+.landing-index h1 { font-size: 1rem; color: var(--muted); font-weight: 600; margin: 14px 0 4px; }
+.landing-index ul { padding-left: 20px; }
+.landing-index li { margin: 2px 0; }
+
+.landing-more { margin-top: 20px; font-size: 0.9rem; }
+
+/* ---------- concept page ---------- */
+
+.concept-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+
+@media (min-width: 900px) {
+  .concept-layout { grid-template-columns: minmax(0, 1fr) 310px; align-items: start; }
+  .meta-panel { position: sticky; top: 66px; }
+}
+
+.prose { max-width: 74ch; overflow-wrap: break-word; }
+.prose h1 { font-size: 1.35rem; margin: 30px 0 8px; }
+.prose h2 { font-size: 1.15rem; }
+.prose img { max-width: 100%; height: auto; }
+.prose table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
+.prose th, .prose td { border: 1px solid var(--hairline); padding: 6px 10px; text-align: left; }
+.prose blockquote { margin: 0; padding-left: 14px; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+.panel {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  padding: 13px 15px;
+  margin: 0 0 12px;
+}
+
+.panel h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 9px; }
+.panel dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 0.88rem; }
+.panel dt { color: var(--muted); }
+.panel dd { margin: 0; overflow-wrap: anywhere; }
+
+/* A metadata value can be a long actor string or an ISO timestamp; inside the narrow
+   panel it wraps rather than running off the edge. */
+.panel .signal { display: inline; overflow-wrap: anywhere; }
+.panel .signal .dot { display: inline-block; vertical-align: 1px; margin-right: 4px; }
+.panel .signal .glyph { margin-right: 3px; }
+.panel-note { margin: 8px 0 0; font-size: 0.74rem; color: var(--muted); }
+
+.sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+
+.source {
+  border-left: 2px solid var(--hairline);
+  padding-left: 10px;
+  font-size: 0.85rem;
+  scroll-margin-top: 70px;
+}
+
+.source:target { border-left-color: var(--accent); background: color-mix(in oklab, var(--accent) 10%, transparent); }
+.source .source-title { font-weight: 600; }
+.source .signals { display: flex; flex-wrap: wrap; gap: 2px 13px; margin-top: 4px; color: var(--ink-2); font-size: 0.8rem; }
+.source .cite { font-family: var(--mono); font-size: 0.74rem; }
+
+.footnotes { font-size: 0.88rem; color: var(--ink-2); border-top: 1px solid var(--hairline); margin-top: 30px; padding-top: 6px; }
+.footnotes li { scroll-margin-top: 70px; }
+.footnotes li:target { background: color-mix(in oklab, var(--accent) 10%, transparent); }
+
+.backlinks { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: 0.9rem; }
+.backlinks .path { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); display: block; }
+
+.empty { color: var(--muted); font-style: italic; }
+
+/* ---------- graph ---------- */
+
+.graph-wrap {
+  position: relative;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+#graph-canvas { display: block; width: 100%; height: 62vh; min-height: 340px; touch-action: none; cursor: grab; }
+#graph-canvas.dragging { cursor: grabbing; }
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.graph-legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.graph-legend .swatch { width: 10px; height: 10px; border-radius: 50%; }
+
+.graph-tip {
+  position: absolute;
+  pointer-events: none;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  color: var(--ink);
+  font-size: 0.8rem;
+  box-shadow: var(--shadow);
+  max-width: 260px;
+  display: none;
+}
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+button.btn {
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+button.btn:hover { border-color: var(--accent); }
+
+/* ---------- single-file mode ---------- */
+
+.view { display: none; }
+.view.active { display: block; }
+.noscript-note { margin: 16px 0; padding: 10px 14px; border: 1px solid var(--critical); border-radius: var(--radius-sm); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+footer.site-foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--hairline); color: var(--muted); font-size: 0.8rem; }

@@ -3,6 +3,7 @@
 
 stages:
   - validate
+  - deploy
   - release
 
 variables:
@@ -487,3 +488,53 @@ custodian-inbox:
     expire_in: 30 days
     paths:
       - artifacts/custodian/inbox.json
+
+# ---------------------------------------------------------------------------
+# GitLab Pages for the generated knowledge site (issue #6).
+#
+# `okf site` renders the dogfood vault as a self-contained static site: a landing
+# page carrying the bundle's index hierarchy, a trust dashboard whose tiles and
+# tags are filters, a force-directed graph, one page per concept. Nothing about
+# it needs a server — every link is relative and no page makes a network request
+# — so the same directory is hostable here and openable from a `file://` path.
+#
+# `pages` is a reserved job name: a job called `pages` is a Pages deployment job
+# with no further declaration, and the directory it publishes is `public` from
+# its own artifacts. `--name` sets the site's title; without it the vault's
+# directory name ("okf") is used, which is not what a reader wants to see.
+#
+# ONE deployment, on the default branch only. Merging is the deploy; nothing else
+# writes there. This replaces the temporary branch-scoped rule that published the
+# 6-static-site branch to the root while the design was being reviewed.
+#
+# Branch review environments were built and tried on this instance, and refused
+# (2026-08-15, pipeline 331). `pages.path_prefix` — GitLab's parallel-deployments
+# feature — is a Premium/Ultimate keyword, and this is GitLab CE 19.0.1
+# (`/version` reports `"enterprise": false`). It does not fail the job: the
+# keyword is accepted by the linter, accepted by the pipeline, and then silently
+# ignored, so `$CI_PAGES_URL` came back as the bare domain, the prefixed path
+# 404s, and the feature branch published straight over the site root. A silent
+# no-op that overwrites production is worse than no feature, so the review jobs
+# were removed rather than left in place hoping.
+#
+# The accepted fallback (Ringo, 2026-08-15): reviewers run `mise run site` and
+# open `artifacts/site/index.html` locally. Reinstating branch deploys needs a
+# Premium licence, or a non-Pages host.
+#
+# The stage is `deploy`, after `validate`: a site whose generator failed its own
+# test suite should never reach a URL. It does not run on a tag — a release
+# publishes a binary, not a website.
+pages:
+  extends: .dotnet
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment:
+    name: pages
+    url: $CI_PAGES_URL
+  script:
+    - dotnet run --project src/Okf.Cli -c Release -- site okf/ --out public --name "okf-net"
+    - echo "==> published to ${CI_PAGES_URL}"
+  artifacts:
+    paths:
+      - public
