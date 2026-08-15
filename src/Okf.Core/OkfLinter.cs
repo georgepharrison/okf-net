@@ -32,13 +32,22 @@ public sealed class OkfLintResult
     /// <param name="diagnostics">The diagnostics, already ordered deterministically.</param>
     /// <param name="bundles">The bundles that were linted.</param>
     /// <param name="fileCount">How many markdown files were read.</param>
-    public OkfLintResult(IReadOnlyList<OkfDiagnostic> diagnostics, IReadOnlyList<OkfBundle> bundles, int fileCount)
+    /// <param name="severities">
+    /// The severity configuration the run used, so a report can say which rules were live;
+    /// defaults to the built-in severities.
+    /// </param>
+    public OkfLintResult(
+        IReadOnlyList<OkfDiagnostic> diagnostics,
+        IReadOnlyList<OkfBundle> bundles,
+        int fileCount,
+        OkfSeverityResolver? severities = null)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
         ArgumentNullException.ThrowIfNull(bundles);
         Diagnostics = diagnostics;
         Bundles = bundles;
         FileCount = fileCount;
+        Severities = severities ?? OkfSeverityResolver.Default;
     }
 
     /// <summary>Every diagnostic produced, including ones at hidden severity.</summary>
@@ -49,6 +58,20 @@ public sealed class OkfLintResult
 
     /// <summary>How many markdown files were read.</summary>
     public int FileCount { get; }
+
+    /// <summary>The severity configuration the run used.</summary>
+    public OkfSeverityResolver Severities { get; }
+
+    /// <summary>
+    /// How many rules could have reported: those whose effective severity is not
+    /// <see cref="OkfSeverity.Hidden" />. A clean run is only meaningful next to this
+    /// count — nothing found and nothing enabled look identical otherwise.
+    /// </summary>
+    public int ActiveRuleCount =>
+        OkfRules.All.Count(rule => Severities.Resolve(rule.Id) != OkfSeverity.Hidden);
+
+    /// <summary>How many rules are configured to <see cref="OkfSeverity.Hidden" />.</summary>
+    public int HiddenRuleCount => OkfRules.All.Count - ActiveRuleCount;
 
     /// <summary>Whether any diagnostic resolved to <see cref="OkfSeverity.Error" />.</summary>
     public bool HasErrors => Count(OkfSeverity.Error) > 0;
@@ -90,7 +113,7 @@ public sealed class OkfLinter
         }
 
         diagnostics.Sort();
-        return new OkfLintResult(diagnostics, list, files);
+        return new OkfLintResult(diagnostics, list, files, this.options.Severities);
     }
 
     /// <summary>Lints a single bundle.</summary>
@@ -563,16 +586,28 @@ public sealed class OkfLinter
             }
         }
 
-        var cited = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        // Only a footnote *reference* counts as a citation. A `[^id]: …` definition line is
+        // the source's own entry in the notes, not a claim attributed to it, so a
+        // definition with no reference above it is exactly the shape of a source that was
+        // listed and then never used (the first dogfood bundle shipped one, and only
+        // markdownlint's MD053 caught it — decisions.md, lint review flags).
+        var referenced = new HashSet<string>(
+            scan.Footnotes.Where(footnote => !footnote.IsDefinition).Select(footnote => footnote.Label),
+            StringComparer.Ordinal);
+
         foreach (var footnote in scan.Footnotes)
         {
-            if (!cited.Add(footnote.Label))
+            if (!seen.Add(footnote.Label))
             {
                 continue;
             }
 
             // §5.1: the footnote label is the join key into `sources`; a label that joins
-            // to nothing attributes a claim to a source the bundle does not record.
+            // to nothing attributes a claim to a source the bundle does not record. Both
+            // occurrence forms are held to it — a definition for a label no source
+            // declares is as dangling as a reference to one.
             if (!sourceIds.Contains(footnote.Label, StringComparer.Ordinal))
             {
                 diagnostics.Add(Diagnostic(
@@ -584,7 +619,7 @@ public sealed class OkfLinter
             }
         }
 
-        foreach (var id in sourceIds.Where(id => !cited.Contains(id)))
+        foreach (var id in sourceIds.Where(id => !referenced.Contains(id)))
         {
             diagnostics.Add(Diagnostic(
                 OkfRules.UnusedSourceId,
@@ -593,6 +628,8 @@ public sealed class OkfLinter
                 sourcesLine,
                 bundle));
         }
+
+        CheckSourceResources(bundle, path, sourcesLine, frontmatter, diagnostics);
 
         // PRD CORE-8: the compensating control for cited-live sources — the source moved
         // after the concept was written, so the concept may no longer reflect it.
@@ -611,6 +648,53 @@ public sealed class OkfLinter
                 diagnostics.Add(Diagnostic(
                     OkfRules.SourceDrift,
                     $"Source `{name}` was last modified {modified:yyyy-MM-dd}, after this concept was generated on {generatedAt:yyyy-MM-dd}.",
+                    path,
+                    sourcesLine,
+                    bundle));
+            }
+        }
+    }
+
+    /// <summary>
+    /// §5.1's `resource` is REQUIRED within a `sources` entry, and §6.2 fixes the forms a
+    /// path-valued one may take. Neither is §11 conformance, so neither errors by default:
+    /// a missing pointer is a provenance record that cannot be followed (warning), and a
+    /// path that names nothing in the bundle is reported the way a broken link is (info),
+    /// because the same "the target may simply not be here" tolerance applies.
+    /// </summary>
+    private void CheckSourceResources(
+        OkfBundle bundle,
+        string path,
+        int sourcesLine,
+        OkfMapping frontmatter,
+        List<OkfDiagnostic> diagnostics)
+    {
+        var directory = Path.GetDirectoryName(path)!;
+        var position = 0;
+
+        foreach (var source in Sources(frontmatter))
+        {
+            position++;
+            var name = Text(source, "id") is { } id ? $"`{id}`" : $"#{position.ToString(CultureInfo.InvariantCulture)}";
+
+            if (Text(source, "resource") is not { } resource)
+            {
+                diagnostics.Add(Diagnostic(
+                    OkfRules.MissingSourceResource,
+                    $"Source {name} has no `resource`; every `sources` entry needs one (§5.1).",
+                    path,
+                    sourcesLine,
+                    bundle));
+                continue;
+            }
+
+            // §5.1 explicitly allows a scope descriptor here and §6.2 an absolute URL;
+            // neither is checked, and neither is a network call (PRD CLI-16).
+            if (LintText.ClassifyResource(resource, bundle.Root, directory) == SourceResource.Unresolved)
+            {
+                diagnostics.Add(Diagnostic(
+                    OkfRules.UnresolvableSourceResource,
+                    $"Source {name} points at `{resource}`, which resolves to nothing inside the bundle (§6.2).",
                     path,
                     sourcesLine,
                     bundle));
@@ -660,7 +744,26 @@ public sealed class OkfLinter
 
         foreach (var link in scan.Links)
         {
-            if (!LintText.TryResolveLink(link.Target, bundle.Root, directory, out var resolved))
+            var target = LintText.Resolve(link.Target, bundle.Root, directory, out var resolved);
+
+            if (target == LinkTarget.Outside)
+            {
+                // Spec-tolerated and therefore never an error by default: §6.2 grants
+                // relative paths and says nothing about staying inside the root. But an
+                // unreported one is indistinguishable from a correct link, and a bundle
+                // that only reads correctly from inside this checkout is not portable —
+                // so it is said out loud, at info. Nothing is read: containment on the
+                // read paths (MCP-5) is a separate, harder refusal.
+                diagnostics.Add(Diagnostic(
+                    OkfRules.LinkLeavesBundle,
+                    $"Link target `{link.Target}` resolves outside the bundle root (§6.2).",
+                    path,
+                    link.Line,
+                    bundle));
+                continue;
+            }
+
+            if (target != LinkTarget.Inside)
             {
                 continue;
             }
