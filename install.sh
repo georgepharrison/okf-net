@@ -1,5 +1,5 @@
 #!/bin/sh
-# okf installer.
+# okf installer, for Linux and macOS. On Windows, use install.ps1.
 #
 #   curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 #
@@ -26,12 +26,17 @@
 
 set -eu
 
-# Trailing slash trimmed once, here, because every URL below is built by appending to this
-# and `https://host//latest.json` is a different URL to most caches and some servers.
+# Trailing slashes trimmed here, because every URL below is built by appending to this and
+# `https://host//latest.json` is a different URL to most caches and some servers. ALL of
+# them, not one: `${VAR%/}` strips a single slash, so a base URL ending `//` — an ordinary
+# copy-paste — would still build the doubled path this exists to prevent. install.ps1 uses
+# `TrimEnd('/')`, which strips all of them, and the two installers should not disagree
+# about what the same environment variable means.
 OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.okf.tychostation.dev}"
-OKF_BASE_URL="${OKF_BASE_URL%/}"
+while [ "${OKF_BASE_URL%/}" != "$OKF_BASE_URL" ]; do
+  OKF_BASE_URL="${OKF_BASE_URL%/}"
+done
 OKF_DIR="${OKF_INSTALL_DIR:-$HOME/.local/bin}"
-OKF_ASSET="okf-linux-x64"
 
 version=""
 dry_run=0
@@ -76,27 +81,64 @@ done
 # ---------------------------------------------------------------------------
 # Platform
 #
-# Refuse early and by name. An installer that downloads a linux-x64 binary onto an arm64
-# Mac and then fails with "cannot execute binary file" has told the user nothing about why.
+# Which asset this machine gets is decided HERE and nowhere else: everything downstream
+# reads $OKF_ASSET. Two builds ship (#36):
+#
+#   Linux  x86_64  ->  okf-linux-x64   NativeAOT, ~6 MB
+#   Darwin arm64   ->  okf-osx-arm64   trim-safe self-contained, ~15 MB
+#
+# Anything else is refused BY NAME, and that is the point of doing it first. An installer
+# that downloads a linux-x64 binary onto an arm64 Mac and then fails with "cannot execute
+# binary file" has told the user nothing about why.
+#
+# Windows is not reachable from here — a stock Windows box has no `uname` and no `sh` —
+# so the Windows path is install.ps1, and the catch-all below says so rather than leaving
+# a reader to guess.
 # ---------------------------------------------------------------------------
 
 os="$(uname -s 2>/dev/null || echo unknown)"
 arch="$(uname -m 2>/dev/null || echo unknown)"
 
-case "$os" in
-  Linux) ;;
-  *)
-    die "okf ships a linux-x86_64 binary only; this is ${os}.
-    Build from source instead: https://gitlab.tychostation.dev/ringo/okf-net"
+case "${os}/${arch}" in
+  Linux/x86_64|Linux/amd64)
+    OKF_ASSET="okf-linux-x64"
     ;;
-esac
-
-case "$arch" in
-  x86_64|amd64) ;;
-  *)
-    die "okf ships a linux-x86_64 binary only; this machine is ${arch}.
+  Darwin/arm64|Darwin/aarch64)
+    OKF_ASSET="okf-osx-arm64"
+    ;;
+  Darwin/x86_64)
+    # TWO different machines answer `uname -m` this way, and they need opposite advice:
+    # a real Intel Mac, and an Apple Silicon Mac whose shell happens to be running
+    # translated (an x86_64 Terminal, or an x86_64 Homebrew, both of which are ordinary
+    # and neither of which announces itself). `hw.optional.arm64` is the hardware talking
+    # rather than the process, so it tells them apart. Telling an M-series owner that
+    # their machine has no build would be wrong, and they would believe it.
+    if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = 1 ]; then
+      die "this is an Apple Silicon Mac, but the shell running install.sh is x86_64
+    — Rosetta. okf ships an arm64 macOS build and no x86_64 one, so re-run this
+    under a native shell:
+        arch -arm64 /bin/sh -c 'curl -fsSL ${OKF_BASE_URL}/install.sh | sh'"
+    fi
+    # A real Intel Mac. Rosetta cannot help — it translates x86_64 to arm64, not the
+    # other way — so there is nothing to fall back to, and saying "no macOS build" would
+    # be wrong as well as unhelpful. An osx-x64 asset is one more runtime identifier on
+    # the same publish job, so this is a question of whether anyone needs it.
+    die "okf has no Intel-Mac build. This machine is Darwin/x86_64; the macOS build
+    that ships is Apple Silicon (osx-arm64), and Rosetta translates the wrong way.
+    Adding osx-x64 is one more line in the publish job — ask for it at
+    https://gitlab.tychostation.dev/ringo/okf-net/-/issues/36
+    Meanwhile, build from source: https://gitlab.tychostation.dev/ringo/okf-net"
+    ;;
+  Linux/*)
+    die "okf ships a linux-x86_64 binary for Linux; this machine is ${arch}.
     There is no ${arch} build yet. Build from source instead:
     https://gitlab.tychostation.dev/ringo/okf-net"
+    ;;
+  *)
+    die "okf ships Linux x86_64 and macOS arm64 binaries; this is ${os} (${arch}).
+    On Windows, use the PowerShell installer instead:
+        irm https://get.okf.tychostation.dev/install.ps1 | iex
+    Otherwise build from source: https://gitlab.tychostation.dev/ringo/okf-net"
     ;;
 esac
 
@@ -268,6 +310,27 @@ staging="${OKF_DIR}/.okf.install.$$"
 cp "$tmp/okf" "$staging" || die "could not write to ${OKF_DIR}"
 chmod 0755 "$staging"
 mv -f "$staging" "$dest" || { rm -f "$staging"; die "could not install to ${dest}"; }
+
+# macOS Gatekeeper (#36). curl tags anything it downloads with the com.apple.quarantine
+# extended attribute, and Gatekeeper refuses to run a quarantined binary that is neither
+# signed nor notarised: the user gets "cannot be opened because the developer cannot be
+# verified", from a dialog, for a command-line tool they installed on purpose. okf is
+# unsigned today — signing and notarisation need an Apple Developer account and are a
+# post-1.0 problem — so the installer clears the flag it just caused.
+#
+# This is not a security bypass smuggled into an installer. The user has already piped
+# this script into `sh`; removing an attribute from a file this same script downloaded,
+# verified against the manifest's sha256 and wrote itself extends no further trust than
+# that. What it does not do is weaken the check that matters: the digest was compared
+# before anything was written, and a mismatch exits above without reaching here.
+#
+# Never fatal, and only when there is an `xattr` to run. The attribute may simply not be
+# set — wget does not set it, nor does a copy from a local path — and `xattr -d` on an
+# absent attribute is an error worth ignoring rather than an install worth failing.
+# It runs BEFORE the version check below, because a quarantined binary would fail that.
+if [ "$os" = Darwin ] && have xattr; then
+  xattr -d com.apple.quarantine "$dest" >/dev/null 2>&1 || true
+fi
 
 say "==> installed"
 if reported="$("$dest" version 2>/dev/null)"; then

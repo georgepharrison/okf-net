@@ -1,9 +1,9 @@
 ---
 type: Playbook
 title: Release and Versioning
-description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing release the installer can verify.
+description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing three-platform release the installers can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T18:21:25Z }
+generated: { by: claude-fable/5, at: 2026-08-15T19:41:13Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,35 +67,69 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces four artifacts under one package version. The first
-is a self-contained NativeAOT `linux-x64` binary, of the kind described in
-[library, CLI, MCP layering](../toolset/library-cli-mcp-layering.md); it goes
-to the project's generic package registry as `okf/<version>/okf-linux-x64`.
-The second is `okf-net-knowledge.tar.gz`: **this bundle**, packaged by the
+The `publish` job produces six artifacts under one package version.
+
+Three are binaries, of the kind described in [library, CLI, MCP
+layering](../toolset/library-cli-mcp-layering.md), and they are not built the
+same way. `okf-linux-x64` is NativeAOT, about 6 MB. `okf-osx-arm64` and
+`okf-win-x64.exe` are trim-safe self-contained single files, about 15 MB each.
+The split is forced by where the runner is: NativeAOT compiles through the
+**host's** native toolchain, so a Linux runner cannot produce a Mach-O or a PE
+image, and this instance has no Mac or Windows runner. PRD Q10 wrote that
+fallback down in advance — trim-safe self-contained, paying size and cold start
+— expecting a language feature to trigger it; what triggered it was geography.
+The trim analyzer still runs, so Q10's zero-warning finding is re-checked per
+platform on every release rather than assumed to travel.
+
+The fourth is `okf-net-knowledge.tar.gz`: **this bundle**, packaged by the
 binary the same job just built, so every release ships the toolset's own
 knowledge as an installable OKF bundle. How it is packaged — and why the
 archive is byte-reproducible from the tag — is [bundling and
 distribution](../toolset/bundling-and-distribution.md). The release gains an
 asset link per artifact.
 
-The other two make a release **self-describing**. `latest.json` names the
+The last two make a release **self-describing**. `latest.json` names the
 version and, per asset, a relative path, a size and a `sha256` computed in the
-job from the exact bytes it uploaded. `install.sh` is the installer that reads
-it, uploaded from the repository so that the installer a release hands you is
-the one that release was cut with, rather than whatever is on `main` today. The
-installer is itself in the asset map: it cannot use its own digest, but a host
-that republishes a release can, which is the only check the file people pipe
-into `sh` would otherwise have.
+job from the exact bytes it uploaded; it has been a map keyed by asset name
+from the start, so three platforms were more entries rather than a new shape.
+`install.sh` and `install.ps1` are the installers that read it, uploaded from
+the repository so that the installer a release hands you is the one that
+release was cut with, rather than whatever is on `main` today. Both are
+themselves in the asset map: neither can use its own digest, but a host that
+republishes a release can, which is the only check a file people pipe into a
+shell would otherwise have.
+
+Only the Linux binary can be executed by the job that builds it, so only it
+gets the self-version assertion — publish, run it, refuse to publish if what it
+reports is not the version the package will claim. The other two get the one
+static check worth having: `file`'s output is **grepped**, not merely printed,
+because a publish that produced an ELF for a Windows runtime identifier prints
+into a green log and reaches a tester's machine.
 
 # Installing
 
-`curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` fetches
-`latest.json`, verifies the binary against the digest in it, and installs
-atomically to `~/.local/bin/okf`. `--version` pins a release, `--dry-run`
-reports without writing, and re-running is safe. Redirects are followed, but an
-`https` base URL is only ever followed to `https` — a single hop down to
-cleartext would let one party write both the binary and the digest it is
-checked against.
+`curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` covers Linux and
+macOS; `irm https://get.okf.tychostation.dev/install.ps1 | iex` covers Windows.
+Each fetches `latest.json`, selects the asset for the machine it is running on,
+verifies it against the digest in the manifest, and installs atomically — to
+`~/.local/bin/okf`, or to `%LOCALAPPDATA%\okf\bin\okf.exe` with the user
+`PATH` updated. Neither needs root or Administrator. Pinning a version,
+reporting without writing, and re-running safely all work the same on both.
+
+`install.sh` decides the platform in one `case` and refuses everything else by
+name — an Intel Mac gets told that Rosetta translates the wrong way and where
+to ask for an `osx-x64` build; anything non-Unix gets pointed at the PowerShell
+installer. On macOS it also removes `com.apple.quarantine` from what it just
+installed: `curl` sets that attribute on every download and Gatekeeper refuses
+to run a quarantined binary that is neither signed nor notarised. The binary is
+unsigned, because signing needs an Apple Developer account, and the workaround
+is labelled as one rather than left as a surprise dialog.
+
+Redirects are followed by `install.sh`, but an `https` base URL is only ever
+followed to `https` — a single hop down to cleartext would let one party write
+both the binary and the digest it is checked against. `install.ps1` cannot make
+that promise: PowerShell has no equivalent of curl's `--proto-redir`. It
+requires an `https` base URL and says so in the file.
 
 The host it names is an internal nginx that pulls each release from the
 package registry and serves it read-only. **It resolves only inside Ringo's
@@ -119,12 +153,22 @@ registry token held by the host, and nothing needs inbound access to it at all.
 been cut since it was written, so nothing above is observed behaviour — it is
 what the job is built to do. No release published so far carries a binary,
 which also means the artifact host has nothing to serve and the install
-one-liner has nothing to install. What the local evidence does cover: the
+one-liners have nothing to install. What the local evidence does cover: the
 pipeline is valid against the instance, the merged YAML confirms the job is
 tag-only and every other job branch-only, the API endpoints it calls were
-probed read-only, and the manifest the job writes was generated locally from
-the same block and shown to round-trip through the installer's reader. What it
-cannot cover is the job end to end. Treat the first tag as the test.
+probed read-only, all three binaries were built locally by `mise run
+publish-all` and confirmed to be an ELF, a Mach-O arm64 and a PE32+ image, and
+the manifest the job writes was generated locally from the same block and shown
+to round-trip through the installer's reader. What it cannot cover is the job
+end to end. Treat the first tag as the test.
+
+Two further things nothing here has run. The macOS and Windows binaries are
+cross-compiled on a Linux runner and cannot be executed by it, so their first
+execution anywhere is a tester's. `install.ps1` has no acceptance suite at all,
+because this pipeline has no Windows runner; it is static-analysed with
+PSScriptAnalyzer and reviewed, which catches an unapproved verb and nothing
+about Gatekeeper. `install.sh` is covered by 73 assertions per shell, run under
+both `sh` and `dash`.
 
 The version is the tag without its leading `v`, so a downloaded binary answers
 `okf version` with the package version it came from, plus the short commit sha
@@ -141,7 +185,11 @@ a tag pipeline is a normal thing to do, and the two new assets go through the
 same loop as the first two.
 
 Still open from PRD Q10: `Okf.Core` as a NuGet package on the instance's
-built-in registry, and builds for platforms other than glibc `linux-x64`.
+built-in registry; NativeAOT for macOS and Windows, which needs a runner on
+each; code signing and notarisation; and `brew`/`winget` formulas, which want
+both a public download URL and a signed artifact. An `osx-x64`, musl or
+`linux-arm64` asset is one line in the publish job and one case label in the
+installer, and is not built on speculation.
 
 The point of shipping a binary rather than a runtime-dependent package is
 stated in the goals and worth repeating here: **the implementation language

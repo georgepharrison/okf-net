@@ -309,22 +309,27 @@ publish:
   variables:
     # Same package coordinates the README's install one-liner documents. The
     # file name carries the platform because the package version cannot: one
-    # generic package version holds many files, and a future darwin-arm64 or
-    # linux-musl build is another file under this same version.
+    # generic package version holds many files, and each RID is another file
+    # under this same version. That shape is why issue #36 needed no schema
+    # change here — only more entries.
     OKF_PACKAGE_NAME: okf
-    OKF_PACKAGE_FILE: okf-linux-x64
-    # The second release asset (issue #5): this repository's own knowledge bundle,
+    OKF_LINUX_FILE: okf-linux-x64
+    OKF_OSX_FILE: okf-osx-arm64
+    OKF_WIN_FILE: okf-win-x64.exe
+    # The knowledge asset (issue #5): this repository's own knowledge bundle,
     # packaged by the binary this job just built. Same package version, another
     # file under it — which is exactly what the generic registry's one-version-
     # many-files shape is for.
     OKF_KNOWLEDGE_FILE: okf-net-knowledge.tar.gz
-    # The third and fourth assets (issue #25), which together make a release
-    # self-describing: a manifest naming every asset with its sha256, and the
-    # installer that reads it. Uploading install.sh from the repo — rather than
-    # letting the artifact host serve whatever is on main — means the installer a
-    # release hands you is the one that release was cut with.
+    # The self-describing pair (issue #25): a manifest naming every asset with
+    # its sha256, and the installers that read it. Uploading them from the repo —
+    # rather than letting the artifact host serve whatever is on main — means the
+    # installer a release hands you is the one that release was cut with. Two
+    # installers since #36: install.sh for Linux and macOS, install.ps1 for
+    # Windows.
     OKF_MANIFEST_FILE: latest.json
     OKF_INSTALLER_FILE: install.sh
+    OKF_INSTALLER_PS_FILE: install.ps1
   script:
     - |
       # The tag is `vX.Y.Z-rc.N`; the package version is the same string without
@@ -334,10 +339,14 @@ publish:
       # non-semver version and accepted it (2026-08-14), so the strip is a
       # consistency choice, not a validation workaround.
       OKF_VERSION="${CI_COMMIT_TAG#v}"
-      OKF_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_PACKAGE_FILE}"
-      OKF_KNOWLEDGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_KNOWLEDGE_FILE}"
-      OKF_MANIFEST_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_MANIFEST_FILE}"
-      OKF_INSTALLER_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_INSTALLER_FILE}"
+      OKF_PACKAGE_BASE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}"
+      OKF_LINUX_URL="${OKF_PACKAGE_BASE}/${OKF_LINUX_FILE}"
+      OKF_OSX_URL="${OKF_PACKAGE_BASE}/${OKF_OSX_FILE}"
+      OKF_WIN_URL="${OKF_PACKAGE_BASE}/${OKF_WIN_FILE}"
+      OKF_KNOWLEDGE_URL="${OKF_PACKAGE_BASE}/${OKF_KNOWLEDGE_FILE}"
+      OKF_MANIFEST_URL="${OKF_PACKAGE_BASE}/${OKF_MANIFEST_FILE}"
+      OKF_INSTALLER_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_FILE}"
+      OKF_INSTALLER_PS_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_PS_FILE}"
       OKF_RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}"
       # The job token authenticates both APIs. If the instance ever refuses it
       # for release asset links, set a project CI variable RELEASE_API_TOKEN
@@ -350,11 +359,14 @@ publish:
         echo "==> authenticating with the CI job token"
       fi
       echo "==> tag ${CI_COMMIT_TAG} -> version ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
-      echo "    package:   ${OKF_PACKAGE_URL}"
-      echo "    knowledge: ${OKF_KNOWLEDGE_URL}"
-      echo "    manifest:  ${OKF_MANIFEST_URL}"
-      echo "    installer: ${OKF_INSTALLER_URL}"
-      echo "    release:   ${OKF_RELEASE_URL}"
+      echo "    linux-x64:   ${OKF_LINUX_URL}"
+      echo "    osx-arm64:   ${OKF_OSX_URL}"
+      echo "    win-x64:     ${OKF_WIN_URL}"
+      echo "    knowledge:   ${OKF_KNOWLEDGE_URL}"
+      echo "    manifest:    ${OKF_MANIFEST_URL}"
+      echo "    install.sh:  ${OKF_INSTALLER_URL}"
+      echo "    install.ps1: ${OKF_INSTALLER_PS_URL}"
+      echo "    release:     ${OKF_RELEASE_URL}"
 
     - |
       # NativeAOT needs a C toolchain and zlib headers, which the SDK image does
@@ -389,20 +401,77 @@ publish:
       fi
 
     - |
-      echo "==> uploading ${OKF_PACKAGE_FILE} to the generic package registry"
-      # Re-running a tag pipeline uploads the same file name under the same
+      # The macOS and Windows binaries (issue #36). NOT NativeAOT, and that is a
+      # decision rather than an oversight: NativeAOT compiles through the HOST's
+      # native toolchain, so `-r osx-arm64 -p:PublishAot=true` cannot run here and
+      # there is no Mac or Windows runner attached to this instance. decisions.md
+      # Q10 wrote the fallback down for exactly this case — trim-safe
+      # self-contained non-AOT, paying size and cold start — and this exercises it.
+      #
+      # `-p:PublishAot=false` is required, not tidy: Okf.Cli.csproj turns PublishAot
+      # on so the analyzers run on every build, and left on it would try to invoke
+      # ILC for a foreign OS. The trim analyzer still runs under PublishTrimmed, and
+      # TreatWarningsAsErrors is on, so an IL2xxx warning fails this job rather than
+      # shipping quietly. Both RIDs publish clean today.
+      #
+      # Nothing here can be executed: this is a Linux runner. The self-version
+      # assertion above covers linux-x64 only, and for these two the manifest
+      # records size and sha256 of bytes this job produced and nothing more. `file`
+      # is the whole static check, and it is worth the two lines — a publish that
+      # silently produced an ELF for `-r win-x64` would otherwise reach a tester.
+      echo "==> publishing trim-safe self-contained osx-arm64 and win-x64 stamped ${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
+      for rid in osx-arm64 win-x64; do
+        dotnet publish src/Okf.Cli \
+          --configuration Release \
+          --runtime "${rid}" \
+          --self-contained \
+          -p:PublishAot=false \
+          -p:PublishTrimmed=true \
+          -p:PublishSingleFile=true \
+          --output "artifacts/${rid}" \
+          -p:Version="${OKF_VERSION}" \
+          -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}"
+      done
+
+      for built in artifacts/osx-arm64/okf artifacts/win-x64/okf.exe; do
+        [ -f "${built}" ] || {
+          echo "    ${built} was not produced — refusing to publish" >&2; exit 1; }
+      done
+
+      apt-get install -y -qq --no-install-recommends file >/dev/null
+      echo "==> what was built:"
+      file artifacts/aot/okf artifacts/osx-arm64/okf artifacts/win-x64/okf.exe
+
+      # Cheap and worth it: `file`'s own words, checked. The failure this catches is
+      # a publish that produced the host's format for a foreign RID, which prints
+      # into a green log and installs onto a tester's Mac as an ELF.
+      file artifacts/osx-arm64/okf | grep -q 'Mach-O.*arm64' || {
+        echo "    artifacts/osx-arm64/okf is not a Mach-O arm64 binary" >&2; exit 1; }
+      file artifacts/win-x64/okf.exe | grep -q 'PE32+' || {
+        echo "    artifacts/win-x64/okf.exe is not a PE32+ binary" >&2; exit 1; }
+
+    - |
+      echo "==> uploading the three binaries to the generic package registry"
+      # Re-running a tag pipeline uploads the same file names under the same
       # package version again. Generic packages allow duplicates by default, so
       # a rerun is fine as written; if duplicates are ever disallowed on this
       # project, this is the step that will fail, and the fix is to skip the
       # upload when the file already exists — not to force it.
-      curl --silent --show-error --fail-with-body \
-        --header "${OKF_AUTH_HEADER}" \
-        --upload-file artifacts/aot/okf \
-        "${OKF_PACKAGE_URL}"
-      echo
+      for upload in "artifacts/aot/okf|${OKF_LINUX_URL}" \
+                    "artifacts/osx-arm64/okf|${OKF_OSX_URL}" \
+                    "artifacts/win-x64/okf.exe|${OKF_WIN_URL}"; do
+        upload_file="${upload%%|*}"
+        upload_url="${upload#*|}"
+        echo "    ${upload_file} -> ${upload_url##*/}"
+        curl --silent --show-error --fail-with-body \
+          --header "${OKF_AUTH_HEADER}" \
+          --upload-file "${upload_file}" \
+          "${upload_url}"
+        echo
+      done
 
     - |
-      # The second asset (issue #5): okf-net's own knowledge bundle, packaged by
+      # The knowledge asset (issue #5): okf-net's own knowledge bundle, packaged by
       # the binary that was just published — so the toolset's release carries the
       # toolset's knowledge as an installable OKF bundle, and the bundler is
       # exercised by every release rather than only by the test suite.
@@ -437,14 +506,19 @@ publish:
       # manifest: install.sh trusts it, and it can only be trusted if it describes bytes
       # this job saw.
       #
-      # install.sh is in the map too, and it is the entry that matters most. It is the one
-      # file in a release that a stranger pipes into `sh`, and without a digest it is the
-      # one file the artifact host republishes with nothing to check it against — the host
-      # pulls it over TLS with a token and then has to take it on faith. A digest here
-      # gives the host, and anyone re-hosting a release, something to compare. It does not
-      # let the installer verify itself (by the time it runs, it has already run) and it is
-      # not a signature; what it closes is the gap between the bytes this job published and
-      # the bytes a mirror serves.
+      # The installers are in the map too, and those are the entries that matter most.
+      # They are the two files in a release a stranger pipes into `sh` or into `iex`, and
+      # without a digest they are the files the artifact host republishes with nothing to
+      # check them against — the host pulls them over TLS with a token and then has to take
+      # them on faith. A digest here gives the host, and anyone re-hosting a release,
+      # something to compare. It does not let an installer verify itself (by the time it
+      # runs, it has already run) and it is not a signature; what it closes is the gap
+      # between the bytes this job published and the bytes a mirror serves.
+      #
+      # Six assets since issue #36, and the schema did not have to change to hold them:
+      # `assets` was a map keyed by asset name from the day it was written, so three RIDs
+      # and two installers are more entries, not a new shape. install.sh reads exactly the
+      # one it selected; sync.sh reads the ones it is told to.
       #
       # Two locations per asset, because there are two kinds of consumer:
       #   path — relative to whatever base URL the installer was given. This is the one
@@ -466,12 +540,18 @@ publish:
       # holds a fixture written to match this block; change one and change the other.
       echo "==> writing ${OKF_MANIFEST_FILE}"
       OKF_GENERATED_AT="$(date -u -d "${CI_COMMIT_TIMESTAMP}" +%Y-%m-%dT%H:%M:%SZ)"
-      OKF_BINARY_SHA="$(sha256sum artifacts/aot/okf | cut -d' ' -f1)"
-      OKF_BINARY_SIZE="$(wc -c < artifacts/aot/okf | tr -d ' ')"
+      OKF_LINUX_SHA="$(sha256sum artifacts/aot/okf | cut -d' ' -f1)"
+      OKF_LINUX_SIZE="$(wc -c < artifacts/aot/okf | tr -d ' ')"
+      OKF_OSX_SHA="$(sha256sum artifacts/osx-arm64/okf | cut -d' ' -f1)"
+      OKF_OSX_SIZE="$(wc -c < artifacts/osx-arm64/okf | tr -d ' ')"
+      OKF_WIN_SHA="$(sha256sum artifacts/win-x64/okf.exe | cut -d' ' -f1)"
+      OKF_WIN_SIZE="$(wc -c < artifacts/win-x64/okf.exe | tr -d ' ')"
       OKF_KNOWLEDGE_SHA="$(sha256sum "artifacts/${OKF_KNOWLEDGE_FILE}" | cut -d' ' -f1)"
       OKF_KNOWLEDGE_SIZE="$(wc -c < "artifacts/${OKF_KNOWLEDGE_FILE}" | tr -d ' ')"
       OKF_INSTALLER_SHA="$(sha256sum "${OKF_INSTALLER_FILE}" | cut -d' ' -f1)"
       OKF_INSTALLER_SIZE="$(wc -c < "${OKF_INSTALLER_FILE}" | tr -d ' ')"
+      OKF_INSTALLER_PS_SHA="$(sha256sum "${OKF_INSTALLER_PS_FILE}" | cut -d' ' -f1)"
+      OKF_INSTALLER_PS_SIZE="$(wc -c < "${OKF_INSTALLER_PS_FILE}" | tr -d ' ')"
 
       cat > "artifacts/${OKF_MANIFEST_FILE}" <<JSON
       {
@@ -479,11 +559,23 @@ publish:
         "tag": "${CI_COMMIT_TAG}",
         "generatedAt": "${OKF_GENERATED_AT}",
         "assets": {
-          "${OKF_PACKAGE_FILE}": {
-            "path": "v${OKF_VERSION}/${OKF_PACKAGE_FILE}",
-            "size": ${OKF_BINARY_SIZE},
-            "sha256": "${OKF_BINARY_SHA}",
-            "url": "${OKF_PACKAGE_URL}"
+          "${OKF_LINUX_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_LINUX_FILE}",
+            "size": ${OKF_LINUX_SIZE},
+            "sha256": "${OKF_LINUX_SHA}",
+            "url": "${OKF_LINUX_URL}"
+          },
+          "${OKF_OSX_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_OSX_FILE}",
+            "size": ${OKF_OSX_SIZE},
+            "sha256": "${OKF_OSX_SHA}",
+            "url": "${OKF_OSX_URL}"
+          },
+          "${OKF_WIN_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_WIN_FILE}",
+            "size": ${OKF_WIN_SIZE},
+            "sha256": "${OKF_WIN_SHA}",
+            "url": "${OKF_WIN_URL}"
           },
           "${OKF_KNOWLEDGE_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_KNOWLEDGE_FILE}",
@@ -496,25 +588,33 @@ publish:
             "size": ${OKF_INSTALLER_SIZE},
             "sha256": "${OKF_INSTALLER_SHA}",
             "url": "${OKF_INSTALLER_URL}"
+          },
+          "${OKF_INSTALLER_PS_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_INSTALLER_PS_FILE}",
+            "size": ${OKF_INSTALLER_PS_SIZE},
+            "sha256": "${OKF_INSTALLER_PS_SHA}",
+            "url": "${OKF_INSTALLER_PS_URL}"
           }
         }
       }
       JSON
       cat "artifacts/${OKF_MANIFEST_FILE}"
 
-      echo "==> uploading ${OKF_MANIFEST_FILE} and ${OKF_INSTALLER_FILE}"
-      # Same duplicate-tolerant upload as the two assets above, and the same documented
+      echo "==> uploading ${OKF_MANIFEST_FILE}, ${OKF_INSTALLER_FILE} and ${OKF_INSTALLER_PS_FILE}"
+      # Same duplicate-tolerant upload as the assets above, and the same documented
       # failure mode if this project ever disallows duplicate generic package files.
-      curl --silent --show-error --fail-with-body \
-        --header "${OKF_AUTH_HEADER}" \
-        --upload-file "artifacts/${OKF_MANIFEST_FILE}" \
-        "${OKF_MANIFEST_URL}"
-      echo
-      curl --silent --show-error --fail-with-body \
-        --header "${OKF_AUTH_HEADER}" \
-        --upload-file "${OKF_INSTALLER_FILE}" \
-        "${OKF_INSTALLER_URL}"
-      echo
+      for upload in "artifacts/${OKF_MANIFEST_FILE}|${OKF_MANIFEST_URL}" \
+                    "${OKF_INSTALLER_FILE}|${OKF_INSTALLER_URL}" \
+                    "${OKF_INSTALLER_PS_FILE}|${OKF_INSTALLER_PS_URL}"; do
+        upload_file="${upload%%|*}"
+        upload_url="${upload#*|}"
+        echo "    ${upload_file} -> ${upload_url##*/}"
+        curl --silent --show-error --fail-with-body \
+          --header "${OKF_AUTH_HEADER}" \
+          --upload-file "${upload_file}" \
+          "${upload_url}"
+        echo
+      done
 
     - |
       # semantic-release creates the GitLab release from the main-branch
@@ -547,10 +647,13 @@ publish:
       # Idempotent by construction: link names and URLs must be unique within a
       # release, so a blind POST would fail the second time a tag pipeline runs
       # (a rerun, or a retried job). Ask first — once per asset.
-      for asset in "${OKF_PACKAGE_FILE}|${OKF_PACKAGE_URL}" \
+      for asset in "${OKF_LINUX_FILE}|${OKF_LINUX_URL}" \
+                   "${OKF_OSX_FILE}|${OKF_OSX_URL}" \
+                   "${OKF_WIN_FILE}|${OKF_WIN_URL}" \
                    "${OKF_KNOWLEDGE_FILE}|${OKF_KNOWLEDGE_URL}" \
                    "${OKF_MANIFEST_FILE}|${OKF_MANIFEST_URL}" \
-                   "${OKF_INSTALLER_FILE}|${OKF_INSTALLER_URL}"; do
+                   "${OKF_INSTALLER_FILE}|${OKF_INSTALLER_URL}" \
+                   "${OKF_INSTALLER_PS_FILE}|${OKF_INSTALLER_PS_URL}"; do
         asset_name="${asset%%|*}"
         asset_url="${asset#*|}"
         if grep -qF "${asset_url}" release.json; then
@@ -567,15 +670,21 @@ publish:
         fi
       done
   artifacts:
-    # Both assets are already in the package registry; these copies exist so a
+    # Every asset is already in the package registry; these copies exist so a
     # failed link step can be diagnosed (and the artifacts retrieved) from the
     # job itself. `when: always` is what makes that true — the default, on_success,
     # would throw the copy away in precisely the case it was kept for. Same
     # reasoning, same setting, as the `licenses` job's SBOM.
+    #
+    # The two cross-compiled binaries earn their place here twice over: they are
+    # the only two this pipeline cannot execute, so a job artifact is how a tester
+    # gets one out of a pipeline that failed after building it.
     when: always
     expire_in: 30 days
     paths:
       - artifacts/aot/okf
+      - artifacts/osx-arm64/okf
+      - artifacts/win-x64/okf.exe
       - artifacts/okf-net-knowledge.tar.gz
       - artifacts/latest.json
 

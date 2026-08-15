@@ -68,36 +68,41 @@ mkdir -p "$www"
 VERSION_NEW="1.0.0-rc.16"
 VERSION_OLD="1.0.0-rc.15"
 
+# Every asset a release carries, in the manifest's own order. The two binaries the
+# installer can select between are FIRST, which is what makes the digest assertions below
+# meaningful: the sed reader anchors on a greedy `.*`, so an asset map that grows past the
+# entry being looked up is exactly how a naive reader starts answering with the LAST
+# asset's digest. The Windows binary and install.ps1 are in the fixture too — install.sh
+# will never select them, and having them there proves it does not.
 make_release() { # make_release <version>
-  local v="$1" dir="$www/v$1" sha_bin sha_bundle sha_installer
+  local v="$1" dir="$www/v$1" name sha_line
   mkdir -p "$dir"
 
-  # A stand-in for the NativeAOT binary: a script that answers `okf version` the way the
-  # real one does, so the installer's final "prints the installed version" step is exercised
-  # rather than mocked away.
-  cat >"$dir/okf-linux-x64" <<EOF
+  # Stand-ins for the real binaries: scripts that answer `okf version` the way the real
+  # ones do, so the installer's final "prints the installed version" step is exercised
+  # rather than mocked away. Two of them, with DIFFERENT bytes — that is what makes "did
+  # it pick the right asset" an answerable question rather than a coincidence.
+  for name in okf-linux-x64 okf-osx-arm64; do
+    cat >"$dir/$name" <<EOF
 #!/bin/sh
-[ "\${1:-}" = version ] && echo "$v+abc1234" && exit 0
+[ "\${1:-}" = version ] && echo "$v+abc1234 ($name)" && exit 0
 echo "okf $v" && exit 0
 EOF
-  chmod +x "$dir/okf-linux-x64"
+    chmod +x "$dir/$name"
+  done
 
+  # Never selected by install.sh; present because a release carries them and the reader
+  # has to walk past them.
+  printf 'MZ this is not really a PE binary, version %s\n' "$v" >"$dir/okf-win-x64.exe"
   printf 'not really a tarball, version %s\n' "$v" >"$dir/okf-net-knowledge.tar.gz"
   cp "$installer" "$dir/install.sh"
+  cp "$repo/install.ps1" "$dir/install.ps1"
 
-  sha_bin="$(sha256sum "$dir/okf-linux-x64" | cut -d' ' -f1)"
-  sha_bundle="$(sha256sum "$dir/okf-net-knowledge.tar.gz" | cut -d' ' -f1)"
-  sha_installer="$(sha256sum "$dir/install.sh" | cut -d' ' -f1)"
+  sha_line() { sha256sum "$dir/$1" | cut -d' ' -f1; }
 
   # Written the way .gitlab-ci.yml's `publish` job writes it — same key order, same
   # indentation, same relative `path`. If that job's layout drifts from this fixture, the
   # sed-based reader in install.sh is the thing that breaks, and this is where it shows.
-  #
-  # Three assets, with the binary FIRST and two entries after it. That ordering is the
-  # regression guard on the reader: its asset lookup anchors on a greedy `.*`, so an asset
-  # map that grows past the one entry the installer cares about is exactly how a naive
-  # reader starts returning the last asset's digest for the first asset's name. Every
-  # digest assertion below runs against this shape.
   cat >"$dir/latest.json" <<EOF
 {
   "version": "$v",
@@ -107,20 +112,38 @@ EOF
     "okf-linux-x64": {
       "path": "v$v/okf-linux-x64",
       "size": $(wc -c <"$dir/okf-linux-x64"),
-      "sha256": "$sha_bin",
+      "sha256": "$(sha_line okf-linux-x64)",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-linux-x64"
+    },
+    "okf-osx-arm64": {
+      "path": "v$v/okf-osx-arm64",
+      "size": $(wc -c <"$dir/okf-osx-arm64"),
+      "sha256": "$(sha_line okf-osx-arm64)",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-osx-arm64"
+    },
+    "okf-win-x64.exe": {
+      "path": "v$v/okf-win-x64.exe",
+      "size": $(wc -c <"$dir/okf-win-x64.exe"),
+      "sha256": "$(sha_line okf-win-x64.exe)",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-win-x64.exe"
     },
     "okf-net-knowledge.tar.gz": {
       "path": "v$v/okf-net-knowledge.tar.gz",
       "size": $(wc -c <"$dir/okf-net-knowledge.tar.gz"),
-      "sha256": "$sha_bundle",
+      "sha256": "$(sha_line okf-net-knowledge.tar.gz)",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz"
     },
     "install.sh": {
       "path": "v$v/install.sh",
       "size": $(wc -c <"$dir/install.sh"),
-      "sha256": "$sha_installer",
+      "sha256": "$(sha_line install.sh)",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.sh"
+    },
+    "install.ps1": {
+      "path": "v$v/install.ps1",
+      "size": $(wc -c <"$dir/install.ps1"),
+      "sha256": "$(sha_line install.ps1)",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.ps1"
     }
   }
 }
@@ -132,7 +155,8 @@ make_release "$VERSION_NEW"
 
 # The root is the "latest" channel: copies of the newest version, exactly as sync.sh
 # publishes them on the artifact host.
-for f in latest.json install.sh okf-linux-x64 okf-net-knowledge.tar.gz; do
+for f in latest.json install.sh install.ps1 \
+         okf-linux-x64 okf-osx-arm64 okf-win-x64.exe okf-net-knowledge.tar.gz; do
   cp "$www/v$VERSION_NEW/$f" "$www/$f"
 done
 
@@ -193,7 +217,8 @@ else bad "installs an executable at \$OKF_INSTALL_DIR/okf" "no executable at $di
 check_eq "installs the newest version's bytes" \
   "$(sha256sum "$www/v$VERSION_NEW/okf-linux-x64" | cut -d' ' -f1)" \
   "$(sha256sum "$dir/okf" | cut -d' ' -f1)"
-check_eq "the installed binary runs" "$VERSION_NEW+abc1234" "$("$dir/okf" version)"
+check_eq "the installed binary runs, and is the linux-x64 asset" \
+  "$VERSION_NEW+abc1234 (okf-linux-x64)" "$("$dir/okf" version)"
 if compgen -G "$dir/.okf.install.*" >/dev/null; then
   bad "leaves no staging file behind" "found $(echo "$dir"/.okf.install.*)"
 else ok "leaves no staging file behind"; fi
@@ -248,6 +273,19 @@ check_eq "exits 0" "0" "$rc"
 check_not_contains "does not build a doubled slash into the URLs it reports" "$base//" "$out"
 if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
 
+# More than one of them, because `${VAR%/}` strips exactly one and a base URL pasted with
+# `//` on the end is ordinary. install.ps1's `TrimEnd('/')` strips all of them, and the two
+# installers must not disagree about what the same environment variable means.
+dir="$work/bin-baseslashes-$sh_bin"
+set +e
+out="$(OKF_INSTALL_URL="$base///" OKF_INSTALL_DIR="$dir" "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0 with several trailing slashes" "0" "$rc"
+check_not_contains "trims every trailing slash, not just the last" "$base//" "$out"
+check_contains "and still names the manifest it fetched" "$base/latest.json" "$out"
+if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
+
 note "[$sh_bin] https stays https across redirects"
 # The installer follows redirects, which means one 302 to `http://` would fetch the
 # manifest AND the binary in cleartext — and a sha256 checked against a manifest that
@@ -296,13 +334,14 @@ note "[$sh_bin] --version pins"
 dir="$work/bin-pinned-$sh_bin"
 run "$sh_bin" "$dir" --version "$VERSION_OLD"
 check_eq "exits 0" "0" "$rc"
-check_eq "installs the pinned version" "$VERSION_OLD+abc1234" "$("$dir/okf" version)"
+check_eq "installs the pinned version" "$VERSION_OLD+abc1234 (okf-linux-x64)" "$("$dir/okf" version)"
 check_not_contains "does not install the newest" "$VERSION_NEW+" "$("$dir/okf" version)"
 
 dir="$work/bin-pinned-v-$sh_bin"
 run "$sh_bin" "$dir" --version "v$VERSION_OLD"
 check_eq "a leading v is tolerated" "0" "$rc"
-check_eq "and resolves to the same release" "$VERSION_OLD+abc1234" "$("$dir/okf" version)"
+check_eq "and resolves to the same release" \
+  "$VERSION_OLD+abc1234 (okf-linux-x64)" "$("$dir/okf" version)"
 
 note "[$sh_bin] --dry-run writes nothing"
 dir="$work/bin-dry-$sh_bin"
@@ -369,9 +408,45 @@ check_contains "names the architecture it found" "aarch64" "$out"
 check_contains "says what it does ship" "linux-x86_64" "$out"
 if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
 
-fake_os="$work/fake-os-$sh_bin"
-mkdir -p "$fake_os"
-cat >"$fake_os/uname" <<'EOF'
+fake_bsd="$work/fake-bsd-$sh_bin"
+mkdir -p "$fake_bsd"
+cat >"$fake_bsd/uname" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  -s) echo FreeBSD ;;
+  -m) echo amd64 ;;
+  *)  echo FreeBSD ;;
+esac
+EOF
+chmod +x "$fake_bsd/uname"
+dir="$work/bin-bsd-$sh_bin"
+set +e
+out="$(PATH="$fake_bsd:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+if [[ "$rc" -ne 0 ]]; then ok "exits non-zero on an OS with no build"; else bad "exits non-zero on an OS with no build" "exited 0"; fi
+check_contains "names the OS it found" "FreeBSD" "$out"
+check_contains "points Windows readers at the PowerShell installer" "install.ps1" "$out"
+if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
+
+# ---------------------------------------------------------------------------
+# macOS (work item #36). The same fake-`uname`-on-PATH trick as above, so the shipped
+# detection code is what runs; there is no test hook in the installer and there should not
+# be. The fixture's two binaries carry DIFFERENT bytes and print their own asset name, so
+# "installed the macOS asset" is asserted against the bytes and the output, not inferred
+# from an exit code.
+#
+# What this cannot cover is macOS itself: Gatekeeper, a real Mach-O, and a real `xattr`.
+# The quarantine case below asserts the CALL — a recording shim named `xattr` earlier on
+# PATH — which is the same technique the TLS cases use for curl's argv, and for the same
+# reason: the alternative is testing Apple rather than testing install.sh.
+# ---------------------------------------------------------------------------
+
+note "[$sh_bin] macOS arm64 gets the osx-arm64 asset"
+fake_mac="$work/fake-mac-$sh_bin"
+mkdir -p "$fake_mac"
+cat >"$fake_mac/uname" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
   -s) echo Darwin ;;
@@ -379,15 +454,147 @@ case "${1:-}" in
   *)  echo Darwin ;;
 esac
 EOF
-chmod +x "$fake_os/uname"
-dir="$work/bin-os-$sh_bin"
+chmod +x "$fake_mac/uname"
+
+dir="$work/bin-mac-$sh_bin"
 set +e
-out="$(PATH="$fake_os:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+out="$(PATH="$fake_mac:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
        "$sh_bin" "$installer" 2>&1)"
 rc=$?
 set -e
-if [[ "$rc" -ne 0 ]]; then ok "exits non-zero on Darwin"; else bad "exits non-zero on Darwin" "exited 0"; fi
-check_contains "names the OS it found" "Darwin" "$out"
+check_eq "exits 0 on Darwin/arm64" "0" "$rc"
+check_contains "names the macOS asset" "okf-osx-arm64" "$out"
+check_not_contains "does not reach for the linux asset" "okf-linux-x64" "$out"
+check_contains "still verifies the digest" "sha256 verified" "$out"
+if [[ -x "$dir/okf" ]]; then ok "installs an executable"; else bad "installs an executable" "no executable at $dir/okf"; fi
+check_eq "installs the osx-arm64 bytes, not the linux ones" \
+  "$(sha256sum "$www/v$VERSION_NEW/okf-osx-arm64" | cut -d' ' -f1)" \
+  "$(sha256sum "$dir/okf" | cut -d' ' -f1)"
+check_contains "the installed binary reports the macOS asset" \
+  "$VERSION_NEW+abc1234 (okf-osx-arm64)" "$("$dir/okf" version)"
+
+note "[$sh_bin] macOS: the sha256 check is not relaxed"
+# The whole verification path has to survive the platform branch. Same tampered tree as
+# the Linux case, but with the osx asset replaced.
+mac_tampered="$work/mac-tampered-$sh_bin"
+mkdir -p "$mac_tampered"
+cp -r "$www/." "$mac_tampered/"
+printf 'this is not the macOS binary the manifest describes\n' >"$mac_tampered/v$VERSION_NEW/okf-osx-arm64"
+chmod +x "$mac_tampered/v$VERSION_NEW/okf-osx-arm64"
+mport=""
+for candidate in $(seq 8861 8890); do
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/$candidate") 2>/dev/null; then mport="$candidate"; break; fi
+done
+[[ -n "$mport" ]] || { echo "no free port in 8861-8890" >&2; exit 2; }
+python3 -m http.server "$mport" --bind 127.0.0.1 --directory "$mac_tampered" >"$work/mac-tampered.log" 2>&1 &
+mac_pid=$!
+for _ in $(seq 1 50); do
+  curl -fsS "http://127.0.0.1:$mport/latest.json" >/dev/null 2>&1 && break
+  sleep 0.1
+done
+dir="$work/bin-mac-tampered-$sh_bin"
+set +e
+out="$(PATH="$fake_mac:$PATH" OKF_INSTALL_URL="http://127.0.0.1:$mport" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+kill "$mac_pid" 2>/dev/null || true
+if [[ "$rc" -ne 0 ]]; then ok "exits non-zero"; else bad "exits non-zero" "exited 0"; fi
+check_contains "names the failure" "sha256 mismatch" "$out"
+check_contains "prints the digest the manifest promised" \
+  "$(sha256sum "$www/v$VERSION_NEW/okf-osx-arm64" | cut -d' ' -f1)" "$out"
+if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
+
+note "[$sh_bin] macOS: the quarantine attribute is removed"
+# Gatekeeper refuses to run an unsigned, un-notarised binary that carries
+# com.apple.quarantine — which curl sets on everything it downloads — so the installer
+# strips it. A recording shim proves the call was made and made against the installed
+# file; nothing here can prove Gatekeeper is satisfied.
+mkdir -p "$work/shim-xattr-$sh_bin"
+cp "$fake_mac/uname" "$work/shim-xattr-$sh_bin/uname"
+xattr_log="$work/xattr-argv-$sh_bin.log"
+cat >"$work/shim-xattr-$sh_bin/xattr" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$xattr_log"
+exit 0
+EOF
+chmod +x "$work/shim-xattr-$sh_bin/xattr"
+: >"$xattr_log"
+dir="$work/bin-mac-xattr-$sh_bin"
+set +e
+out="$(PATH="$work/shim-xattr-$sh_bin:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0" "0" "$rc"
+check_contains "removes com.apple.quarantine" "-d com.apple.quarantine" "$(cat "$xattr_log")"
+check_contains "removes it from the installed binary, not the staging copy" \
+  "$dir/okf" "$(cat "$xattr_log")"
+check_not_contains "and leaves the staging copy out of it" ".okf.install." "$(cat "$xattr_log")"
+
+# The same run on Linux must not go anywhere near xattr: the attribute is Apple's, and a
+# Linux box that happens to have an `xattr` on PATH is not a reason to touch a file's
+# extended attributes. The shim is the same recorder, with the fake `uname` left out.
+linux_xattr="$work/shim-xattr-linux-$sh_bin"
+mkdir -p "$linux_xattr"
+cp "$work/shim-xattr-$sh_bin/xattr" "$linux_xattr/xattr"
+: >"$xattr_log"
+set +e
+PATH="$linux_xattr:$PATH" OKF_INSTALL_URL="$base" \
+  OKF_INSTALL_DIR="$work/bin-linux-xattr-$sh_bin" "$sh_bin" "$installer" >/dev/null 2>&1
+set -e
+check_eq "Linux never calls xattr, even when one is on PATH" "" "$(cat "$xattr_log")"
+
+note "[$sh_bin] an Intel Mac is refused, by name, with somewhere to ask"
+fake_intel="$work/fake-intel-$sh_bin"
+mkdir -p "$fake_intel"
+cat >"$fake_intel/uname" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  -s) echo Darwin ;;
+  -m) echo x86_64 ;;
+  *)  echo Darwin ;;
+esac
+EOF
+chmod +x "$fake_intel/uname"
+dir="$work/bin-intel-$sh_bin"
+set +e
+out="$(PATH="$fake_intel:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+if [[ "$rc" -ne 0 ]]; then ok "exits non-zero on Darwin/x86_64"; else bad "exits non-zero on Darwin/x86_64" "exited 0"; fi
+check_contains "names what it found" "Darwin/x86_64" "$out"
+check_contains "names the issue to ask on" "issues/36" "$out"
+check_not_contains "does not silently install the arm64 build" "sha256 verified" "$out"
+if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
+
+# The same `uname -m`, a different machine. An Apple Silicon Mac running a translated
+# shell — an x86_64 Terminal, or an x86_64 Homebrew, both ordinary — answers x86_64 too,
+# and telling that owner their machine has no build is wrong advice they would believe.
+# `hw.optional.arm64` is the hardware talking rather than the process.
+fake_rosetta="$work/fake-rosetta-$sh_bin"
+mkdir -p "$fake_rosetta"
+cp "$fake_intel/uname" "$fake_rosetta/uname"
+cat >"$fake_rosetta/sysctl" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = -n ] && [ "${2:-}" = hw.optional.arm64 ] && echo 1 && exit 0
+exit 1
+EOF
+chmod +x "$fake_rosetta/sysctl"
+dir="$work/bin-rosetta-$sh_bin"
+set +e
+out="$(PATH="$fake_rosetta:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+if [[ "$rc" -ne 0 ]]; then ok "exits non-zero under Rosetta"; else bad "exits non-zero under Rosetta" "exited 0"; fi
+check_contains "says the machine is Apple Silicon, not that it is unsupported" \
+  "Apple Silicon Mac" "$out"
+check_contains "tells them how to re-run natively" "arch -arm64" "$out"
+check_not_contains "does not send an M-series owner to ask for an Intel build" \
+  "no Intel-Mac build" "$out"
+if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
 
 note "[$sh_bin] a missing release is reported, not guessed at"
 dir="$work/bin-missing-$sh_bin"
