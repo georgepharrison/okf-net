@@ -58,7 +58,7 @@ public sealed class OkfScaffoldOptions
     /// <summary>
     /// The instant stamped into the scaffolded concept and its log entry. Injected so a
     /// scaffold is reproducible in tests; written in the canonical form
-    /// (<see cref="OkfTimestamp" />).
+    /// (<see cref="OkfCanonicalTimestamp" />).
     /// </summary>
     public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
 
@@ -198,7 +198,7 @@ public static class OkfScaffold
 
         var name = BundleName(vault, options.BundleName);
         var bundleRoot = Path.Combine(vault, OkfDiscovery.BundlesDirectoryName, name);
-        var stamp = OkfTimestamp.ToCanonical(options.Now);
+        var stamp = OkfCanonicalTimestamp.ToCanonical(options.Now);
         var day = options.Now.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
         Directory.CreateDirectory(bundleRoot);

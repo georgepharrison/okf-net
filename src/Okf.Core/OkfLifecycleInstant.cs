@@ -8,7 +8,7 @@ namespace Okf.Core;
 /// precision it was actually written with.
 /// </summary>
 /// <remarks>
-/// <para>The read half of the pair. <see cref="OkfTimestamp" /> is the canonical form
+/// <para>The read half of the pair. <see cref="OkfCanonicalTimestamp" /> is the canonical form
 /// okf-net <em>writes</em>, one spelling by choice; this type reads what is already on
 /// disk, in whichever spelling the format allowed, which is why it is not named for a
 /// form. A value here may carry no time at all.</para>

@@ -12,7 +12,7 @@ public class OkfStampTests
     public void TheStampIsUtcToTheSecondWithAZ()
     {
         // Two stamps from two machines must be comparable; a local offset makes them look
-        // ordered when they are not. The rendering itself is OkfTimestamp's, pinned by its
+        // ordered when they are not. The rendering itself is OkfCanonicalTimestamp's, pinned by its
         // own tests; what is pinned here is that a stamp written from a local-offset clock
         // reaches the file in the canonical form and not in the clock's.
         Assert.Equal(

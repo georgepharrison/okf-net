@@ -22,7 +22,7 @@ namespace Okf.Core;
 /// <para>Reading stays tolerant: nothing here rejects another spelling, and existing
 /// stamps are not rewritten. This is what okf-net <em>writes</em>.</para>
 /// </remarks>
-public static class OkfTimestamp
+public static class OkfCanonicalTimestamp
 {
     /// <summary>The canonical format string: RFC 3339 UTC, second precision, <c>Z</c> suffix.</summary>
     public const string CanonicalFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";

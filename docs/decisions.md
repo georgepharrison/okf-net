@@ -1206,7 +1206,7 @@ could be argued with while they were still cheap to change (work items #19 and #
   a local offset does not have — and because an offset records where the author was
   sitting, which is not information the format asked for. Second precision because a
   knowledge concept is not a high-frequency event and subsecond digits are noise in a
-  reviewed diff. `OkfTimestamp` is the one place that renders it; `okf init` writes
+  reviewed diff. `OkfCanonicalTimestamp` is the one place that renders it; `okf init` writes
   `generated.at` through it, and CORE-14 stamping does too — `okf verify` renders every
   `verified[].at` through the same helper rather than through a second formatter.
   - **Reading stays tolerant, and nothing is rewritten.** No rule rejects another
@@ -1441,17 +1441,26 @@ that a non-goal, and it stays one.
   generating one) are the ones `okf verify` already performs, and a second command would
   be the same code behind a different name.
 - **Reading a timestamp and writing one are two types, and only one of them is named for
-  a form.** #4 and #7 each landed a `Okf.Core.OkfTimestamp` in the same namespace,
+  a form.** #4 and #7 each landed a timestamp type under the same name in `Okf.Core`,
   independently and both correct: #4's is the canonical write form (`ToCanonical`,
-  `IsCanonical`), #7's is the comparison this section describes. Reconciling them kept
-  `OkfTimestamp` for the write form — it is the merged, public, referenced-from-the-skills
-  one — and renamed the comparison to **`OkfLifecycleInstant`**. The name is not cosmetic:
-  the write form has exactly one spelling by choice, while what this type reads may be a
-  bare date, an offset instant, or a `Z` one, so naming it for a *form* would have been a
-  claim it cannot make. `OkfStamp.FormatTimestamp` went with the reconciliation — it
-  rendered the same string as `OkfTimestamp.ToCanonical` (verified byte-for-byte across
-  offsets, subseconds, and both ends of the range before it was deleted), and one
-  canonical form with two renderers is one renderer too many.
+  `IsCanonical`), #7's is the comparison this section describes. Reconciling them kept the
+  contested name for the write form — it is the merged, public,
+  referenced-from-the-skills one — and renamed the comparison to
+  **`OkfLifecycleInstant`**. The name is not cosmetic: the write form has exactly one
+  spelling by choice, while what this type reads may be a bare date, an offset instant, or
+  a `Z` one, so naming it for a *form* would have been a claim it cannot make.
+  `OkfStamp.FormatTimestamp` went with the reconciliation — it rendered the same string as
+  `OkfCanonicalTimestamp.ToCanonical` (verified byte-for-byte across offsets, subseconds,
+  and both ends of the range before it was deleted), and one canonical form with two
+  renderers is one renderer too many.
+  - **The write form is `OkfCanonicalTimestamp`, renamed from `OkfTimestamp` before the
+    1.0.0 freeze** (work item #30, 2026-08-15). The reconciliation above gave the plain
+    domain noun to the *static helper* and a descriptive name to the value type, which is
+    backwards for .NET: the framework spends the plain noun on the value type
+    (`DateTime`, `DateOnly`) and gives helpers descriptive names (`Path`, `Convert`). With
+    the helper named for what it does — the canonical form, and only that form — the pair
+    reads helper-versus-value the way a .NET caller expects it to. `OkfLifecycleInstant`
+    stays as it is.
 
 ### Proposed decisions (pending review): the bundler (work item #5, 2026-08-15)
 

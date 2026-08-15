@@ -34,10 +34,10 @@ public static class OkfStamp
     /// plain scalar holding one is ambiguous in flow context.
     /// </summary>
     /// <param name="actor">The verifying actor.</param>
-    /// <param name="at">When the verification happened, in the canonical form (<see cref="OkfTimestamp" />).</param>
+    /// <param name="at">When the verification happened, in the canonical form (<see cref="OkfCanonicalTimestamp" />).</param>
     /// <returns>The YAML text of the event.</returns>
     public static string VerifiedEntry(string actor, DateTimeOffset at) =>
-        $"{{ by: \"{actor}\", at: {OkfTimestamp.ToCanonical(at)} }}";
+        $"{{ by: \"{actor}\", at: {OkfCanonicalTimestamp.ToCanonical(at)} }}";
 
     /// <summary>
     /// Appends a verification event to a concept's text (§5.2), normalizing a pre-existing
@@ -118,7 +118,7 @@ public static class OkfStamp
 
         var entry = new OkfMapping { Style = OkfCollectionStyle.Flow };
         entry.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
-        entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfTimestamp.ToCanonical(at)));
+        entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
         events.Add(entry);
     }
 

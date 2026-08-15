@@ -153,7 +153,7 @@ internal static class VerifyCommand
         }
 
         var at = DateTimeOffset.UtcNow;
-        var stamp = OkfTimestamp.ToCanonical(at);
+        var stamp = OkfCanonicalTimestamp.ToCanonical(at);
 
         foreach (var path in documents)
         {
