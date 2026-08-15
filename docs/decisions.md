@@ -510,3 +510,129 @@ filters.
   Four reference bundles is milliseconds; when it stops being, the generated
   artifact is the vectorization spike's, and the bundle must stay complete
   without it.
+
+### Proposed decisions (pending review): the `okf mcp` milestone (2026-08-14)
+
+- **Build vs buy: the protocol is hand-rolled, not taken from the official
+  ModelContextProtocol C# SDK — and the SDK passed both mandated gates.** The
+  evaluation was run, not argued: `ModelContextProtocol` 2.2.0 (and
+  `ModelContextProtocol.Core` 2.2.0) were added to `Okf.Cli`, a probe server was
+  written against each of the two documented shapes, and both gates were
+  measured.
+  - **Licenses: pass.** `mise run licenses` accepted the whole graph — both MCP
+    packages are Apache-2.0, and everything they pull (`Microsoft.Extensions.AI.
+    Abstractions`, the `Microsoft.Extensions.*` hosting/DI/logging stack) is MIT.
+    52 components, all allowlisted, no new entry needed in
+    `scripts/licenses-allowed.json`.
+  - **NativeAOT: pass.** `dotnet publish -r linux-x64` with `PublishAot=true`
+    produced **zero** trim/AOT warnings on both probes. The SDK carries its own
+    AOT-compatibility test app, and the reflection-heavy registration paths
+    (`WithToolsFromAssembly`, the non-generic `WithTools`) are the ones annotated
+    `[RequiresUnreferencedCode]`; the generic `WithTools<T>()` path is clean.
+  - **Rejected anyway, on three measurements the gates do not cover.** (a)
+    **Size**: the binary goes from **4.2 MB to 11 MB** with `ModelContextProtocol.
+    Core` alone and **13 MB** with the documented `Host.CreateApplicationBuilder`
+    path (which additionally needs `Microsoft.Extensions.Hosting`, a package the
+    getting-started sample does not mention). CLI-17's whole distribution story is
+    a self-contained `curl | sh` binary; tripling it to adapt four JSON-RPC methods
+    is the wrong trade. (b) **Lost responses on a fast client**: driven as
+    `printf '…' | okf mcp`, the SDK's stdio server emitted **zero bytes** —
+    reproducibly, three runs out of three — because stdin reached EOF while the
+    requests were still in flight; holding stdin open for two seconds yielded all
+    401 bytes of the same three responses. That is exactly the shape of a CI
+    harness, a shell here-doc, and this milestone's own acceptance proof. (c)
+    **stdout ownership**: the documented hosting configuration logs to *stdout*,
+    the protocol channel, unless the sample's `LogToStandardErrorThreshold` line is
+    copied; the single most safety-critical property of a stdio server is one its
+    default gets wrong. (A fourth, minor: the SDK answers out of request order,
+    which is legal but makes a transcript harder to read.)
+  - **What we keep instead.** The surface is four methods — `initialize`,
+    `tools/list`, `tools/call`, `ping` — over newline-delimited JSON-RPC 2.0, in
+    ~300 lines with no new dependency, using the `System.Text.Json` reader/writer
+    already on the AOT-clean path. It is the same call the CLI made about
+    `System.CommandLine`, for the same reasons, and the boundary-layer precedent is
+    `YamlBridge`. **Revisit when the surface grows past tools** — resources,
+    prompts, sampling, elicitation, or a non-stdio transport each argue for the
+    SDK, and none is in MVP scope (MCP-4).
+  - **The SDK is still an oracle.** Its transcripts (from the evaluation) supply
+    the expected wire shapes the protocol tests assert against, so the handshake is
+    checked against an independent implementation rather than against ourselves.
+- **Synchronous loop, one message at a time.** A line is read, handled, written,
+  and flushed before the next is read. Nothing is ever in flight at EOF, which is
+  the defect the SDK exhibits, and it makes the response order the request order.
+  Concurrency would buy nothing: every tool is a filesystem read of a few
+  milliseconds, and MCP-4 leaves nothing to overlap.
+- **Framing is one JSON object per line, and the newline is part of the
+  protocol.** Written explicitly rather than through the writer's platform line
+  ending. Two writer configurations exist for a reason: protocol structures
+  (`tools/list` result, the content envelope, the tool schemas) are emitted
+  **compact**, because a raw newline inside a message splits it in two on the
+  wire; payloads are emitted **indented**, because they travel as JSON strings
+  where newlines are escaped and a model has to read them. A test pins it:
+  five responses, five newlines in the whole stream.
+- **Tools are `okf_list`, `okf_search`, `okf_read`** — MCP-2's `list`/`search`/
+  `read` under a namespace prefix, because a client mixes servers in one flat tool
+  list and a bare `search` there is a collision waiting to happen. The
+  descriptions teach the doctrine rather than describing parameters: orient by
+  disclosure (`okf_list`), retrieve by search (`okf_search`), open only what you
+  picked (`okf_read`), never a body from search, and nothing from outside a bundle
+  root. The same doctrine is repeated in the `initialize` result's `instructions`,
+  for clients that surface it.
+- **`okf_search` returns the Q7 array verbatim.** One writer (`SearchJson`) now
+  renders both `okf search --json` and the tool's payload, so MCP-3's parity claim
+  is about bytes rather than about fields, and is asserted as such — against the
+  fixture bundle and against Google's reference bundles. Rendering it twice was
+  the alternative, and it is how two surfaces drift apart one field at a time.
+- **Two error channels, split by who has to recover.** A malformed argument —
+  unknown tool, wrong JSON type, missing `path`, an empty query, a path that
+  leaves the bundle root — is a **JSON-RPC error** (`-32602`), because the client
+  is wrong and the model cannot fix it. A miss the model *can* act on — no such
+  concept, no such bundle, an ambiguous path across bundles, frontmatter that does
+  not parse — is a **tool result with `isError: true`**, because a protocol error
+  is generally not shown to the model, and "search again" is precisely the next
+  move. Traversal sits deliberately on the protocol side: MCP-5 wants a hard
+  refusal, not a suggestion.
+- **Scope is resolved per call, and validated once at startup.** Startup
+  resolution failing is exit **2** (PRD §3's CLI-surface table) rather than a
+  server that answers every call with the same failure; re-resolving per call means
+  a bundle added to the vault while the server runs is visible to the next call,
+  exactly as it would be to the next `okf search`. Nothing but JSON-RPC is ever
+  written to stdout: `--verbose` resolution notes go to stderr.
+- **No per-call `path` argument.** The server's scope is fixed by `okf mcp
+  [path]`, the same argument every other command takes. A tool that accepted its
+  own path would let a client widen the scope it was launched with, which is the
+  containment rule (MCP-5) with a hole in it.
+- **`okf_read` is CORE-12, implemented in `Okf.Core`** (`OkfConceptReader`), not
+  in the adapter: it returns frontmatter, body, derived trust tier, and stale flag,
+  and it is unit-tested without a process boundary. Containment is one shared
+  primitive, `OkfBundle.TryResolve`, which refuses absolute paths (even ones that
+  happen to point inside the bundle — otherwise the caller's path grammar depends
+  on where the bundle sits on this machine), refuses `..` however it is spelled,
+  and refuses a backslash outright rather than reinterpreting it as a separator on
+  one platform and a filename character on another. The `.md` suffix is optional,
+  so a search result's `id` and its `path` are both valid reads.
+- **Frontmatter is projected to JSON without retyping.** Scalars travel as their
+  source text — a date, a quoted `"0.2"`, a number-shaped string all come back as
+  written — in source order, including keys okf-net does not model. Guessing JSON
+  types would undo CORE-2 one field at a time. A YAML null becomes JSON null; a
+  non-scalar mapping key (which JSON cannot express, and no bundle uses) is
+  dropped.
+- **`okf_list` has two modes, and both are progressive disclosure.** With no
+  arguments it names the bundles in scope (with a concept count and the resolution
+  sentence); with a bundle it returns that directory's listing — **the bundle's own
+  `index.md` when it ships one, byte-for-byte, including a hand-written foreign
+  one, and the CORE-10 synthesis when it does not**, with a `source` field saying
+  which. Structured `entries` accompany the markdown either way, from the same
+  generator `okf index` uses. Nothing is written: the synthesis is in memory, and
+  an acceptance test snapshots the reference clone to prove a whole session leaves
+  it byte-identical.
+- **Deferred out of this milestone, deliberately.** (a) `structuredContent` and
+  `outputSchema` on tool results — the payload is JSON text today; adding a
+  declared output schema freezes more contract than MCP-2 asks for, and the Q7
+  array is already the contract. (b) `resources/*` and `prompts/*` — not
+  advertised, so they answer `-32601`; a bundle's concepts are reachable as tools
+  and adding a second addressing scheme for the same files would double the
+  surface. (c) Pagination (`nextCursor`) — `tools/list` is three tools. (d)
+  Progress, cancellation, and logging notifications — every call is a
+  millisecond-scale filesystem read. (e) Registry scope, for the same reason
+  `okf search` defers it: `okf register` does not exist yet.

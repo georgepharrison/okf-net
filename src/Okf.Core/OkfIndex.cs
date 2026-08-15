@@ -177,6 +177,22 @@ public sealed class OkfIndexPlan
     /// <param name="status">The status to count.</param>
     /// <returns>How many indexes carry it.</returns>
     public int Count(OkfIndexStatus status) => Indexes.Count(index => index.Status == status);
+
+    /// <summary>
+    /// The index for one directory, or <see langword="null" /> when that directory has
+    /// nothing to list. This is the read side of on-the-fly synthesis (PRD CORE-10): the
+    /// caller renders <see cref="OkfIndex.ExistingContent" /> when a bundle ships an index
+    /// and <see cref="OkfIndex.Content" /> when it does not, without writing either.
+    /// </summary>
+    /// <param name="directory">An absolute directory path inside the bundle.</param>
+    /// <returns>The index for that directory, or <see langword="null" />.</returns>
+    public OkfIndex? For(string directory)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(directory);
+        var wanted = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(directory));
+        return Indexes.FirstOrDefault(
+            index => string.Equals(index.Directory, wanted, StringComparison.Ordinal));
+    }
 }
 
 /// <summary>

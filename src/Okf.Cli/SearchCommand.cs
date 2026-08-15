@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -95,7 +94,8 @@ internal static class SearchCommand
 
         if (arguments.Json)
         {
-            output.Write(ToJson(outcome));
+            output.Write(SearchJson.Write(outcome));
+            output.Write(Environment.NewLine);
         }
         else
         {
@@ -121,7 +121,7 @@ internal static class SearchCommand
         }
 
         error.WriteLine($"okf: query {query}");
-        error.WriteLine($"okf: match mode {MatchMode(outcome.MatchMode)}");
+        error.WriteLine($"okf: match mode {SearchJson.MatchMode(outcome.MatchMode)}");
         if (outcome.SkippedCount > 0)
         {
             error.WriteLine(
@@ -176,82 +176,6 @@ internal static class SearchCommand
     /// <summary>The trust and staleness markers a result carries, e.g. <c>human-reviewed, stale</c>.</summary>
     private static string Markers(OkfSearchResult result) =>
         result.TrustTier.ToSpecString() + (result.Stale ? ", stale" : string.Empty);
-
-    private static string ToJson(OkfSearchOutcome outcome)
-    {
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
-        {
-            // A bare array, not an envelope: PRD CLI-11 and MCP-2 read the same records,
-            // and every field a result needs to be judged travels on the result itself.
-            writer.WriteStartArray();
-            foreach (var result in outcome.Results)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("id", result.Id);
-                writer.WriteString("path", result.Path);
-                writer.WriteString("absolutePath", result.AbsolutePath);
-                writer.WriteString("bundle", result.Bundle);
-                writer.WriteString("bundleName", result.BundleName);
-                writer.WriteString("title", result.Title);
-                WriteStringOrNull(writer, "type", result.Type);
-                WriteStringOrNull(writer, "description", result.Description);
-                writer.WriteStartArray("tags");
-                foreach (var tag in result.Tags)
-                {
-                    writer.WriteStringValue(tag);
-                }
-
-                writer.WriteEndArray();
-                writer.WriteNumber("score", result.Score);
-                writer.WriteString("snippet", result.Snippet);
-                writer.WriteString("trustTier", result.TrustTier.ToSpecString());
-                writer.WriteBoolean("stale", result.Stale);
-
-                // Per result rather than in an envelope, so the contract stays one array:
-                // an OR fallback is something an agent must be able to see.
-                writer.WriteString("matchMode", MatchMode(outcome.MatchMode));
-                writer.WriteStartArray("matchedTerms");
-                foreach (var term in result.MatchedTerms)
-                {
-                    writer.WriteStringValue(term);
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray()) + Environment.NewLine;
-    }
-
-    private static void WriteStringOrNull(Utf8JsonWriter writer, string name, string? value)
-    {
-        if (value is null)
-        {
-            writer.WriteNull(name);
-        }
-        else
-        {
-            writer.WriteString(name, value);
-        }
-    }
-
-    private static string MatchMode(OkfSearchMatchMode mode) => mode switch
-    {
-        OkfSearchMatchMode.All => "all",
-        OkfSearchMatchMode.Any => "any",
-        OkfSearchMatchMode.Filter => "filter",
-        _ => "unknown",
-    };
 
     private static void WriteUsage(TextWriter writer)
     {

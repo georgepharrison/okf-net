@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Okf.Core;
 
 /// <summary>
@@ -93,6 +95,39 @@ public sealed class OkfBundle
     {
         ArgumentNullException.ThrowIfNull(path);
         return Path.GetRelativePath(Root, path).Replace(Path.DirectorySeparatorChar, '/');
+    }
+
+    /// <summary>
+    /// Turns a bundle-relative path into an absolute one, refusing anything that lands
+    /// outside the bundle root (PRD MCP-5, CORE-12). The check is on the normalized path,
+    /// so <c>a/../..</c> is refused however it is spelled.
+    /// </summary>
+    /// <param name="relativePath">A bundle-relative path, empty for the root itself.</param>
+    /// <param name="fullPath">The absolute path, when it is inside the bundle.</param>
+    /// <returns><see langword="true" /> when the path is contained.</returns>
+    public bool TryResolve(string? relativePath, [NotNullWhen(true)] out string? fullPath)
+    {
+        fullPath = null;
+
+        if (relativePath is not null && Path.IsPathRooted(relativePath))
+        {
+            // An absolute path is never bundle-relative, even when it happens to point
+            // inside the bundle: accepting it would make the caller's path grammar depend
+            // on where the bundle sits on this machine.
+            return false;
+        }
+
+        var candidate = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
+
+        if (!string.Equals(candidate, Root, StringComparison.Ordinal)
+            && !candidate.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        fullPath = candidate;
+        return true;
     }
 
     /// <inheritdoc />
