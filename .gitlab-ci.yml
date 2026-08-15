@@ -511,13 +511,18 @@ custodian-inbox:
 #     the default branch — a Pages deploy from a feature branch overwrites the
 #     published site.
 #
-# pages:
-#   stage: validate
-#   rules:
-#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-#   script:
-#     - mise run build
-#     - mise exec -- dotnet run --project src/Okf.Cli -- site okf/ --out public --name "okf-net"
-#   artifacts:
-#     paths:
-#       - public
+# TEMPORARY (Ringo, 2026-08-15): enabled on the 6-static-site branch ONLY so the
+# design can be reviewed from a browser away from the workstation. Before this
+# branch merges, retarget the rule to the default branch (or a tag pipeline) —
+# a Pages deploy from a feature branch overwrites the published site, which is
+# acceptable only while nothing else is published.
+pages:
+  extends: .dotnet
+  stage: validate
+  rules:
+    - if: $CI_COMMIT_BRANCH == "6-static-site"
+  script:
+    - dotnet run --project src/Okf.Cli -c Release -- site okf/ --out public --name "okf-net"
+  artifacts:
+    paths:
+      - public
