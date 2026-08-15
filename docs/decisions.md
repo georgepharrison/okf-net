@@ -1188,3 +1188,125 @@ is why the follow-up is a survivor-reading habit rather than a campaign.
 
 **Not adopted:** the Stryker dashboard and `--with-baseline` (both want hosted storage;
 the artifact is enough), and any per-push gate.
+
+### Proposed decisions (pending review): `okf init` (work item #4, 2026-08-15)
+
+CLI-8 and the half of CLI-9 that was waiting for it. Everything below was decided
+against the vault this repository built by hand first, deliberately, so the conventions
+could be argued with while they were still cheap to change (work items #19 and #20).
+
+- **The canonical timestamp form is RFC 3339 UTC, `Z`-suffixed, second precision** —
+  `2026-08-15T14:00:00Z`. Friction #19-9 and #20-12 found three spellings inside one
+  repository, all of them legal ISO 8601, none of them preferred anywhere: Google's
+  reference bundles stamp `Z`, this bundle stamped the local offset `date -Iseconds`
+  handed the author, and the capture manifest stamped a third at `capturedAt` and
+  `ingestion.at`. The pick is `Z` because it matches the reference bundles, because a
+  `Z`-suffixed second-precision stamp sorts lexicographically in the same order it sorts
+  chronologically — which every diff, index, and log listing quietly relies on, and which
+  a local offset does not have — and because an offset records where the author was
+  sitting, which is not information the format asked for. Second precision because a
+  knowledge concept is not a high-frequency event and subsecond digits are noise in a
+  reviewed diff. `OkfTimestamp` is the one place that renders it; `okf init` writes
+  `generated.at` through it, and CORE-14 stamping will.
+  - **Reading stays tolerant, and nothing is rewritten.** No rule rejects another
+    spelling, and the stamps already in the bundle are left alone: restamping nineteen
+    concepts is a migration to review on its own evidence, not a rider on the change that
+    first named the form. Three concepts this milestone edited anyway were restamped into
+    it, which is the ratchet, not the migration.
+- **`okf.json` is JSONC, and that is now written down in three places.** Friction #19-10
+  and #20-13: the file is named `.json`, is parsed with comments and trailing commas
+  allowed, and nothing said so outside `OkfConfig.cs`. The convention is kept rather than
+  renamed to `okf.jsonc`, because the reason for it is the point — a severity promotion
+  without a stated reason is a promotion nobody can review, and the reasons are the half
+  of a configuration file a reader actually needs. The cost is accepted rather than
+  hidden: a strict JSON editor or schema will flag a file the tool reads happily. It is
+  stated in the header comment of the `okf.json` `okf init` writes, in the bundle's
+  vaults-and-config concept, and here. `recipe.json` follows the same convention for the
+  same reason.
+- **`okf init` writes ten files and never overwrites one.** The layout is §2's:
+  `README.md` and `okf.json` and `.markdownlint.yaml` at the vault root, `custodian/`
+  with a README and a recipe, `raw/` with `.gitignore` and an empty `manifest.json`, and
+  `bundles/<name>/` with `about-this-bundle.md`, `log.md`, and a generated `index.md`.
+  Every file is written only when it is missing, so a second run reports what is there,
+  changes nothing, and exits 0 — which is what makes the command safe in a setup script.
+  Nothing merges, patches, or repairs a file somebody already owns.
+  - **The index is generated, not templated.** `OkfIndexGenerator` writes it, so a
+    scaffolded index is byte-identical to what `okf index` would write a second later.
+    A templated one would drift the first time the renderer changed, and the config init
+    writes promotes `OKF0306` to error in the same breath.
+  - **Refusals exit 2 and write nothing**: a vault at or inside a bundle root (the README
+    trap, #19-14, named at the moment it can still be avoided rather than later as a
+    generic `OKF0001` on a committed file); a `--name` that is not a single usable
+    directory name; `--personal` beside a path, because the personal vault's location
+    comes from `OKF_HOME` or `~/okf` and nowhere else.
+  - **A directory that already holds `bundles/` is the vault**, read exactly as
+    `OkfDiscovery` reads it, so `okf init okf/` fills an initialized vault in rather than
+    nesting a second one at `okf/okf/`.
+  - **`--personal`'s bundle is named `personal`.** A project vault's bundle takes the
+    project directory's name; the personal vault's parent is the home directory, so
+    deriving one there would stamp the machine's account name on the bundle.
+- **The scaffolded `tagRegistry` is present and seeded, not empty.** Friction #20-8 asked
+  for "empty-but-present", and the intent — the vocabulary is closed from the first
+  commit, so it can never grow by accident — is met. The letter is not, deliberately: an
+  empty registry with `OKF0305` at warning makes a freshly initialized vault emit a
+  warning for every tag on the one concept `init` itself wrote, and a command whose output
+  does not pass its own gate teaches the wrong first lesson. The registry therefore holds
+  exactly the three tags `about-this-bundle.md` carries, which is also the discipline the
+  registry documents: a tag arrives in the same change as the concept that needed the
+  word. `OKF0304` and `OKF0305` both sit at warning, as one decision — a concept with no
+  tags is trivially compliant with any registry, so promoting only `OKF0305` would make
+  deleting the key the cheapest way to satisfy tag governance.
+- **`raw/.gitignore` un-ignores everything, directories first.** Friction #20-9. The
+  danger is not a deliberate rule but an inherited one: an ordinary repository's `*.log`,
+  `*.tmp`, `tmp/` or `*.pdf` patterns match real captured artifacts, and a capture git
+  silently declines to stage looks exactly like a capture that worked, right up until
+  someone clones the repository and the manifest points at nothing. `!*/` precedes `!*`
+  because git cannot re-include a file while a parent directory of it is still excluded.
+  The file is vault machinery rather than evidence, so `check-manifest.py`'s
+  "nothing sits in `raw/` unclaimed" check exempts it alongside `manifest.json`.
+- **The vault `.markdownlint.yaml` carries `extends` only when there is something to
+  extend.** Friction #19-5 and #19-6: MD025 is structurally unsatisfiable for OKF markdown
+  and has to be turned off, and a nested config *replaces* the parent rather than merging
+  with it, so a vault config written without `extends` silently switches the host repo's
+  disabled rules back on. Emitting `extends` unconditionally is worse than not emitting
+  it: `extends` naming a file that is not there is an error, which would break markdownlint
+  for a repository that had no config at all. init looks for the four names markdownlint
+  reads and writes the line only on a hit.
+- **CLI-9's `raw/`-immutability rule ships as `OKF0310` (raw-item-mutated), warning by
+  default, and the linter learns a vault scope for it alone.** The three obstacles the
+  capture-and-custodian milestone listed are addressed rather than removed: `OkfLinter`
+  still walks bundle roots, and `OkfLintOptions.VaultRoot` adds one vault-scoped pass
+  beside them; `Okf.Core` still shells out to nothing, because detection is the manifest's
+  recorded `sha256` rather than git; and the diagnostic's position is found by locating
+  the recorded hash in the manifest text, which needs no JSON reader that reports
+  positions.
+  - **Detection is by hash, superseding the PRD's "git-based".** The hash is the
+    format-level record, it works in a vault that is not a work tree — which CLI-9
+    conceded git cannot cover — and it needs no process launched from a library that is
+    offline and AOT-clean by contract (CLI-16).
+  - **Only closed entries are judged.** An entry whose `ingestion` is still `null` is the
+    custodian's work queue; re-capturing a page before anything cited it is ordinary work,
+    not a broken record. Immutability starts at ingestion, which is what Q3 says.
+  - **The rule is narrow, and `check-manifest.py` stays.** The script specified these
+    invariants first and remains the belt-and-braces gate beside `okf lint`: the id
+    grammar, the timestamp forms, the flat/packet layout, unclaimed files in `raw/`, and
+    ingestion pointers resolving to concepts that exist are all still its findings. A
+    manifest that will not parse is therefore *silent* in the rule rather than reported —
+    the script reports it, and a rule that cannot read the record cannot claim the
+    artifact changed. Neither ever repairs anything.
+  - **A bundle with no vault around it leaves the rule inapplicable**, which is CLI-9's
+    own concession, restated in the scope that turned out to matter. A bundle *inside* a
+    vault does not opt out: it resolves the same vault whose `okf.json` already decides
+    severities.
+- **The dogfood vault is pinned to `okf init` by a test, and the test found the one real
+  deviation.** ACC-5's vault was hand-built before the command existed, which makes it the
+  specification the command has to reproduce; a test now scaffolds a vault into a temp
+  directory and compares the file set, the first concept's frontmatter keys, the
+  bundle-root index's `okf_version` and generated marker, and the config's promotions
+  against `okf/`. It failed on the first run because `okf/raw/.gitignore` did not exist —
+  the friction that asked for one was recorded on a milestone that could not yet act on
+  it — and the fix went on the dogfood side. Two differences remain and are asserted
+  rather than papered over: `okf/` holds far more than init writes, and its
+  `about-this-bundle.md` carries a `sources` key a bundle scaffolded five seconds ago
+  cannot have. The config comparison is one-directional for the same reason — every rule
+  init promotes must be promoted *at least as far* in `okf/`, not identically.
