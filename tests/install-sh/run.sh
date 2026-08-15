@@ -556,6 +556,33 @@ check_contains "names the issue to ask on" "issues/36" "$out"
 check_not_contains "does not silently install the arm64 build" "sha256 verified" "$out"
 if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
 
+# The same `uname -m`, a different machine. An Apple Silicon Mac running a translated
+# shell — an x86_64 Terminal, or an x86_64 Homebrew, both ordinary — answers x86_64 too,
+# and telling that owner their machine has no build is wrong advice they would believe.
+# `hw.optional.arm64` is the hardware talking rather than the process.
+fake_rosetta="$work/fake-rosetta-$sh_bin"
+mkdir -p "$fake_rosetta"
+cp "$fake_intel/uname" "$fake_rosetta/uname"
+cat >"$fake_rosetta/sysctl" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = -n ] && [ "${2:-}" = hw.optional.arm64 ] && echo 1 && exit 0
+exit 1
+EOF
+chmod +x "$fake_rosetta/sysctl"
+dir="$work/bin-rosetta-$sh_bin"
+set +e
+out="$(PATH="$fake_rosetta:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+if [[ "$rc" -ne 0 ]]; then ok "exits non-zero under Rosetta"; else bad "exits non-zero under Rosetta" "exited 0"; fi
+check_contains "says the machine is Apple Silicon, not that it is unsupported" \
+  "Apple Silicon Mac" "$out"
+check_contains "tells them how to re-run natively" "arch -arm64" "$out"
+check_not_contains "does not send an M-series owner to ask for an Intel build" \
+  "no Intel-Mac build" "$out"
+if [[ -e "$dir/okf" ]]; then bad "installs nothing" "$dir/okf exists"; else ok "installs nothing"; fi
+
 note "[$sh_bin] a missing release is reported, not guessed at"
 dir="$work/bin-missing-$sh_bin"
 run "$sh_bin" "$dir" --version 9.9.9

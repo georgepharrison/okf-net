@@ -101,10 +101,22 @@ case "${os}/${arch}" in
     OKF_ASSET="okf-osx-arm64"
     ;;
   Darwin/x86_64)
-    # An Intel Mac. Rosetta cannot help — it translates x86_64 to arm64, not the other
-    # way — so there is nothing to fall back to, and saying "no macOS build" would be
-    # wrong as well as unhelpful. An osx-x64 asset is one more runtime identifier on the
-    # same publish job, so this is a question of whether anyone needs it.
+    # TWO different machines answer `uname -m` this way, and they need opposite advice:
+    # a real Intel Mac, and an Apple Silicon Mac whose shell happens to be running
+    # translated (an x86_64 Terminal, or an x86_64 Homebrew, both of which are ordinary
+    # and neither of which announces itself). `hw.optional.arm64` is the hardware talking
+    # rather than the process, so it tells them apart. Telling an M-series owner that
+    # their machine has no build would be wrong, and they would believe it.
+    if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = 1 ]; then
+      die "this is an Apple Silicon Mac, but the shell running install.sh is x86_64
+    — Rosetta. okf ships an arm64 macOS build and no x86_64 one, so re-run this
+    under a native shell:
+        arch -arm64 /bin/sh -c 'curl -fsSL ${OKF_BASE_URL}/install.sh | sh'"
+    fi
+    # A real Intel Mac. Rosetta cannot help — it translates x86_64 to arm64, not the
+    # other way — so there is nothing to fall back to, and saying "no macOS build" would
+    # be wrong as well as unhelpful. An osx-x64 asset is one more runtime identifier on
+    # the same publish job, so this is a question of whether anyone needs it.
     die "okf has no Intel-Mac build. This machine is Darwin/x86_64; the macOS build
     that ships is Apple Silicon (osx-arm64), and Rosetta translates the wrong way.
     Adding osx-x64 is one more line in the publish job — ask for it at
