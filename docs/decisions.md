@@ -737,3 +737,100 @@ Each is a place the tools fought the first real author working under them.
   source is a corpus question, not a rendering one — the body is scored with the fences
   in it, so a match could then have no window to show — and it belongs with the
   scoring revisit, not with a markdown-flattening fix.
+
+### Proposed decisions (pending review): the capture and custodian skills milestone (work item #3, 2026-08-14)
+
+- **The skills ship as `skills/okf-capture/SKILL.md` and
+  `skills/okf-custodian/SKILL.md`** — one directory per skill, frontmatter of `name`
+  and `description` only, body in plain markdown. That is the agentskills shape Claude
+  Code loads directly and a pi-style host can read without a shim, and it costs nothing
+  to stay inside it. Nothing host-specific appears in either file: no tool names, no
+  `allowed-tools`, no slash commands. What the skills instruct an agent to *do* is run
+  `okf`, which is the layering decision (§4) restated where an agent will actually read
+  it.
+- **The capture manifest is a plain convention, not a CLI affordance.** Q3 made
+  immutability a property tracked "via a capture manifest" and named no mechanism. The
+  mechanism is `<vault>/okf/raw/manifest.json`, a JSON document the capture skill
+  creates and the custodian skill closes; `skills/okf-capture/SKILL.md` carries the
+  normative field list. Shape:
+
+  ```json
+  {
+    "manifestVersion": 1,
+    "captures": [
+      {
+        "id": "2026-08-14-okapi-bm25-paper",
+        "form": "packet",
+        "files": [{ "path": "…/original.pdf", "sha256": "9f2c…" }],
+        "capturedAt": "2026-08-14T20:41:50-05:00",
+        "capturedBy": "claude-fable/5",
+        "originalUrl": "https://example.org/papers/okapi-bm25.pdf",
+        "title": "Okapi at TREC-3",
+        "sourceLastModified": "1994-11-01",
+        "ingestion": {
+          "at": "…", "by": "…",
+          "concepts": ["bundles/<name>/references/okapi-bm25.md"]
+        }
+      }
+    ]
+  }
+  ```
+
+  `files[].path` is relative to `okf/raw/`; `ingestion.concepts` paths are relative to
+  the vault root, because a capture may be ingested into more than one bundle. Entries
+  are append-only and `ingestion` is `null` until ingested — which is also the custodian's
+  work queue, so the manifest is the to-do list and the immutability record in one file.
+  - **Why no command.** Every field is something the writing agent already holds
+    (`date -Iseconds`, `sha256sum`, the URL it just fetched), so `okf capture` would be
+    a JSON writer wearing a CLI. The MVP's remaining commands are the ones an agent
+    *cannot* do by hand — ranking a corpus, rendering an index deterministically, walking
+    a rule set — and adding a verb per convention is how a small binary becomes a
+    framework. Revisit when the manifest gains a *reader*: `okf inbox` listing
+    uningested captures alongside unacknowledged concepts is the shape that would earn
+    it, and it lands with CLI-12 rather than before it.
+  - **Why JSON, and why a sidecar rather than frontmatter.** `raw/` items are HTML, PDFs,
+    and video — most cannot carry frontmatter at all, and the one metadata record has to
+    cover the packet as a unit. JSON because the file is machine-maintained and never
+    linted as a concept; it sits outside every bundle root, so it is invisible to `okf
+    lint`, `okf index`, and `okf search` by construction (asserted by the Q7 corpus rule).
+  - **`sha256` alongside git.** CLI-9 specifies git-based detection for the deferred
+    immutability rule. The manifest records a hash anyway: it costs one `sha256sum` at
+    capture time, it survives a vault that is not a git work tree (which CLI-9 concedes
+    it cannot cover), and it lets an agent check an item without shelling out to git.
+    The future rule may use either; the hash is the format-level record, git is the
+    repository-level one.
+- **CLI-9's `raw/`-immutability rule stays deferred, and the manifest does not make it
+  trivial.** Three things stand between the manifest and `OKF03xx`: `OkfLinter` walks a
+  *bundle root* and `raw/` is outside every one of them (a vault-scoped diagnostic is a
+  new working-set concept, not a new rule); nothing in `Okf.Core` shells out today, so
+  git-based detection is a new capability on an AOT-clean, offline-by-contract library
+  (CLI-16); and a diagnostic needs a file and a line (CLI-15), which for this rule is a
+  position inside `manifest.json` — a JSON document the linter has no reader for. Each is
+  small; together they are a milestone, and they belong with `okf init` (CLI-8), which is
+  what creates `raw/` and writes the config that promotes the rule. Until then
+  immutability is skill discipline plus the recorded hash, which is what a convention
+  buys.
+- **The doctrine is stated in both skills, in the same words:** *orient by disclosure,
+  retrieve by search, open what you pick; `raw/` is evidence, the bundle is knowledge.*
+  It already lives in `okf mcp`'s tool descriptions and `initialize` instructions, and
+  an agent that reads the skill and an agent that reads the tool list should come away
+  with one model of the vault rather than two.
+- **Written to be executed, not read.** Both skills follow the writing-for-agents levers
+  Ringo supplied: every step ends on a checkable, environment-verified completion
+  criterion (`okf lint` reports 0 errors and 0 warnings; every `sources[].id` has a
+  `[^id]` reference in prose) rather than a fuzzy one; behaviour is phrased as the
+  positive target, with exactly two prohibitions kept as guardrails, each paired with the
+  positive it protects; and neither file caches `okf --help` — one exact command per key
+  move, and `okf <command> --help` taught as the lookup for the rest. What the skills
+  *do* cache is what the environment cannot confess: the capture-vs-cite test, the actor
+  convention, the reason `raw/` sits outside a bundle root.
+- **Validated by walking them, not by reading them.** Both procedures were executed
+  end-to-end against a throwaway vault with the built CLI — orient, search-before-create,
+  capture a blog post flat into `raw/` with a manifest entry, ingest it into a
+  `references/` concept, cite it by footnote from a new concept, stamp `generated`,
+  regenerate indexes, append to `log.md` — finishing at `0 errors, 0 warnings, 0 infos`
+  and `0 drifted`. Every claim either skill makes about a diagnostic was then provoked
+  on a copy and observed: `OKF0309` for a markdown link into `raw/` (which is why the
+  custodian records the raw item by manifest id in prose instead), `OKF0201` for
+  self-verification, `OKF0306` at error for a hand-edited index, `OKF0102` for a source
+  declared and never referenced.
