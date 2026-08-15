@@ -1949,39 +1949,38 @@ belongs to the caller, and a generator that removed files it did not write is on
 away from a disaster. The corollary is that a page for a concept that has since been deleted
 stays behind until the caller removes it.
 
-**Publishing: the default branch is the site, every other branch is a review environment.**
-The `pages` job runs on `$CI_DEFAULT_BRANCH` only and publishes at the domain root, so
-merging is the deploy; it replaced a temporary rule that published this branch there while
-the design was being reviewed. `pages_review` runs on every *other* branch with
-`pages.path_prefix: $CI_COMMIT_REF_SLUG`, which is GitLab's parallel-deployments feature:
-one Pages deployment per branch under its own path, published as a review environment
-(`review/<slug>`) whose `url` is `$CI_PAGES_URL` — that variable already carries the prefix
-from GitLab 17.9 on, so it is the address a reviewer actually opens. Both jobs sit in a new
-`deploy` stage after `validate`: a site whose generator failed its own suite should not
-reach a URL. Neither runs on a tag; a release publishes a binary, not a website. This
-project never creates merge-request pipelines (see `.gitlab-ci.yml`'s `workflow:` block), so
-every rule keys off `$CI_COMMIT_BRANCH`.
+**Publishing: the default branch, and nothing else.** The `pages` job runs on
+`$CI_DEFAULT_BRANCH` only and publishes at the domain root, so merging is the deploy; it
+replaced a temporary rule that published this branch there while the design was being
+reviewed. It sits in a new `deploy` stage after `validate` — a site whose generator failed
+its own suite should not reach a URL — and does not run on a tag, because a release
+publishes a binary, not a website.
 
-**The self-cleaning is `pages.expire_in`, and the stop job says so rather than pretending.**
-The goal was that a branch's deployment disappears with the branch. GitLab documents exactly
-three ways a parallel deployment goes away: it is deleted when *a merge request* is merged
-or closed (which needs MR pipelines this project does not create), it expires via
-`pages.expire_in` and is then stopped and deleted by cron, or someone deletes it in the UI.
-There is no keyword that makes a stopping environment delete a deployment — `pages: false`
-only suppresses one in that pipeline — and the only per-deployment API is an
-Experiment-status GraphQL mutation needing a token the job token is not. So `expire_in: 1
-week` is the mechanism, `on_stop`/`auto_stop_in: 1 week` keep the environment list honest
-beside it, and `stop_pages_review` marks the environment stopped and prints which of the two
-actually removes the files. Both clocks reset on every push to the branch, so a branch still
-being worked on stays up and an abandoned one disappears from both lists with nobody doing
-anything. `stop_pages_review` carries what GitLab requires of a stop job — the same rules as
-the job it stops, a `when`, `environment:name`, `environment:action: stop` — plus
-`GIT_STRATEGY: none`, because deleting the branch is one of the things that triggers it and
-there would be nothing left to check out. Stated cost: `pages.path_prefix` and
-`pages.expire_in` are Premium/Ultimate keywords, and this instance is GitLab CE 19.0.1
-(`/version` reports `"enterprise": false`). If the review job is refused for that reason,
-the accepted fallback is to delete `pages_review` and `stop_pages_review` and let reviewers
-run `mise run site` locally; the default-branch `pages` job stands either way.
+**Branch review environments were built, tried against the real instance, and removed.**
+The design was the documented one: `pages.path_prefix: $CI_COMMIT_REF_SLUG` on a
+`pages_review` job for every non-default branch (GitLab's parallel-deployments feature, one
+deployment per branch under its own path), published as a `review/<slug>` environment whose
+`url` is `$CI_PAGES_URL`, with `pages.expire_in: 1 week` doing the actual cleaning and
+`on_stop`/`auto_stop_in` keeping the environment list honest beside it. That last split
+matters and was checked before it was written: GitLab documents no way for a stopping
+environment to delete a Pages deployment — `pages: false` only suppresses one in that
+pipeline, and the only per-deployment API is an Experiment-status GraphQL mutation needing a
+token a job token is not — so expiry is the mechanism and the stop job's honest contract is
+to mark the environment stopped and say which of the two removes the files.
+
+It does not work here, and the way it does not work is the reason it is gone.
+`pages.path_prefix` and `pages.expire_in` are Premium/Ultimate keywords; this instance is
+GitLab CE 19.0.1 (`/version` reports `"enterprise": false`). The keyword is not rejected:
+`glab ci lint --dry-run` passes it, the pipeline creates the job, the job succeeds — and the
+prefix is then silently ignored. Pipeline 331 on this branch is the evidence:
+`$CI_PAGES_URL` came back as the bare `https://okf-net-28dd30.pages.tychostation.dev`, that
+root returns 200 serving the *branch's* build, and the prefixed path returns 404. A
+feature-branch job that quietly publishes over the production site is strictly worse than no
+feature, and no amount of YAML fixes a keyword the edition does not implement — so both jobs
+were deleted rather than left in place hoping. Ringo's accepted fallback stands: reviewers
+run `mise run site` and open `artifacts/site/index.html` locally. Reinstating branch deploys
+needs a Premium licence or a non-Pages host, and the working YAML is recoverable from this
+branch's history.
 
 **Deliberately not done.** No copying of non-markdown assets into the site, so an image beside a
 concept does not travel with it; the link is left exactly as written, per §6.1's tolerance
