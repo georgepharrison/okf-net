@@ -2403,10 +2403,9 @@ filesystem-write points. Two things would still have differed on Windows, and bo
 - **The walk's order was the host's, not the spec's.** `MarkdownFiles`/`ContentFiles` sorted
   on the absolute path. Under `/` (0x2F) a subdirectory sorts below a sibling file that
   continues past it; under `\` (0x5C) it sorts above — so `topics/deep/widgets.md` and
-  `topicsZ.md` come out in opposite orders on the two platforms, and that order is `okf
-  lint`'s diagnostic order and `okf index --json`'s entry order. Both walks and the index
-  plan now sort on the bundle-relative form. The bundler was already immune because it
-  re-sorts by `/`-path, which is exactly why it should not have been the only thing that was.
+  `topicsZ.md` come out in opposite orders on the two platforms. Both walks now sort on the
+  bundle-relative form. The bundler was already immune because it re-sorts by `/`-path,
+  which is exactly why it should not have been the only thing that was.
 - **`OkfBundle.TryResolve` treated a backslash as data on POSIX and as a separator on
   Windows.** One bundle-relative string, two resolutions, and the containment argument had to
   be made twice. `OkfConceptReader.Normalize` and the MCP directory normaliser already
@@ -2414,14 +2413,37 @@ filesystem-write points. Two things would still have differed on Windows, and bo
   directly cannot be the one that gets it wrong. Every current caller pre-validates, so this
   refuses nothing that used to be accepted.
 
-The new tests are honest about which half they can prove. The backslash cases genuinely
-constrain — `..\outside.md` resolves today on Linux, because `\` is an ordinary filename
-character there — and fail without the fix. The ordering assertion pins the intended order
-and its Windows half is unexercised until a Windows runner exists. Two things are knowingly
-left: `DiagnosticWriter.Display` returns a native absolute path when a file sits outside the
-base directory, which is its documented contract and gives the `path` field two grammars on
-Windows; and `Path.GetRelativePath` across two Windows volumes would return a qualified path,
-reachable only through a symlink the bundle walk already refuses.
+**Ordering has to be fixed where it is decided, and the walk decides less than it looks like
+it does** (review #10). The first pass justified the walk change by saying that order *is*
+`okf lint`'s diagnostic order and `okf index --json`'s entry order. Neither inherits anything
+from the walk, and only one of the two was correct afterwards:
+
+- `okf index --json` is the index PLAN's sort, which rebuilds its own list from scratch and
+  re-sorts. It came out right — but by the `OkfIndexGenerator.Plan` hunk of the same change,
+  not by the walk.
+- `okf lint` is `OkfDiagnostic.CompareTo`, which `OkfLinter` applies as a TOTAL re-sort
+  before returning, discarding the walk order entirely. It compared `Path`, which is
+  absolute and therefore native, so the diagnostics a consumer diffs were still in the
+  host's order. It now ranks `\` as `/`, with a raw ordinal tiebreak so the comparison stays
+  total where two paths differ only in separator spelling.
+- What the walk's order does reach, and what the first pass never named: `okf inbox`, which
+  appends as it walks and never re-sorts, and the near-duplicate first-wins bookkeeping that
+  decides which of two concepts keeps OKF0303 and which one the message names.
+
+The tests are honest about which half they can prove, and one of them proves nothing. The
+backslash cases genuinely constrain — `..\outside.md` resolves today on Linux, because `\`
+is an ordinary filename character there — and fail without the fix; so does the diagnostic
+comparator, whose test feeds it both spellings of the same two paths directly and therefore
+exercises the Windows case on Linux. The WALK ordering assertion does not: reverting `Walk`
+to sort on the absolute path again leaves the whole file green. That is unfixable here
+rather than an oversight — every absolute path in one bundle shares the `Root + '/'` prefix,
+so on Linux the two sort keys are identical by construction — and it stays unexercised until
+a Windows runner exists.
+
+Two things are knowingly left: `DiagnosticWriter.Display` returns a native absolute path when
+a file sits outside the base directory, which is its documented contract and gives the `path`
+field two grammars on Windows; and `Path.GetRelativePath` across two Windows volumes would
+return a qualified path, reachable only through a symlink the bundle walk already refuses.
 
 **Deliberately not done, and what stays post-1.0.**
 
