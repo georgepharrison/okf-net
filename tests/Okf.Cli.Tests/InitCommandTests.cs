@@ -186,6 +186,62 @@ public class InitCommandTests
     }
 
     [Fact]
+    public void ADifferentNameOnAnInitializedVaultAddsASecondBundle()
+    {
+        // The vault-level files are already there and are left alone; what a second
+        // `--name` adds is a second bundle, complete and lint-clean, beside the first.
+        // Deliberate: `bundles/` is plural, and refusing here would mean the only way to
+        // start a second bundle in a vault is by hand.
+        using var home = new TempTree();
+        var project = home.CreateDirectory("widgets");
+        Cli.RunIn(project, home.Root, "init");
+        var readme = File.ReadAllText(Path.Combine(project, "okf", "README.md"));
+
+        var run = Cli.RunIn(project, home.Root, "init", "--name", "gadgets");
+        var lint = Cli.RunIn(project, home.Root, "lint", "okf");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("3 files written, 7 already present", run.Output, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(project, "okf", "bundles", "widgets", "index.md")));
+        Assert.True(File.Exists(Path.Combine(project, "okf", "bundles", "gadgets", "index.md")));
+
+        // The first bundle's vault-level files still describe the first bundle: nothing
+        // was rewritten to mention the newcomer.
+        Assert.Equal(readme, File.ReadAllText(Path.Combine(project, "okf", "README.md")));
+
+        Assert.Equal(CliApplication.ExitSuccess, lint.ExitCode);
+        Assert.Contains("2 bundles", lint.Output, StringComparison.Ordinal);
+        Assert.Empty(lint.DiagnosticLines);
+    }
+
+    [SkippableFact]
+    public void ASymlinkIntoABundleRootIsRefusedWithTheUsageExitCode()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("widgets");
+        Cli.RunIn(project, home.Root, "init");
+        var bundleRoot = Path.Combine(project, "okf", "bundles", "widgets");
+        var link = Path.Combine(home.Root, "shortcut");
+
+        try
+        {
+            Directory.CreateSymbolicLink(link, bundleRoot);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create directory symlinks: {exception.Message}");
+        }
+
+        var before = Snapshot(Path.Combine(project, "okf"));
+        var run = Cli.RunIn(home.Root, home.Root, "init", "shortcut");
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("Refusing to initialize", run.Error, StringComparison.Ordinal);
+        Assert.Empty(run.Output);
+        Assert.Equal(before, Snapshot(Path.Combine(project, "okf")));
+    }
+
+    [Fact]
     public void PersonalTargetsOkfHomeAndScaffoldsTheSameShape()
     {
         using var home = new TempTree();

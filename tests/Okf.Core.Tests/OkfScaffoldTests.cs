@@ -281,6 +281,79 @@ public class OkfScaffoldTests
         Assert.False(Directory.Exists(inside));
     }
 
+    [Fact]
+    public void ABundleRootThatDoesNotExistYetIsRefusedToo()
+    {
+        // The refusal has to describe the tree AFTER the run, not before it. `bundles/`
+        // not existing yet is no reprieve: creating it is precisely what would turn the
+        // target into a bundle root with a README.md sitting in it.
+        using var tree = new TempTree();
+        var vault = tree.CreateDirectory("okf");
+
+        var failure = Assert.Throws<OkfScaffoldException>(
+            () => OkfScaffold.Initialize(Path.Combine(vault, "bundles", "new-one")));
+
+        Assert.Contains("is a bundle root", failure.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(vault, "bundles")));
+    }
+
+    [SkippableFact]
+    public void ASymlinkPointingAtABundleRootIsRefused()
+    {
+        // Path.GetFullPath normalizes `.` and `..` but does not follow links, and a
+        // lexical path is not where the write lands: `okf init link` with
+        // `link -> <vault>/bundles/<name>` used to walk past the refusal and put the
+        // README trap in a real bundle root.
+        using var tree = new TempTree();
+        var first = Initialize(tree);
+        var link = Path.Combine(tree.Root, "shortcut");
+        Symlink(link, first.BundleRoot);
+        var before = Snapshot(first.VaultRoot);
+
+        var failure = Assert.Throws<OkfScaffoldException>(() => OkfScaffold.Initialize(link));
+
+        Assert.Contains("is a bundle root", failure.Message, StringComparison.Ordinal);
+        Assert.Contains(first.BundleRoot, failure.Message, StringComparison.Ordinal);
+        Assert.Equal(before, Snapshot(first.VaultRoot));
+    }
+
+    [SkippableFact]
+    public void ASymlinkAnywhereAlongTheTargetPathIsFollowedBeforeRefusing()
+    {
+        // The link need not be the target itself. Here only an intermediate component is
+        // one, which a check that resolves nothing but the final component still misses.
+        using var tree = new TempTree();
+        var first = Initialize(tree);
+        var link = Path.Combine(tree.Root, "shortcut");
+        Symlink(link, Path.Combine(first.VaultRoot, "bundles"));
+        var before = Snapshot(first.VaultRoot);
+
+        var failure = Assert.Throws<OkfScaffoldException>(
+            () => OkfScaffold.Initialize(Path.Combine(link, "demo", "okf")));
+
+        Assert.Contains("sits inside the bundle root", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(before, Snapshot(first.VaultRoot));
+    }
+
+    [SkippableFact]
+    public void AnOrdinaryPathReachedThroughALinkStillScaffolds()
+    {
+        // Following links is not the same as distrusting them: a project checkout reached
+        // through a symlink is an ordinary project, and refusing it would be the cure
+        // doing more damage than the disease.
+        using var tree = new TempTree();
+        var project = tree.CreateDirectory("widgets");
+        var link = Path.Combine(tree.Root, "shortcut");
+        Symlink(link, project);
+
+        var result = OkfScaffold.Initialize(
+            Path.Combine(link, "okf"),
+            new OkfScaffoldOptions { BundleName = "demo", Now = Noon });
+
+        Assert.Equal(ExpectedLayout, Layout(result.VaultRoot));
+        Assert.True(File.Exists(Path.Combine(project, "okf", "README.md")));
+    }
+
     [Theory]
     [InlineData("a/b")]
     [InlineData("a\\b")]
@@ -354,6 +427,20 @@ public class OkfScaffoldTests
         Assert.Equal(Path.Combine(project, "okf"), OkfScaffold.ResolveVault("project", environment));
         Assert.Equal(Path.Combine(tree.Root, "vault"), OkfScaffold.ResolveVault("vault", environment));
         Assert.Equal(Path.Combine(tree.Root, "okf"), OkfScaffold.ResolveVault(null, environment));
+    }
+
+    /// <summary>Creates a directory symlink, skipping the test where the OS will not.</summary>
+    private static void Symlink(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Windows needs Developer Mode or elevation to create a directory symlink.
+            throw new SkipException($"This platform will not create directory symlinks: {exception.Message}");
+        }
     }
 
     /// <summary>The vault markdownlint config's actual settings — comments and blanks dropped.</summary>

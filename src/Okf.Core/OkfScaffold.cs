@@ -139,6 +139,9 @@ public static class OkfScaffold
     /// <summary>The tags <c>about-this-bundle.md</c> is scaffolded with, and the registry's seed.</summary>
     private static readonly string[] SeedTags = ["bundle", "meta", "okf"];
 
+    /// <summary>How many symbolic links one path resolution will follow before giving up.</summary>
+    private const int MaxLinkDepth = 40;
+
     /// <summary>
     /// The markdownlint configuration filenames looked for beside the vault, so the
     /// vault's own config can <c>extends</c> the host repo's instead of replacing it.
@@ -260,28 +263,128 @@ public static class OkfScaffold
     /// name at the moment it can still be avoided rather than later as a generic
     /// <c>OKF0001</c> on a file somebody committed (dogfood friction #19-14).
     /// </summary>
+    /// <remarks>
+    /// <para>The check reads the <em>physical</em> path, not the one that was typed:
+    /// <see cref="Path.GetFullPath(string)" /> normalizes <c>.</c> and <c>..</c> lexically
+    /// but does not follow symbolic links, and a lexical path is not where the write
+    /// lands. A link into a bundle root — or a link anywhere along the way — walked
+    /// straight past a lexical check and put the README in a real bundle root.</para>
+    /// <para>It also does not care whether the <c>bundles/</c> directory exists yet.
+    /// Requiring it made the refusal describe the tree before the run rather than after:
+    /// <c>okf init &lt;vault&gt;/bundles/new</c> on a vault whose <c>bundles/</c> had not
+    /// been created was allowed, and creating it was exactly what turned <c>new</c> into a
+    /// bundle root with a README in it.</para>
+    /// </remarks>
     private static void RefuseBundleRoot(string vault)
     {
-        for (var directory = new DirectoryInfo(vault); directory is not null; directory = directory.Parent)
+        var real = RealPath(vault);
+        var shown = string.Equals(real, vault, StringComparison.Ordinal)
+            ? $"'{vault}'"
+            : $"'{vault}' (which resolves to '{real}')";
+
+        for (var directory = new DirectoryInfo(real); directory is not null; directory = directory.Parent)
         {
             var parent = directory.Parent;
             if (parent is null
                 || !string.Equals(parent.Name, OkfDiscovery.BundlesDirectoryName, StringComparison.Ordinal)
-                || parent.Parent is null
-                || !parent.Exists)
+                || parent.Parent is null)
             {
                 continue;
             }
 
-            var relation = string.Equals(directory.FullName, vault, StringComparison.Ordinal)
+            var relation = string.Equals(directory.FullName, real, StringComparison.Ordinal)
                 ? "is a bundle root"
                 : $"sits inside the bundle root '{directory.FullName}'";
 
             throw new OkfScaffoldException(
-                $"Refusing to initialize: '{vault}' {relation}. " +
+                $"Refusing to initialize: {shown} {relation}. " +
                 "okf init writes a README.md at the vault root, and OKF v0.2 does not reserve that name — " +
                 "inside a bundle root it would be read as a frontmatter-less concept and fail §11 conformance. " +
                 "A bundle root is never a vault root (decisions.md §2); initialize beside the bundles, not in one.");
+        }
+    }
+
+    /// <summary>
+    /// A path with every symbolic link in it followed. The components that do not exist
+    /// yet are the ones this run is about to create, so they cannot be links and are kept
+    /// exactly as given.
+    /// </summary>
+    private static string RealPath(string path)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+        var pending = new Stack<string>();
+        var existing = full;
+        while (!Directory.Exists(existing) && !File.Exists(existing))
+        {
+            var parent = Path.GetDirectoryName(existing);
+            if (string.IsNullOrEmpty(parent))
+            {
+                return full;
+            }
+
+            pending.Push(Path.GetFileName(existing));
+            existing = parent;
+        }
+
+        var budget = MaxLinkDepth;
+        var resolved = Resolve(existing, ref budget);
+        while (pending.Count > 0)
+        {
+            resolved = Path.Combine(resolved, pending.Pop());
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
+    /// Resolves one existing path, parents first, so a link found anywhere along it is
+    /// followed and its own parents are resolved in turn. The budget bounds the link hops
+    /// rather than the descent, and a loop of links runs it out and stops.
+    /// </summary>
+    private static string Resolve(string path, ref int budget)
+    {
+        var parent = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(parent) || budget <= 0)
+        {
+            return path;
+        }
+
+        var candidate = Path.Combine(Resolve(parent, ref budget), Path.GetFileName(path));
+        if (LinkTarget(candidate) is not { } target)
+        {
+            return candidate;
+        }
+
+        budget--;
+        return Resolve(target, ref budget);
+    }
+
+    /// <summary>
+    /// Where a path points when it is a symbolic link, as an absolute path; <see
+    /// langword="null" /> when it is not one, or cannot be read. An unreadable component
+    /// is left as written — the refusal is about layout, and a path this cannot inspect is
+    /// a path the write will fail on anyway.
+    /// </summary>
+    private static string? LinkTarget(string path)
+    {
+        try
+        {
+            if (new DirectoryInfo(path).LinkTarget is not { Length: > 0 } target)
+            {
+                return null;
+            }
+
+            return Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(target, Path.GetDirectoryName(path) ?? path));
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
