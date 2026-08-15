@@ -2367,6 +2367,17 @@ Gatekeeper-shaped runtime behaviour. It is deliberately a local task and not a C
 provisioning PowerShell in the pipeline to check one file is the worse trade, and the first
 real run is a tester's either way. The README says so where a Windows reader will hit it.
 
+One half of it *was* exercised, and saying which half is the difference between a caveat and
+a shrug. The `publish` job's manifest-writing block was extracted and run for real against
+the three binaries `publish-all` had just built; the resulting `latest.json` was then read
+back by `install.sh`'s `sed` reader — all six assets, correct paths and digests, including
+the dotted `okf-win-x64.exe` name — and by `install.ps1`'s `PSObject.Properties` lookup
+under `pwsh`, which also answered null rather than throwing for an asset the manifest does
+not list, and compared a `Get-FileHash` digest against the manifest's across the
+uppercase/lowercase boundary. So the producer/consumer contract is verified end to end on
+real bytes. What remains unverified is everything downstream of it on Windows: the registry
+`PATH` write, `Move-Item` onto a locked executable, and `LOCALAPPDATA`.
+
 `install.sh` by contrast grew from 46 assertions per shell to **73** — a Darwin happy path
 asserted against bytes (the fixture's two stand-in binaries differ and print their own asset
 name, so "picked the right asset" is answerable rather than inferred), a Darwin `sha256`
