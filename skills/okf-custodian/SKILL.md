@@ -61,6 +61,11 @@ to write into frontmatter. Read the artifact itself — the flat file, or a
 packet's `extracted.md`, the original beside it being evidence rather than
 reading material.
 
+The manifest is the immutability record, so it is read as found: a file that
+does not parse, or one whose recorded `sha256` no longer matches the artifact,
+is reported to the user and left exactly as it is — rewriting it to make it
+parse is how the record is lost. No manifest at all means nothing is waiting.
+
 **Done when** you can name the item's id, its files, and its original URL.
 
 ### 2. Search before you write
@@ -112,11 +117,13 @@ A markdown link into `raw/` instead resolves outside the bundle root, is
 reported as such (`OKF0309`), and dangles in every distributed copy.
 
 The body is a faithful rendering of the material under `#` headings, lists, and
-tables. Analysis belongs in the concept that *cites* this one.
+tables, carrying a `[^okapi-bm25-paper]` footnote on a claim it renders — the
+`sources` entry is joined by key here like anywhere else. Analysis belongs in
+the concept that *cites* this one.
 
 **Done when** the concept carries `type`, `title`, `description`, `resource`,
-`tags`, `generated`, and `sources`, and the body names the raw item's manifest
-id.
+`tags`, `generated`, and `sources`, the body names the raw item's manifest id,
+and every `sources[].id` has a `[^id]` footnote in the body.
 
 ### 4. Close the entry
 
@@ -129,6 +136,9 @@ Set `ingestion` on that entry, leaving every other field as captured:
   "concepts": ["bundles/okf-net/references/okapi-bm25.md"]
 }
 ```
+
+`concepts` paths are relative to the vault root (`okf/`), not to `raw/` the way
+`files[].path` is: one capture may be ingested into more than one bundle.
 
 The item is now frozen: it is tracked by this entry rather than by any directory
 name, and new evidence arrives as a new capture with a new entry. An extraction
@@ -228,6 +238,12 @@ saying what it cares about — clear them, or say why one stands. The severities
 in `okf/okf.json` are the team contract; defaults block only what the spec
 requires, and everything above that line is a deliberate local choice.
 
+A concept that has reached its `stale_after` comes through the same gate
+(`OKF0202`), and `okf search` flags it on every hit. Re-check it against its
+source, then move `stale_after` out and restamp `generated`, or say in your
+reply why it stands as written. This is hand work: re-deriving expired concepts
+automatically is a later milestone.
+
 Append to `log.md` for a notable update — a new concept, a significant rewrite,
 a deprecation:
 
@@ -257,8 +273,8 @@ The chain that keeps machine-derived insight reviewable:
 1. You write the concept and stamp `generated`.
 2. Output you are not confident in carries `status: draft`, which makes the
    concept unacknowledged by definition — `generated.at` newer than the latest
-   `verified[].at`, **or** `status: draft`. No frontmatter field exists for
-   this, and none is needed.
+   `verified[].at`, **or** `status: draft`. No acknowledgment field exists, and
+   none is needed.
 3. `okf inbox` lists what is unacknowledged and `okf verify` clears an item.
    Both are designed and not yet built, so until they ship, name what you
    drafted in your reply and leave `status: draft` as the durable marker.

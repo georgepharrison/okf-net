@@ -160,7 +160,7 @@ survive:
 | `capturedBy` | Your actor, §7 form: `<producer>/<version>` |
 | `originalUrl` | Where it came from; absent only for material with no URL |
 | `title`, `sourceLastModified` | Optional, and worth the two seconds — they become the ingested concept's `title` and `sources[].last_modified` |
-| `ingestion` | `null` until ingested; the custodian closes it |
+| `ingestion` | `null` until ingested; the custodian closes it with `{ at, by, concepts }`, whose `concepts` paths are relative to the vault root (`okf/`), not to `raw/` — one capture may land in more than one bundle |
 
 Entries are append-only. A recapture of the same page is a new entry under a new
 date.
@@ -268,5 +268,6 @@ second `okf index <bundle-path>` reports every index unchanged.
   evidence is a new capture with a new manifest entry. An archive that can be
   edited cannot support the concept citing it.
 - **`verified` belongs to a second actor.** You stamp `generated`; a human
-  clears the concept with `okf verify`. An actor confirming its own work is a
-  contradiction dressed as a signal, and `okf lint` reports it.
+  clears the concept — with `okf verify` once it ships, and by hand until then.
+  An actor confirming its own work is a contradiction dressed as a signal, and
+  `okf lint` reports it (`OKF0201`).
