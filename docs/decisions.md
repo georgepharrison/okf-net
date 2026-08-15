@@ -1310,3 +1310,123 @@ could be argued with while they were still cheap to change (work items #19 and #
   `about-this-bundle.md` carries a `sources` key a bundle scaffolded five seconds ago
   cannot have. The config comparison is one-directional for the same reason — every rule
   init promotes must be promoted *at least as far* in `okf/`, not identically.
+
+### Proposed decisions (pending review): the staleness-refresh and acknowledgment loop (work item #7, 2026-08-15)
+
+The last of the five steps of "surface, don't land" that was still prose. `okf inbox`
+and `okf verify` ship, the custodian skill gains the branch friction #20 named as
+missing ("clearing stale" had no procedure), and a scheduled CI job publishes the
+inbox. What does **not** ship is any automation that refreshes content: PRD §1.3 makes
+that a non-goal, and it stays one.
+
+- **`okf inbox` reports per concept, not per finding, and that is the difference between
+  it and `okf lint`.** The two commands look at the same three signals — acknowledgment
+  (CORE-15), staleness (`OKF0202`), source drift (`OKF0203`) — and answer different
+  questions with them. Lint asks whether a bundle is in good order, so a concept that is
+  expired *and* citing two moved sources is three diagnostics at three severities. The
+  inbox asks what a person should look at next, so the same concept is one row carrying
+  three reasons. Merging them would have meant either a lint rule that reports
+  acknowledgment (a severity on "nobody has read this yet", which is not a defect) or an
+  inbox that speaks in rule ids (an engine detail in a contract that must outlive the
+  engine).
+  - **Exit 0 always, with `--fail-if-any` for the caller that wants the branch.** An
+    inbox that turns a pipeline red is an inbox people learn to route around, and on a
+    vault written entirely by agents it would be red on day one and every day after. The
+    flag exists because "is anything waiting" is a legitimate question for a script to
+    ask; it is off by default because the answer is a report.
+  - **The third arm of CORE-15 is written down rather than left implicit.** The PRD's
+    definition — `generated.at` newer than the latest `verified[].at`, or `status:
+    draft` — says nothing about a concept nobody has verified at all, because there is no
+    `verified[].at` for the comparison to fail against. Unacknowledged is the right answer
+    for agent-written content and the wrong one for a concept a **person** generated, so
+    the rule is: no verification events at all, behind a `generated` stamp whose `by` is
+    not a `human:` actor. An absent `by` counts as non-human — what a concept does not
+    record, it cannot claim.
+  - **Verified-but-undatable is acknowledged.** A verification event carrying no readable
+    `at` cannot be shown to predate the content, and reporting against a timestamp okf
+    invented would be worse than saying nothing. A malformed `at` never wins the
+    latest-verification comparison either, so it cannot mask a good one.
+- **Timestamps compare at the coarser of their two precisions, which is new and is a
+  strict refinement of the linter's date-only test.** `OkfTimestamp` carries both the
+  date as written and the instant, and `Compare` uses instants only when both sides have
+  a time. The alternative — coerce a bare date to midnight UTC and compare instants —
+  gets the drift signal backwards in the exact case it exists for: a source recording
+  `last_modified: 2026-08-15` against a concept generated `2026-08-15T01:41:50Z` would
+  read as "the source did not move after this was written", when a date-only value means
+  *some time that day*. Comparing by date instead makes everything `OKF0203` reports
+  reportable here, and adds the same-day case where both sides are instants, which the
+  linter's `text[..10]` truncation cannot see. The date compared is the one **written**,
+  not the UTC one: an instant written `2026-08-14T20:41:50-05:00` is the 14th to its
+  author and the 15th in UTC, and the author's day is what the document means.
+- **`okf verify` edits the file's text, not a re-emitted document, and this is a
+  correctness decision rather than an optimization.** A round trip through YamlDotNet is
+  faithful in CORE-2's sense — same keys, same order, same values — and is not
+  byte-faithful: it re-indents block sequences to column 0, closes up `{ a: b }` to
+  `{a: b}`, and single-quotes a timestamp sitting inside a flow mapping (a colon is an
+  indicator in flow context). Every concept in this vault carries
+  `generated: { by: …, at: … }`, so the first `okf verify` would have arrived as a diff
+  touching every line of every frontmatter it stamped, which is the opposite of what an
+  acknowledgment is. `OkfStamp.VerifyText` inserts lines instead, and reaches the three
+  shapes that occur: no `verified` key, a block sequence, and §5.2's bare mapping on one
+  line. Anything else — a block-style bare mapping, duplicate keys — falls back to the
+  emitter, because re-indenting somebody else's frontmatter to save a fallback is a worse
+  trade than a noisy diff on a shape nobody writes.
+  - **The insertion is checked before it is returned.** The result is parsed back and
+    required to hold exactly one more verification event, ending with the actor just
+    written. Text surgery that produced something okf cannot read is surgery that did not
+    happen, and the emitter takes over.
+  - **The actor is validated as a §7 form and rejected for quotes, backslashes, and
+    control characters.** It is written into a double-quoted YAML scalar, so without that
+    check `--by` is a way to write arbitrary frontmatter into somebody's concept.
+- **Q6's fallback reads git through an environment the caller controls.** The chain is
+  `verify.actor` (project config, then global), then `git config --global user.email`,
+  then a refusal naming both. The git read passes `HOME`, `XDG_CONFIG_HOME`, and the
+  `GIT_CONFIG_*` variables through from `OkfEnvironment` — which a child process would
+  inherit anyway, so the point is that a caller can **override** them. That is what makes
+  the Q6 behaviour testable against real git rather than a stub: the test writes a global
+  config, sets a *different* repository-local `user.email`, and asserts the global one is
+  what gets stamped. Asserting Q6 against a fake would have been asserting the fake.
+  - **A configured `verify.actor` that is not a person is a configuration error, not a
+    coerced `human:` stamp.** `process:nightly` or `claude-fable/5` in `verify.actor`
+    means someone wanted a machine confirmation; `--by` is that surface, and silently
+    prefixing `human:` onto either would manufacture the one signal §5.3 exists to carry.
+  - **Self-verification is refused with exit 2 rather than warned about.** `OKF0201`
+    reports it after the fact because a bundle may arrive containing one; the command
+    whose entire product is that signal must not create one. Every named concept is read
+    and checked before the first byte is written, so a run that refuses the third leaves
+    the first two unstamped — a half-applied acknowledgment is worse than none.
+  - **`okf verify` clears acknowledgment and nothing else, including on a draft.** A
+    concept carrying `status: draft` stays on the inbox after it is verified, until a
+    person removes the marker. That asymmetry is deliberate and is written into both the
+    skill and the bundle: landing a draft is two acts, and collapsing them into one would
+    make `status: draft` unable to survive the verification it was waiting for.
+- **The custodian's refresh procedure is prose in the skill, and there is no
+  `refresh-report.py` beside it.** `okf inbox --format json` *is* the machine interface;
+  a Python script re-deriving the same rows would be a second implementation of CORE-15 to
+  keep in step with, and the part that cannot be scripted — fetching what changed,
+  judging what it means for the concepts that cite it — is exactly the prose layer the
+  custodian exists for. The procedure's four steps carry checkable Done-when bounds, the
+  third of which is the one that matters: after restamping, `okf inbox` still lists the
+  concept, under **Unacknowledged** and nothing else.
+  - **`stale_after` moves out in the draft only.** It is the sentence "somebody re-checked
+    this today", which is false until a person lands the draft — so the draft is where it
+    is written and the merge request is what makes it true.
+  - **`verified` survives a refresh that contradicts it.** A past human verification is a
+    record of what a person read, not a claim about the current text; the custodian says
+    so in its reply rather than deleting the record.
+- **The scheduled `custodian-inbox` job publishes and never gates.** Schedule-only, like
+  `mutation`, because the inbox answers a question about elapsed time and running it per
+  push would re-report the same rows all day. It runs both forms — the text report so the
+  score is readable in the job log without downloading anything, the JSON as a 30-day
+  artifact so the refresh procedure has something to start from — and it deliberately does
+  **not** pass `--fail-if-any`. With no schedule configured on the project the job never
+  runs, which is a visible absence rather than a silent one.
+- **Q11 and Q12 are answered in passing, and the answers are recorded here rather than
+  left to the code.** Q11 (scope granularity): both commands take the working set every
+  other command takes — `okf inbox` resolves a path exactly as `okf lint` and `okf search`
+  do, and `okf verify` takes concept paths, one or many, because a stamp names a document
+  a person read. Neither reaches the registry, for the same reason `okf search` does not:
+  `okf register` does not exist. Q12 (machine verification surface): `--by` on
+  `okf verify`, not a separate command — the refusals it needs (a §7 actor, never the
+  generating one) are the ones `okf verify` already performs, and a second command would
+  be the same code behind a different name.

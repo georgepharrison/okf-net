@@ -57,12 +57,19 @@
     "index": "mise run cli -- index okf/bundles/okf-net",
     "indexCheck": "mise run cli -- index --check okf/bundles/okf-net",
     "lint": "mise run cli -- lint okf/",
-    "checkManifest": "python3 okf/custodian/check-manifest.py"
+    "checkManifest": "python3 okf/custodian/check-manifest.py",
+    // The inbox is a report, never a gate: it exits 0 whatever it finds, and
+    // `--fail-if-any` is deliberately absent from both forms here. The JSON is
+    // the machine interface the okf-custodian skill's refresh procedure starts
+    // from; there is no reporting script, because the CLI is the interface.
+    "inbox": "mise run cli -- inbox okf/",
+    "inboxJson": "mise run cli -- inbox okf/ --format json"
   },
 
   // Where each command runs today. Honest scoping: nothing on this list is an
-  // agent. The gates are mechanical; the enrichment they gate is still invoked
-  // by a person opening a session with the skills above.
+  // agent. The gates are mechanical; the enrichment they gate — and the refresh
+  // the scheduled inbox surfaces work for — is still invoked by a person opening
+  // a session with the skills above.
   "triggers": {
     // Both arms of .githooks/pre-commit. `checkManifest` is conditional: it
     // runs only when the staged set touches okf/raw/, which is what keeps a
@@ -76,6 +83,12 @@
       "indexCheck",
       "checkManifest"
     ],
-    "scheduled": []
+    // The `custodian-inbox` job in .gitlab-ci.yml. It publishes both forms and
+    // fails nothing; a schedule has to exist on the project for it to run at
+    // all, and until one does this line describes an offer rather than a habit.
+    "scheduled": [
+      "inbox",
+      "inboxJson"
+    ]
   }
 }
