@@ -31,6 +31,9 @@ consume.
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields
+  - `okf bundle` — package your bundles for consume-only distribution
+    (tar.gz, zip, or a plain directory) with byte-reproducible archives and a
+    manifest recording a `sha256` per file, which `--verify` re-checks
   - `okf mcp` — the same capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
@@ -118,12 +121,14 @@ violate OKF conformance):
 
 ## Status
 
-**Prerelease.** `Okf.Core`, the CLI's `lint`, `index` and `search` commands
-and the MCP server are built and gated in CI; `okf inbox`/`okf verify` and the
-agent skills are later milestones. Every merge to `main` cuts an `rc` tag, and
-from the first tag cut after the publishing job landed that tag also ships a
-runnable binary — see [Install](#install-prerelease-binaries), which says
-plainly that none exists yet. Usable from source, deliberately not yet stable.
+**Prerelease.** `Okf.Core`, the CLI's `init`, `lint`, `index`, `search`,
+`inbox`, `verify` and `bundle` commands, the MCP server and the agent skills
+are built and gated in CI; the registry (`okf register`), the site generator
+and the Pi shim are later milestones. Every merge to `main` cuts an `rc` tag,
+and from the first tag cut after the publishing job landed that tag also ships
+a runnable binary and this repo's own knowledge bundle — see
+[Install](#install-prerelease-binaries), which says plainly that none exists
+yet. Usable from source, deliberately not yet stable.
 
 ## Documentation
 
