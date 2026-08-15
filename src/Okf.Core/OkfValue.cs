@@ -59,7 +59,12 @@ public abstract class OkfValue
     /// (Python truthiness over <c>yaml.safe_load</c> output): a null, <c>false</c>,
     /// zero, empty string, empty sequence, or empty mapping is falsy.
     /// </summary>
-    public abstract bool IsTruthy { get; }
+    /// <remarks>
+    /// Internal, not public: this is the reference implementation's vocabulary, and the
+    /// only thing it decides is whether a key counts as present under §11. Exposing it
+    /// would freeze a Python concept onto a C# surface at 1.0.
+    /// </remarks>
+    internal abstract bool IsTruthy { get; }
 
     /// <summary>Creates a scalar value.</summary>
     /// <param name="value">The scalar's text.</param>
@@ -110,7 +115,7 @@ public sealed class OkfScalar : OkfValue
     public bool IsNull => !IsQuoted && Array.IndexOf(NullTexts, Value) >= 0;
 
     /// <inheritdoc />
-    public override bool IsTruthy
+    internal override bool IsTruthy
     {
         get
         {
@@ -180,7 +185,7 @@ public sealed class OkfSequence : OkfValue, IEnumerable<OkfValue>
     public int Count => this.items.Count;
 
     /// <inheritdoc />
-    public override bool IsTruthy => this.items.Count > 0;
+    internal override bool IsTruthy => this.items.Count > 0;
 
     /// <summary>Gets or sets the item at <paramref name="index" />.</summary>
     /// <param name="index">The zero-based index.</param>
@@ -227,7 +232,7 @@ public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, Ok
     public int Count => this.entries.Count;
 
     /// <inheritdoc />
-    public override bool IsTruthy => this.entries.Count > 0;
+    internal override bool IsTruthy => this.entries.Count > 0;
 
     /// <summary>
     /// Gets or sets the value for a scalar key. Reading an absent key yields

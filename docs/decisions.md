@@ -205,6 +205,14 @@ question in `prd.md` §6.
   limitation until a real producer emits tags.
 - **`OkfValue.IsTruthy` is public** and named for a Python concept. Proposal: narrow
   to internal (or rename to a §11-shaped name) before v1 freezes the API.
+  **Resolved 2026-08-15 (work item #30): narrowed to `internal`.** No public caller
+  wanted the concept — every call site is inside `Okf.Core`, deciding whether a key
+  counts as present under §11, and no test named it either. So there was nothing to
+  rename for: a public §11-shaped spelling would have been a member invented for the
+  freeze rather than for a caller. `OkfValue`'s constructor is already
+  `private protected`, so the hierarchy was never derivable from outside and narrowing
+  the member costs no extensibility. `InternalsVisibleTo="Okf.Core.Tests"` was already
+  in place if a test ever needs it.
 - **Duplicate frontmatter keys are rejected** (YamlDotNet) where PyYAML reads
   last-wins — pinned as a deliberate sixth deviation by test; rejecting is the
   stricter, better §11 behavior.
