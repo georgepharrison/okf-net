@@ -6,7 +6,7 @@
 
 ## Vision
 
-A personal + team knowledge system built on **OKF v0.2** (Open Knowledge Format: markdown + YAML frontmatter bundles, domain-first organization). Rejected pi-llm-wiki's epistemic-type folder layout (concepts/entities/syntheses/analyses) in favor of the spec's native position: directory structure follows the *domain*; document kind lives in frontmatter `type`; cross-cutting categorization via `tags`.
+A personal + team knowledge system built on **OKF v0.2** (Open Knowledge Format: markdown + YAML frontmatter bundles, domain-first organization). Rejected pi-llm-wiki's epistemic-type folder layout (concepts/entities/syntheses/analyses) in favor of what the spec actually grants: SPEC §3 makes directory structure *independent of the domain* — producers organize however makes sense — and mandates no tree shape at all. Domain-first is **okf-net's own convention**, layered onto that freedom (an earlier wording here attributed domain-first to the spec itself; corrected 2026-08-14 during the dogfood content review). What the spec does fix: document kind lives in frontmatter `type`; cross-cutting categorization via `tags` (§4.1).
 
 End state: agents do **progressive discovery** across a registry of bundles (personal KB + per-project bundles) — e.g., during an app discovery phase, an agent walks bundle indexes and recommends tools/integrations from accumulated knowledge. Future ingestion source: Ringo's exported Claude.ai conversation history.
 

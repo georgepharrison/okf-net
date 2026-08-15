@@ -1,0 +1,24 @@
+# markdownlint configuration for the OKF vault only.
+#
+# A nested config REPLACES the repository-root one rather than merging with it,
+# so the root file is pulled in explicitly with `extends` and exactly one extra
+# rule is turned off for the vault.
+#
+# MD025 (single H1) is incompatible with OKF v0.2 markdown, in two independent
+# ways:
+#
+#   1. §8 specifies an index.md as "one or more `#` sections". Every generated
+#      index with more than one concept type therefore carries several H1s, and
+#      those files are `okf index` output — not editable by hand.
+#   2. markdownlint counts a frontmatter `title:` as the document title, so ANY
+#      body heading at level 1 is already the second H1. OKF concepts carry
+#      their title in frontmatter and use `#` for body sections (SPEC §4.2's
+#      `# Schema` / `# Examples` convention; Google's reference bundles are
+#      written this way), which makes the collision unavoidable rather than
+#      stylistic.
+#
+# Scoped here rather than repo-wide so docs/, README.md, and AGENTS.md keep the
+# rule.
+extends: ../.markdownlint.yaml
+
+MD025: false
