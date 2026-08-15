@@ -1,0 +1,4 @@
+# Spike working files: downloaded models and generated indexes are never committed.
+models/
+*.sqlite
+*.sqlite-*
