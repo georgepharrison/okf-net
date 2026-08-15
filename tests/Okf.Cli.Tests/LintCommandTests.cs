@@ -16,7 +16,7 @@ public class LintCommandTests
 
         Assert.Empty(run.DiagnosticLines);
         Assert.Equal(
-            "Checked 5 files in 1 bundle (18 rules: 16 active, 2 hidden): 0 errors, 0 warnings, 0 infos.",
+            "Checked 5 files in 1 bundle (19 rules: 17 active, 2 hidden): 0 errors, 0 warnings, 0 infos.",
             run.Summary);
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
     }
@@ -41,10 +41,10 @@ public class LintCommandTests
         // Friction #11: "0 errors" from a run with the gate switched off has to read
         // differently from "0 errors" with the gate on. The counts move with the
         // configuration, in both directions.
-        Assert.Equal(18, Okf.Core.OkfRules.All.Count);
-        Assert.Contains("(18 rules: 16 active, 2 hidden)", defaults.Summary, StringComparison.Ordinal);
-        Assert.Contains("(18 rules: 17 active, 1 hidden)", enabled.Summary, StringComparison.Ordinal);
-        Assert.Contains("(18 rules: 14 active, 4 hidden)", silenced.Summary, StringComparison.Ordinal);
+        Assert.Equal(19, Okf.Core.OkfRules.All.Count);
+        Assert.Contains("(19 rules: 17 active, 2 hidden)", defaults.Summary, StringComparison.Ordinal);
+        Assert.Contains("(19 rules: 18 active, 1 hidden)", enabled.Summary, StringComparison.Ordinal);
+        Assert.Contains("(19 rules: 15 active, 4 hidden)", silenced.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public class LintCommandTests
         Assert.Equal("OKF0302", Assert.Single(document.RootElement.EnumerateArray()).GetProperty("id").GetString());
 
         Assert.Contains("okf: checked 2 files in 1 bundle", run.Error, StringComparison.Ordinal);
-        Assert.Contains("okf: 18 rules: 15 active, 3 hidden", run.Error, StringComparison.Ordinal);
+        Assert.Contains("okf: 19 rules: 16 active, 3 hidden", run.Error, StringComparison.Ordinal);
         Assert.Contains(
             "okf: diagnostics 0 errors, 0 warnings, 1 info, 1 at hidden severity",
             run.Error,
@@ -243,5 +243,85 @@ public class LintCommandTests
         var run = Cli.RunIn(Fixtures.Root, home.Root, "lint", "warnings-only");
 
         Assert.Contains("warnings-only/orphan.md:1: warning OKF0301", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AMutatedRawItemIsReportedWhenTheTargetIsAVault()
+    {
+        // OKF0310 is scoped to the vault rather than to a bundle root, and it follows the
+        // vault the working set resolved — which is the same vault whose okf.json already
+        // decides severities, so naming one bundle inside it does not opt out of the rule.
+        // A bundle with no vault around it is the case that leaves it inapplicable.
+        using var project = new TempTree();
+        MutatedCapture(project);
+
+        var vault = Cli.RunIn(project.Root, project.Root, "lint", "okf");
+        var inside = Cli.RunIn(project.Root, project.Root, "lint", "okf/bundles/b");
+        var loose = Cli.RunIn(project.Root, project.Root, "lint", Fixtures.Bundle("conformant"));
+
+        Assert.Contains("OKF0310", vault.RuleIds);
+        Assert.Contains("okf/raw/manifest.json", vault.Output, StringComparison.Ordinal);
+        Assert.Contains("OKF0310", inside.RuleIds);
+        Assert.DoesNotContain("OKF0310", loose.RuleIds);
+    }
+
+    [Fact]
+    public void TheProjectConfigCanPromoteAMutatedRawItemToAnError()
+    {
+        using var project = new TempTree();
+        MutatedCapture(project);
+        project.Write("okf/okf.json", """{ "lint": { "severities": { "OKF0310": "error" } } }""");
+
+        var run = Cli.RunIn(project.Root, project.Root, "lint", "okf");
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        Assert.Contains("error OKF0310", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A vault holding one bundle and one ingested capture whose artifact was edited after
+    /// ingestion — the situation the rule exists for.
+    /// </summary>
+    /// <param name="project">The project tree to build the vault in.</param>
+    private static void MutatedCapture(TempTree project)
+    {
+        project.Write("okf/bundles/b/note.md", """
+            ---
+            type: Reference
+            title: Note
+            description: A concept resting on the captured artifact.
+            tags: [fixture]
+            ---
+
+            # Note
+            """);
+
+        // The recorded hash is not the hash of what sits in raw/, which is what an
+        // artifact edited after ingestion looks like from the manifest's side.
+        project.Write("okf/raw/2026-06-01-thing.txt", "edited after ingestion\n");
+        project.Write("okf/raw/manifest.json", """
+            {
+              "manifestVersion": 1,
+              "captures": [
+                {
+                  "id": "2026-06-01-thing",
+                  "form": "flat",
+                  "files": [
+                    {
+                      "path": "2026-06-01-thing.txt",
+                      "sha256": "e0b7e1b0b3a4a0d3fbb1e0dcb5cbd3d1f8d90c9d7f9f7b0a1f2e3d4c5b6a7980"
+                    }
+                  ],
+                  "capturedAt": "2026-06-01T00:00:00Z",
+                  "capturedBy": "tests",
+                  "ingestion": {
+                    "at": "2026-06-01T00:00:00Z",
+                    "by": "tests",
+                    "concepts": ["bundles/b/note.md"]
+                  }
+                }
+              ]
+            }
+            """);
     }
 }

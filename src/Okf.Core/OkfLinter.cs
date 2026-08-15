@@ -19,6 +19,16 @@ public sealed class OkfLintOptions
     public IReadOnlyList<string>? TagRegistry { get; set; }
 
     /// <summary>
+    /// The vault the bundles were resolved from, when there is one — the scope the
+    /// <c>raw/</c>-immutability rule (<c>OKF0310</c>) works in. Every other rule is scoped
+    /// to a bundle root; this one cannot be, because <c>raw/</c> sits outside every bundle
+    /// root by construction (decisions.md Q3). <see langword="null" /> — a bundle handed
+    /// over by path with no vault around it — makes the rule inapplicable rather than
+    /// failing (PRD CLI-9).
+    /// </summary>
+    public string? VaultRoot { get; set; }
+
+    /// <summary>
     /// The date staleness is judged against (§5.5). Injected so lint output is
     /// deterministic in tests (PRD CORE-7).
     /// </summary>
@@ -111,6 +121,8 @@ public sealed class OkfLinter
         {
             files += LintBundle(bundle, diagnostics);
         }
+
+        CheckVault(diagnostics);
 
         diagnostics.Sort();
         return new OkfLintResult(diagnostics, list, files, this.options.Severities);
@@ -214,6 +226,157 @@ public sealed class OkfLinter
             diagnostics.Add(Diagnostic(OkfRules.GeneratedIndexDrift, message, index.Path, 1, bundle));
         }
     }
+
+    /// <summary>
+    /// The one rule scoped to the vault rather than to a bundle root: an ingested
+    /// <c>raw/</c> item that no longer matches the <c>sha256</c> its capture manifest
+    /// entry recorded (PRD CLI-9).
+    /// </summary>
+    /// <remarks>
+    /// <para>Narrow on purpose. The rule answers "did an artifact somebody already cited
+    /// change underneath the citation", and nothing else: an entry still awaiting
+    /// ingestion is the custodian's work queue, not a broken record, and every structural
+    /// invariant of the manifest — the id grammar, the timestamps, the flat/packet layout,
+    /// files in <c>raw/</c> no entry claims — belongs to
+    /// <c>okf/custodian/check-manifest.py</c>, which specified all of it first and stays
+    /// the belt-and-braces gate beside <c>okf lint</c>.</para>
+    /// <para>A manifest that will not parse is therefore silent here rather than
+    /// reported: the script reports it, and a rule that cannot read the record cannot
+    /// claim the artifact changed. Detection is by hash rather than by git, which is what
+    /// the PRD sketched — the recorded <c>sha256</c> is the format-level record, works in
+    /// a vault that is not a work tree, and needs no process launched from a library that
+    /// is offline and AOT-clean by contract (CLI-16).</para>
+    /// </remarks>
+    private void CheckVault(List<OkfDiagnostic> diagnostics)
+    {
+        if (this.options.VaultRoot is not { Length: > 0 } vault
+            || this.options.Severities.Resolve(OkfRules.RawItemMutated) == OkfSeverity.Hidden)
+        {
+            // No vault, or nothing would be reported — so nothing is read and nothing is
+            // hashed. Hashing every ingested artifact is the most expensive thing a lint
+            // run does, and a hidden rule must not cost it.
+            return;
+        }
+
+        var manifest = OkfCaptureManifest.TryLoad(vault, out var text);
+        if (manifest is null || text is null)
+        {
+            return;
+        }
+
+        var rawDirectory = Path.Combine(vault, OkfCaptureManifest.RawDirectoryName);
+
+        foreach (var entry in manifest.Captures.Where(capture => capture.IsIngested))
+        {
+            foreach (var file in entry.Files)
+            {
+                CheckRawFile(manifest, text, rawDirectory, entry, file, diagnostics);
+            }
+        }
+    }
+
+    private void CheckRawFile(
+        OkfCaptureManifest manifest,
+        string manifestText,
+        string rawDirectory,
+        OkfCaptureEntry entry,
+        OkfCaptureFile file,
+        List<OkfDiagnostic> diagnostics)
+    {
+        if (!TryResolveRawPath(rawDirectory, file.Path, out var absolute))
+        {
+            // A recorded path that escapes raw/ is a malformed record, which is
+            // check-manifest.py's finding to report; reading the file it names is exactly
+            // what this rule must not do.
+            return;
+        }
+
+        if (!File.Exists(absolute))
+        {
+            diagnostics.Add(VaultDiagnostic(
+                $"`{file.Path}`, ingested under capture `{entry.Id}`, is no longer in raw/. " +
+                "An ingested artifact is the evidence a concept rests on; restore it rather than editing the manifest.",
+                manifest.Path,
+                LineOf(manifestText, file.Sha256)));
+            return;
+        }
+
+        string actual;
+        try
+        {
+            actual = OkfCaptureManifest.Sha256Of(absolute);
+        }
+        catch (IOException)
+        {
+            // An unreadable artifact is not a changed one, and lint never fails a run on
+            // what it could not open.
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(VaultDiagnostic(
+                $"`{file.Path}`, ingested under capture `{entry.Id}`, no longer matches its recorded sha256 " +
+                $"(recorded {Short(file.Sha256)}, on disk {Short(actual)}). The artifact changed after ingestion, " +
+                "or the record did; resolve it by hand, never by rewriting the manifest.",
+                manifest.Path,
+                LineOf(manifestText, file.Sha256)));
+        }
+    }
+
+    /// <summary>
+    /// Resolves a manifest-recorded path against <c>raw/</c>, refusing anything that
+    /// leaves it — absolute, rooted, or climbing out with <c>..</c> however it is spelled.
+    /// </summary>
+    private static bool TryResolveRawPath(string rawDirectory, string recorded, out string absolute)
+    {
+        absolute = string.Empty;
+
+        if (Path.IsPathRooted(recorded) || recorded.Contains('\0', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(rawDirectory, recorded)));
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
+
+        if (!candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        absolute = candidate;
+        return true;
+    }
+
+    /// <summary>
+    /// The 1-based line the recorded hash sits on, so the diagnostic points at the record
+    /// rather than at the top of the file. Null when the text does not carry it, which a
+    /// hand-reformatted manifest can manage.
+    /// </summary>
+    private static int? LineOf(string manifestText, string needle)
+    {
+        var lines = manifestText.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains(needle, StringComparison.Ordinal))
+            {
+                return i + 1;
+            }
+        }
+
+        return null;
+    }
+
+    private static string Short(string sha256) =>
+        sha256.Length > 12 ? sha256[..12] + "…" : sha256;
+
+    private OkfDiagnostic VaultDiagnostic(string message, string path, int? line) =>
+        new(OkfRules.RawItemMutated, this.options.Severities.Resolve(OkfRules.RawItemMutated), message, path, line);
 
     private static string? Text(OkfMapping mapping, string key) =>
         mapping.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy ? scalar.Value : null;
