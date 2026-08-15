@@ -296,10 +296,26 @@ could not install to $destination
 }
 
 Write-Note '==> installed'
+
+# Two ways this can go wrong and only one of them is an exception. A file that will not
+# execute at all throws; a binary that runs and fails sets $LASTEXITCODE and throws
+# nothing, because $ErrorActionPreference has no bearing on a native command's exit code.
+# Both are worth a warning and neither is worth failing an install that has already
+# landed correct, verified bytes.
+#
+# No `2>&1` on the call: on Windows PowerShell 5.1 that turns a native command's stderr
+# into ErrorRecords, which under $ErrorActionPreference = 'Stop' can terminate the script
+# over a binary that merely wrote a diagnostic line.
+$reported = $null
 try {
-    $reported = & $destination version 2>&1
-    Write-Note "    okf.exe $reported"
+    $reported = & $destination version
 } catch {
+    $reported = $null
+}
+
+if ($LASTEXITCODE -eq 0 -and $reported) {
+    Write-Note "    okf.exe $reported"
+} else {
     Write-Warning "install.ps1: $destination was installed but did not answer ``okf version``"
 }
 
