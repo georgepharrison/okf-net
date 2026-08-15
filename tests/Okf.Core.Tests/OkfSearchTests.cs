@@ -324,6 +324,43 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void ASnippetKeepsLinkTextAndDropsLinkTargets()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Reference\ntitle: One\n---\n\n" +
+            "Read [the custodian model](custodian-model.md), see ![a diagram](img/custodian.png),\n" +
+            "and the [reference form][ref] too.\n\n[ref]: ../elsewhere/custodian.md\n");
+
+        var snippet = Assert.Single(Search(bundle, "custodian").Results).Snippet;
+
+        // The term inside the target is gone with the target, so the snippet can no longer
+        // emit `[The **custodian** model](**custodian**-model.md)` — half a link with a
+        // marked-up URL, which is neither readable in a terminal nor valid markdown.
+        Assert.Equal("Read the **custodian** model, see a diagram, and the reference form too.", snippet);
+    }
+
+    [Fact]
+    public void SnippetLinkFlatteningLeavesNonLinkBracketsAlone()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Reference\ntitle: One\n---\n\n" +
+            "A widget is an array[0] item, footnoted[^src], and [unclosed (see below).\n\n" +
+            "[^src]: A source.\n");
+
+        var snippet = Assert.Single(Search(bundle, "widget").Results).Snippet;
+
+        // Only the complete single-line link forms are rewritten: a subscript, a footnote
+        // reference, and a bracket that never closes as a link stay exactly as written.
+        Assert.Equal(
+            "A **widget** is an array[0] item, footnoted[^src], and [unclosed (see below). [^src]: A source.",
+            snippet);
+    }
+
+    [Fact]
     public void ASnippetNeverCutsThroughASurrogatePair()
     {
         using var bundle = new TempBundle();
