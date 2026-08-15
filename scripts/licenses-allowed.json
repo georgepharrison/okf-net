@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Allowlist of SPDX license identifiers permitted for okf-net dependencies.",
+    "Enforced by scripts/check-licenses.py over the CycloneDX SBOM; see the",
+    "`licenses` mise task and the `licenses` CI job.",
+    "",
+    "AGENTS.md: dependencies must be Apache-2.0-compatible. Extend this list",
+    "deliberately, in its own reviewed commit, with a rationale that cites an",
+    "authority — never inline an exception in the checker.",
+    "",
+    "Identifiers are matched case-insensitively (SPDX ids are case-insensitive)",
+    "but must otherwise be exact: no `+` (or-later) suffixes, no LicenseRef-*."
+  ],
+  "allowed": {
+    "MIT": "Permissive. ASF category A (https://www.apache.org/legal/resolved.html#category-a).",
+    "Apache-2.0": "Our own license.",
+    "BSD-2-Clause": "Permissive. ASF category A (https://www.apache.org/legal/resolved.html#category-a).",
+    "BSD-3-Clause": "Permissive. ASF category A (https://www.apache.org/legal/resolved.html#category-a).",
+    "MS-PL": "Microsoft Public License. ASF category A -- listed under 'licenses similar in terms to the Apache License 2.0' (https://www.apache.org/legal/resolved.html#category-a), so Apache-2.0-compatible despite its weak per-file reciprocity. Reached us through Xunit.SkippableFact (test-only) and its transitive dependency Validation."
+  }
+}

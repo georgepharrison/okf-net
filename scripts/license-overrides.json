@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Per-package license overrides for components whose NuGet metadata carries a",
+    "license *file* or a legacy `licenseUrl` instead of an SPDX expression, so the",
+    "CycloneDX SBOM has no SPDX id to check.",
+    "",
+    "Each entry pins an exact name + version (a version bump must be re-verified),",
+    "names the license actually found, and links the evidence that was read. The",
+    "substituted license must itself appear in scripts/licenses-allowed.json --",
+    "an override records what a package *is*, it never grants an exemption.",
+    "",
+    "Review these like code: the evidence URL is the whole point."
+  ],
+  "overrides": [
+    {
+      "name": "xunit.abstractions",
+      "version": "2.0.3",
+      "license": "Apache-2.0",
+      "evidence": "https://github.com/xunit/xunit/blob/v2.9.3/LICENSE",
+      "reason": "Package predates SPDX metadata on nuget.org: its nuspec has only <licenseUrl>https://raw.githubusercontent.com/xunit/xunit/master/license.txt</licenseUrl>, so the SBOM records the license as name 'Unknown - See URL'. It is built from the xunit/xunit repository, which is Apache-2.0 -- the same license every other xunit.* package in this solution declares as an SPDX id."
+    }
+  ]
+}

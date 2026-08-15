@@ -19,7 +19,10 @@ implementation choices in this repo.
   (FluentAssertions went proprietary at v8; do not use it at any version —
   use **Shouldly** when an assertion library is wanted, else plain xunit
   `Assert`). No copyleft (GPL/LGPL/MPL) and no source-available commercial
-  licenses in shipped or test code.
+  licenses in shipped or test code. CI enforces this in the `licenses` job,
+  which builds a CycloneDX SBOM of `Okf.sln` and fails on any component whose
+  license is not covered by `scripts/licenses-allowed.json` (run it locally
+  with `mise run licenses`).
 - **Tests must be shown to constrain the code.** A test added alongside new
   behavior must be demonstrated to FAIL without that behavior (write it
   first, or temporarily revert the change and run it), OR derive its expected

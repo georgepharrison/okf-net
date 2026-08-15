@@ -90,6 +90,29 @@ test:
     - git clone --depth 1 https://github.com/GoogleCloudPlatform/knowledge-catalog.git .reference/knowledge-catalog
     - dotnet test Okf.sln --configuration Release
 
+# Enforces AGENTS.md's "dependencies must be Apache-2.0-compatible" rule, which
+# GitLab CE cannot enforce for us (SBOM license scanning and license approval
+# policies are Ultimate features). Same three steps as `mise run licenses`.
+#
+# The SDK image installs only curl, git, libatomic1 and wget on top of
+# buildpack-deps:<suite>-curl, so it has no python3 — hence the apt-get. The
+# checker is stdlib-only, so python3 alone suffices: no pip, no venv.
+licenses:
+  extends: .dotnet
+  stage: validate
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
+    - dotnet tool restore
+    - dotnet CycloneDX Okf.sln --output artifacts/sbom --filename bom.json --output-format Json
+    - python3 scripts/check-licenses.py
+  artifacts:
+    # Publish the SBOM even when the check fails — the rejected SBOM is exactly
+    # the one worth reading, and CE has no license-scanning UI to fall back on.
+    when: always
+    expire_in: 30 days
+    paths:
+      - artifacts/sbom/bom.json
+
 commit-check:
   stage: validate
   rules:
