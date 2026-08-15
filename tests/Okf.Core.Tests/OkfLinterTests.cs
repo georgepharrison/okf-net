@@ -277,6 +277,46 @@ public class OkfLinterTests
     }
 
     [Fact]
+    public void OKF0102SaysWhetherTheSourceWasFootnotedAtAll()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "citations.md",
+            """
+            ---
+            type: Reference
+            title: Citations
+            description: d
+            tags: [t]
+            sources:
+              - id: defined-only
+                resource: https://example.invalid/one
+              - id: absent
+                resource: https://example.invalid/two
+            ---
+
+            # Citations
+
+            Nothing here cites anything.
+
+            [^defined-only]: The note, with no reference to it.
+            """);
+
+        var messages = bundle.Lint()
+            .Where(diagnostic => diagnostic.RuleId == OkfRules.UnusedSourceId)
+            .ToDictionary(diagnostic => diagnostic.Message.Split('`')[1], diagnostic => diagnostic.Message);
+
+        // "Never cited by a `[^defined-only]` footnote" would be read as a linter bug by an
+        // author looking straight at the `[^defined-only]:` line three rows down. The two
+        // findings are different repairs — write the citation, or drop the source — so the
+        // messages have to be different too.
+        Assert.Equal(2, messages.Count);
+        Assert.Contains("footnote definition but is never referenced", messages["defined-only"], StringComparison.Ordinal);
+        Assert.DoesNotContain("definition", messages["absent"], StringComparison.Ordinal);
+        Assert.Contains("is never cited by a `[^absent]` footnote", messages["absent"], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OKF0103FiresWhenASourceMovedAfterGeneration()
     {
         using var bundle = new TempBundle();

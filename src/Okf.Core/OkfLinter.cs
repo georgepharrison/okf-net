@@ -619,11 +619,22 @@ public sealed class OkfLinter
             }
         }
 
+        var defined = new HashSet<string>(
+            scan.Footnotes.Where(footnote => footnote.IsDefinition).Select(footnote => footnote.Label),
+            StringComparer.Ordinal);
+
         foreach (var id in sourceIds.Where(id => !referenced.Contains(id)))
         {
+            // The two shapes read very differently to the author. "Never cited by a
+            // `[^id]` footnote" is false on its face when a `[^id]:` line is sitting in
+            // the document — which is precisely the case this rule newly reports — so the
+            // definition-only finding says what is actually missing instead.
             diagnostics.Add(Diagnostic(
                 OkfRules.UnusedSourceId,
-                $"Source `{id}` is never cited by a `[^{id}]` footnote in the body (§5.1).",
+                defined.Contains(id)
+                    ? $"Source `{id}` has a `[^{id}]:` footnote definition but is never referenced by a "
+                        + $"`[^{id}]` in the body; a definition is the note, not a citation (§5.1)."
+                    : $"Source `{id}` is never cited by a `[^{id}]` footnote in the body (§5.1).",
                 path,
                 sourcesLine,
                 bundle));
