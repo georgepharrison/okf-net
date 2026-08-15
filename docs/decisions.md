@@ -849,3 +849,97 @@ Each is a place the tools fought the first real author working under them.
   matches, is reported and left as found, never rewritten to make it parse** — an agent
   that repairs the immutability record is how the record is lost, and neither skill had
   said so.
+
+### Proposed decisions (pending review): version stamping and tag pipelines (work item #10, 2026-08-14)
+
+Work item #10 has two halves. This is the half that could be built now; the other —
+flipping `main` to a release branch, adding `dev` as the prerelease channel and deleting
+the `stable` placeholder — waits for an actual 1.0.0 and stays open.
+
+- **`okf version` told the truth about nothing.** It printed `1.0.0`, which was the SDK's
+  default `VersionPrefix` and not a number anyone had chosen. Nothing passed `-p:Version`,
+  so a release-candidate binary and a laptop build were indistinguishable — and both
+  claimed to be the 1.0.0 that does not exist yet.
+- **The version flow is the SDK's own, with one property added.** `Directory.Build.props`
+  sets a default and performs no arithmetic. Verified against the pinned SDK (10.0.400):
+  `-p:Version=1.0.0-rc.14 -p:SourceRevisionId=abc1234` yields `AssemblyVersion 1.0.0.0`
+  (the numeric core; the prerelease is dropped, which is all `AssemblyVersion` can hold)
+  and `AssemblyInformationalVersion 1.0.0-rc.14+abc1234`. Writing our own version
+  arithmetic would have reimplemented, worse, what the SDK already does correctly.
+  - **The unstamped default is `0.0.0-dev`, not `1.0.0`.** A build nobody stamped should
+    say so. The SDK's `1.0.0` is a lie a dev build tells with a straight face, and it
+    becomes an ambiguous one the moment `main` flips to non-prerelease versioning and a
+    real 1.0.0 exists.
+- **Two version strings, deliberately.** `okf version` prints the full informational
+  version including the `+<sha>` build metadata; MCP's `serverInfo.version` prints the
+  bare semantic version. An rc tag can be rebuilt, so the version alone does not identify
+  a binary and a bug report quoting it is one question short — but `serverInfo.version` is
+  a value a client may parse or compare, and semver §10 excludes build metadata from
+  precedence. One attribute, read two ways, for two audiences.
+- **Git lives in the task, never in MSBuild.** `mise run publish-aot` derives the local
+  version from `git describe --tags --always --dirty`; no target in this repo shells out
+  to git, so a build from a source archive with no `.git` still works. `git describe`'s
+  output is normalized rather than passed through, because two of its three shapes are not
+  versions: a `-<n>-g<sha>` distance trailer is dropped and the commit it named is carried
+  separately as build metadata from `git rev-parse` (where semver §10 puts a commit; the
+  distance itself is not preserved), and a bare sha from an untagged tree becomes
+  `0.0.0-dev`. Dropping the trailer is not cosmetic — left in the version it is *legal*
+  semver that sorts **above** the tag it followed, because `rc.14-3-g1f334c9` compares as
+  an alphanumeric identifier and alphanumerics outrank numerics. A build three commits
+  past `v1.0.0-rc.14` would claim to be newer than `1.0.0-rc.15`.
+  - **The SDK does query git, and that is fine.** Its built-in source-control support
+    fills `SourceRevisionId` from the working tree when a `.git` is present, so a plain
+    `dotnet build` already yields `0.0.0-dev+<40-char sha>`. Passing the property
+    explicitly overrides it with the short sha the release actually names. The distinction
+    that matters is that the *version* is never derived from the repo by the build — only
+    the commit identifier is, and only when one is there to read.
+- **Tag pipelines now have a job, so the "no jobs" wart is gone.** The `workflow:` rules
+  have always allowed tag pipelines, but no job matched `$CI_COMMIT_TAG`, so every tag
+  semantic-release cut started a pipeline that failed with "no jobs in this pipeline": a
+  red pipeline as the *normal* outcome of a successful release, which is how a team learns
+  to ignore red pipelines. The `publish` job AOT-publishes `linux-x64` stamped from the
+  tag, uploads it to the generic package registry as `okf/<version>/okf-linux-x64`, and
+  attaches an asset link to the release semantic-release already created.
+  - **CI stamps from the tag; local stamps from `git describe`.** The `publish` job
+    deliberately does not reuse the `publish-aot` mise task. That task *guesses* a version
+    from the working tree because it has to; in CI the version is the tag, which is
+    authoritative and needs no guessing. Both honour the same `-p:Version` /
+    `-p:SourceRevisionId` contract, which is why there is one contract and not two.
+  - **The package version is the tag without its `v`.** Probed empirically (2026-08-14):
+    this instance accepts a deliberately non-semver generic package version, so the strip
+    is not a validation workaround. It is so that the package version is
+    character-for-character what the binary inside it answers to `okf version`.
+  - **Asset linking is idempotent by asking, not by forcing.** Link names and URLs must be
+    unique within a release, so a blind POST fails on any rerun or retried job. The job
+    fetches the release and adds the link only when the package URL is not already on it.
+    The alternative — POST and swallow the error — cannot tell "already linked" from
+    "misconfigured", which is exactly the distinction a first release needs.
+  - **The job waits for the release rather than racing it.** semantic-release creates the
+    release from the main-branch pipeline that pushed the tag, so the two pipelines
+    overlap. The AOT compile makes the release near-certain to exist by the time the link
+    step runs, but "near-certain" is not a schedule; it retries, then fails loudly with the
+    last response body, because a 404 accuses semantic-release and a 401 accuses the job's
+    own token, and those are opposite repairs.
+  - **The job refuses to publish a binary that disagrees with the tag.** It compares
+    `okf version` from the freshly compiled binary against `<tag minus v>+<short sha>`
+    before uploading anything. Printing the version and reading it by eye is not a check:
+    a build that lost its stamp answers `0.0.0-dev`, which prints into a green log and gets
+    uploaded under the tag's coordinates regardless. The one failure this whole change
+    exists to prevent is a package whose name lies about its contents.
+  - **Every artifact of a failed publish is kept.** The job's `artifacts:` block uses
+    `when: always`, like `licenses` does for its SBOM: an artifact retained only on success
+    is discarded in precisely the case it was retained for.
+- **What is untestable until a real tag exists, and what was done instead.** No amount of
+  local work exercises a tag pipeline. Mitigations: `glab ci lint` is green; the merged
+  YAML was read back from the instance's `/ci/lint` endpoint to confirm that `extends`
+  *replaced* `.dotnet`'s branch-only `rules` rather than appending to them; the release
+  and asset-link endpoints were probed read-only against this project; and the generic
+  upload URL was probed with a throwaway package, since deleted, which is what corrected
+  the semver assumption above. Every step of the job echoes what it is about to do, URLs
+  included, because on the first real tag the job log is the only debugger there is.
+- **`curl | sh` is not built, and the README says so.** What the generic package registry
+  buys immediately is a *stable, predictable* download URL, which is the load-bearing half
+  of an installer. The README documents the download-and-chmod one-liner under an install
+  section headed "prerelease binaries" that explains `rc` means what it says. The
+  `PRIVATE-TOKEN` header in that one-liner is there only because the project is private
+  today.

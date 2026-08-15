@@ -43,6 +43,47 @@ consume.
   citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)
 
+## Install (prerelease binaries)
+
+`main` ships **release candidates**, not releases: every merge cuts a
+`vX.Y.Z-rc.N` tag, and that tag's pipeline publishes a self-contained
+`linux-x64` binary to this project's generic package registry. There is no
+stable channel yet, and the `rc` is not decoration — the API, the CLI surface
+and the diagnostic set can all still move.
+
+> **No binary is downloadable yet.** The publishing job is new and has never
+> run: nothing runs it but a tag pipeline, and no tag has been cut since it
+> landed. Every release before that one carries no binary, and the job itself
+> is unproven until the first tag exercises it. Until then, build from source:
+> `mise run publish-aot` leaves the same binary in `artifacts/aot/okf`.
+
+The download URL is stable and predictable: the package version is the release
+tag without its leading `v`. Take a version from the
+[releases page](https://gitlab.tychostation.dev/ringo/okf-net/-/releases) —
+once a release carries a binary, it links it directly — and:
+
+```bash
+# <version> is a release tag minus its leading `v`, e.g. 1.0.0-rc.15.
+curl --fail --location --output okf \
+  --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/<version>/okf-linux-x64"
+chmod +x okf
+./okf version   # <version>+<short-sha> — the tag, and the commit it was built from
+```
+
+The `PRIVATE-TOKEN` header is needed only because the project is private
+today; it drops out if that changes. A `curl | sh` installer that resolves the
+newest rc for you does not exist yet — the stable URL scheme above is the half
+of it that does.
+
+Two caveats worth stating plainly:
+
+- **linux-x64, glibc.** The binary is compiled ahead of time against the
+  Debian userland of the .NET SDK image, so it runs on that glibc version or
+  newer. There is no musl, arm64 or macOS build yet.
+- **No runtime to install.** That is the point (PRD CLI-17): consuming an OKF
+  bundle must never require knowing the tool is written in C#.
+
 ## Architecture
 
 Everything lives in one core library; the CLI and MCP server are thin
@@ -77,10 +118,12 @@ violate OKF conformance):
 
 ## Status
 
-**Design complete; MVP implementation in progress.** The architecture is
-fully decided and documented, CI releases `rc` prereleases from `main`, and
-the first code (Okf.Core) is next. Nothing is usable yet — watch the
-releases.
+**Prerelease.** `Okf.Core`, the CLI's `lint`, `index` and `search` commands
+and the MCP server are built and gated in CI; `okf inbox`/`okf verify` and the
+agent skills are later milestones. Every merge to `main` cuts an `rc` tag, and
+from the first tag cut after the publishing job landed that tag also ships a
+runnable binary — see [Install](#install-prerelease-binaries), which says
+plainly that none exists yet. Usable from source, deliberately not yet stable.
 
 ## Documentation
 

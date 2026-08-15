@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    Version stamping (issue #10 / PRD CLI-17).
+
+    The whole flow is the SDK's own, deliberately: this file adds a default and
+    nothing else, so there is no bespoke version arithmetic to go wrong.
+
+      dotnet publish -p:Version=1.0.0-rc.14 -p:SourceRevisionId=abc1234
+
+    yields, via Microsoft.NET.GenerateAssemblyInfo.targets (verified empirically
+    against the SDK in mise.toml, 10.0.400):
+
+      AssemblyVersion            1.0.0.0            (numeric core; prerelease dropped)
+      AssemblyFileVersion        1.0.0.0
+      AssemblyInformationalVersion  1.0.0-rc.14+abc1234
+
+    `okf version` prints the informational attribute, so both the release
+    candidate number and the commit it was built from survive into the shipped
+    binary. `-p:Version` must be a bare semver — the leading `v` of a git tag is
+    stripped by whoever passes it (the `publish` CI job, the `publish-aot` mise
+    task), never here.
+
+    `SourceRevisionId` is optional. The SDK's built-in source-control support
+    fills it in from the working tree when there is a `.git` to read, so a plain
+    `dotnet build` already produces `0.0.0-dev+<40-char-sha>`; passing it
+    explicitly overrides that with the short sha the release actually names.
+    Neither this file nor any target in this repo shells out to git — deriving a
+    version from the working tree is the caller's job, so a build from a source
+    archive with no `.git` still works and still produces a usable version.
+  -->
+  <PropertyGroup>
+    <!--
+      The unstamped default. Left to the SDK this would be `1.0.0`, which is a
+      lie a dev build tells with a straight face — and, once main flips to
+      non-prerelease versioning, indistinguishable from the real 1.0.0. A build
+      nobody stamped says so.
+    -->
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
+  </PropertyGroup>
+
+</Project>

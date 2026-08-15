@@ -63,7 +63,7 @@ internal static class CliApplication
 
             case "version":
             case "--version":
-                output.WriteLine(Version);
+                output.WriteLine(VersionDisplay);
                 return ExitSuccess;
 
             case "lint":
@@ -85,11 +85,42 @@ internal static class CliApplication
         }
     }
 
-    /// <summary>The binary's informational version.</summary>
-    public static string Version =>
+    /// <summary>
+    /// The version reported when nothing stamped the assembly at all — a missing or empty
+    /// attribute, which no `dotnet build` of this repo produces (Directory.Build.props
+    /// defaults to <c>0.0.0-dev</c>) but a hand-assembled binary might.
+    /// </summary>
+    internal const string UnknownVersion = "0.0.0";
+
+    /// <summary>
+    /// What <c>okf version</c> prints: the full informational version, including the
+    /// <c>+&lt;short-sha&gt;</c> build metadata a stamped build carries. A bug report
+    /// quoting this line names the exact commit the binary was built from, which
+    /// `1.0.0-rc.14` alone does not (an rc tag can be rebuilt).
+    /// </summary>
+    public static string VersionDisplay => Describe(InformationalVersion);
+
+    /// <summary>
+    /// The semantic version, without build metadata — what MCP reports as
+    /// <c>serverInfo.version</c>, where a client may compare or parse it.
+    /// </summary>
+    public static string Version => SemanticVersion(InformationalVersion);
+
+    private static string? InformationalVersion =>
         typeof(CliApplication).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion.Split('+')[0]
-        ?? "0.0.0";
+            ?.InformationalVersion;
+
+    /// <summary>Renders the informational version for display, metadata and all.</summary>
+    internal static string Describe(string? informationalVersion) =>
+        informationalVersion is { Length: > 0 } value ? value : UnknownVersion;
+
+    /// <summary>Drops the <c>+</c> build metadata from an informational version.</summary>
+    internal static string SemanticVersion(string? informationalVersion)
+    {
+        var described = Describe(informationalVersion);
+        var metadata = described.IndexOf('+', StringComparison.Ordinal);
+        return metadata < 0 ? described : described[..metadata];
+    }
 
     private static void WriteUsage(TextWriter writer)
     {
