@@ -3,7 +3,7 @@ type: Concept
 title: Library, CLI, and MCP Layering
 description: All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
 tags: [okf-net, architecture, cli, mcp, layering]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T21:42:00-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -25,13 +25,13 @@ behaviour the other lacks.[^decisions]
 ```text
 Okf.Core   parse · validate · trust · staleness · index · search · discovery
    │
-   ├── Okf.Cli    okf lint | index | search        (built)
-   │              okf inbox | verify | register | unregister | init | mcp
-   └── okf mcp    search · read · list, over stdio (not built)
+   ├── Okf.Cli    okf lint | index | search | mcp   (built)
+   │              okf inbox | verify | register | unregister | init
+   └── okf mcp    okf_list · okf_search · okf_read, over stdio (built)
 ```
 
-The diagram is the designed surface, not an inventory. `lint`, `index`, and
-`search` exist today; the rest of the verb list and the whole MCP adapter are
+The diagram is the designed surface, not an inventory. `lint`, `index`,
+`search`, and `mcp` exist today; the rest of the verb list and the skills are
 later milestones, in the build order Core → index → search → MCP → skills.
 Everything below describes the contract each one is being built against.
 
@@ -71,10 +71,17 @@ resolution](vault-registry-and-config.md).
 
 # What MCP deliberately does not do
 
-The MVP MCP surface is **read-only**: `search`, `read`, `list`. Stamping and
-index generation stay CLI operations. Skills teach agents to call the CLI,
-which is the settled industry answer after several years of servers accreting
-tools nobody invoked.
+The MVP MCP surface is **read-only**: `okf_list`, `okf_search`, `okf_read`.
+Stamping and index generation stay CLI operations. Skills teach agents to call
+the CLI, which is the settled industry answer after several years of servers
+accreting tools nobody invoked.
+
+The protocol layer is hand-rolled — newline-delimited JSON-RPC 2.0 over four
+methods, no dependency — for the same reasons the CLI's argument parsing is:
+the surface is small and stable, the exit-code contract is ours to keep, and
+the binary must publish NativeAOT-clean. The official C# SDK was measured
+against both gates before that call was made, and the adapter costs the
+binary about a tenth of a megabyte.
 
 Containment is enforced at the boundary: every path accepted or returned is
 confined to a resolved bundle root, and traversal outside it is rejected.
