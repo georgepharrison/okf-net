@@ -196,6 +196,12 @@ public class InboxCommandTests
 
         Assert.Equal("topic/drifted", item.GetProperty("id").GetString());
         Assert.Equal("topic/drifted.md", item.GetProperty("path").GetString());
+        Assert.Equal(
+            Path.Combine(bundle, "topic", "drifted.md"),
+            item.GetProperty("absolutePath").GetString());
+        Assert.EndsWith("topic/drifted.md", item.GetProperty("displayPath").GetString()!, StringComparison.Ordinal);
+        Assert.Equal(bundle, item.GetProperty("bundle").GetString());
+        Assert.Equal("b", item.GetProperty("bundleName").GetString());
         Assert.Equal("Drifted", item.GetProperty("title").GetString());
         Assert.Equal("Reference", item.GetProperty("type").GetString());
         Assert.Equal(
@@ -207,11 +213,42 @@ public class InboxCommandTests
         Assert.Equal("claude-fable/5", item.GetProperty("generatedBy").GetString());
         Assert.Equal("2019-01-01T00:00:00Z", item.GetProperty("generatedAt").GetString());
         Assert.Equal("process:check", item.GetProperty("verifiedBy").GetString());
+        Assert.Equal("2018-06-01T00:00:00Z", item.GetProperty("verifiedAt").GetString());
         Assert.Equal("2020-01-01", item.GetProperty("staleAfter").GetString());
+
+        // Ages are whole days from the written date, so they move with the clock; what is
+        // fixed is that both are present and ordered the way the two dates are.
+        Assert.True(item.GetProperty("ageDays").GetInt32() > item.GetProperty("staleDays").GetInt32());
 
         var source = Assert.Single(item.GetProperty("driftedSources").EnumerateArray());
         Assert.Equal("spec", source.GetProperty("id").GetString());
+        Assert.Equal("https://example.org/spec", source.GetProperty("resource").GetString());
         Assert.Equal("2020-02-02", source.GetProperty("lastModified").GetString());
+    }
+
+    [Fact]
+    public void AbsentFrontmatterBecomesJsonNullRatherThanAMissingKey()
+    {
+        // A consumer reading `record.generatedAt` must get null, not undefined: an absent
+        // key and a null one are the same thing only until somebody writes a schema.
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/bare.md", Concept("status: draft"));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle, "--json");
+
+        using var document = JsonDocument.Parse(run.Output);
+        var item = Assert.Single(document.RootElement.EnumerateArray());
+        foreach (var name in (string[])
+                 ["type", "generatedBy", "generatedAt", "verifiedBy", "verifiedAt", "staleAfter", "ageDays", "staleDays"])
+        {
+            Assert.Equal(JsonValueKind.Null, item.GetProperty(name).ValueKind);
+        }
+
+        Assert.Empty(item.GetProperty("driftedSources").EnumerateArray());
+
+        // Indented, like every other JSON surface okf writes.
+        Assert.Contains("\n  {", run.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -260,6 +297,144 @@ public class InboxCommandTests
         Assert.Equal(
             ["alpha", "topic/mid", "zebra"],
             document.RootElement.EnumerateArray().Select(item => item.GetProperty("id").GetString()));
+    }
+
+    [Fact]
+    public void ASingleWaitingConceptIsCountedInTheSingular()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/settled.md", Concept("type: Concept\ntitle: Settled"));
+        tree.Write("vault/bundles/b/drafted.md", Concept("type: Concept\ntitle: Drafted\nstatus: draft"));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains(
+            "Checked 2 concepts in 1 bundle: 1 concept needs attention (1 unacknowledged, 0 stale, 0 with source drift).",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADraftWithNoGeneratedStampSaysSoRatherThanInventingOne()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/drafted.md", Concept("type: Concept\ntitle: Drafted\nstatus: draft"));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains("status: draft; no generated stamp; never verified", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARegeneratedConceptNamesItsLastVerification()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/moved-on.md", Concept("""
+            type: Concept
+            title: Moved On
+            generated: { by: claude-fable/5, at: 2020-06-01T00:00:00Z }
+            verified:
+              - { by: "human:ringo", at: 2020-01-01T00:00:00Z }
+            """));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains(
+            "generated claude-fable/5 2020-06-01T00:00:00Z (",
+            run.Output,
+            StringComparison.Ordinal);
+        Assert.Contains("last verified human:ringo 2020-01-01T00:00:00Z", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnUnrecordedActorIsNamedAsSuchOnBothSides()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/anon.md", Concept("""
+            type: Concept
+            title: Anonymous
+            generated: { at: 2020-06-01T00:00:00Z }
+            verified:
+              - { at: 2020-01-01T00:00:00Z }
+            """));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains("generated an unrecorded actor 2020-06-01T00:00:00Z", run.Output, StringComparison.Ordinal);
+        Assert.Contains("last verified an unrecorded actor 2020-01-01T00:00:00Z", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AStampDatedInTheFutureIsReportedAsAheadRatherThanAsAnAge()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/ahead.md", Concept("""
+            type: Concept
+            title: Ahead
+            generated: { by: claude-fable/5, at: 2099-01-01T00:00:00Z }
+            """));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains("(in ", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(" ago)", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADriftedSourceWithNoIdIsNamedByItsResource()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/moved.md", Concept("""
+            type: Concept
+            title: Moved
+            generated: { by: "human:ringo", at: 2020-01-01T00:00:00Z }
+            sources:
+              - resource: https://example.org/spec
+                last_modified: 2020-02-02
+            """));
+
+        var run = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Contains(
+            "moved since: https://example.org/spec (2020-02-02)",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--format=json")]
+    [InlineData("--json")]
+    public void EverySpellingOfTheJsonFlagProducesTheSameArray(string flag)
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/drafted.md", Concept("type: Concept\nstatus: draft"));
+
+        var inline = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle, flag);
+        var spaced = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle, "--format", "json");
+
+        Assert.Equal(spaced.Output, inline.Output);
+        Assert.StartsWith("[", inline.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatTextIsTheDefaultAndIsNotJson()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/drafted.md", Concept("type: Concept\nstatus: draft"));
+
+        var explicitText = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle, "--format", "text");
+        var implicitText = Cli.RunIn(tree.Root, tree.Root, "inbox", bundle);
+
+        Assert.Equal(implicitText.Output, explicitText.Output);
+        Assert.StartsWith("Unacknowledged (1)", explicitText.Output, StringComparison.Ordinal);
     }
 
     private static string Concept(string frontmatter) => $"---\n{frontmatter}\n---\n\nBody.\n";

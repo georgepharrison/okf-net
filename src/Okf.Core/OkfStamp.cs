@@ -205,25 +205,18 @@ public static class OkfStamp
             return null;
         }
 
-        var keys = Enumerable.Range(1, fence - 1)
-            .Where(i => lines[i].StartsWith(VerifiedKey + ":", StringComparison.Ordinal))
-            .ToList();
+        // Top-level only: a `verified:` at column 0. A duplicate is not considered here
+        // because the caller has already parsed the document, and YAML rejects one.
+        var key = Enumerable.Range(1, fence - 1)
+            .FirstOrDefault(i => lines[i].StartsWith(VerifiedKey + ":", StringComparison.Ordinal), -1);
 
-        if (keys.Count > 1)
-        {
-            // Duplicate keys resolve last-wins when parsed, and guessing which one an
-            // author meant to extend is not a guess worth making.
-            return null;
-        }
-
-        if (keys.Count == 0)
+        if (key < 0)
         {
             lines.Insert(fence, $"{VerifiedKey}:");
             lines.Insert(fence + 1, $"  - {entry}");
             return string.Join(newline, lines);
         }
 
-        var key = keys[0];
         var inline = lines[key][(VerifiedKey.Length + 1)..].Trim();
 
         // Where the value ends: the next top-level key, or the closing fence.

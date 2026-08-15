@@ -298,6 +298,60 @@ public class VerifyCommandTests
     }
 
     [Fact]
+    public void TheByFlagMayBeGivenOnlyOnce()
+    {
+        using var tree = new Vault(actor: "ringo");
+
+        var run = tree.Run(
+            "verify", tree.Path("bundles/b/widgets.md"), "--by", "process:a", "--by", "process:b");
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("a stamp names one actor", run.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheInlineFormOfEveryOptionWorks()
+    {
+        using var tree = new Vault(actor: "ringo");
+        tree.Write("elsewhere.json", """{ "verify": { "actor": "human:someone" } }""");
+
+        var run = tree.Run(
+            "verify",
+            tree.Path("bundles/b/widgets.md"),
+            $"--config={tree.Path("elsewhere.json")}",
+            "--by=process:nightly",
+            "--dry-run");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("""would append verified: - { by: "process:nightly", at: """, run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StampingSeveralConceptsInOneRunGivesThemAllTheSameTimestamp()
+    {
+        using var tree = new Vault(actor: "ringo");
+
+        var run = tree.Run("verify", tree.Path("bundles/b/widgets.md"), tree.Path("bundles/b/gadgets.md"));
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("Verified 2 concepts as human:ringo.", run.Output, StringComparison.Ordinal);
+
+        var widgets = Stamp(tree.Read("bundles/b/widgets.md"));
+        Assert.Equal(widgets, Stamp(tree.Read("bundles/b/gadgets.md")));
+    }
+
+    [Fact]
+    public void VerbosePrintsWhereTheIdentityCameFromAndStaysOffStdout()
+    {
+        using var tree = new Vault(actor: "ringo");
+
+        var run = tree.Verify("bundles/b/widgets.md", "--verbose");
+
+        Assert.Contains("okf: stamping as human:ringo (from verify.actor in ", run.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("okf: stamping", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AConfiguredActorThatIsNotAPersonIsAConfigurationFailure()
     {
         using var tree = new Vault(actor: "process:nightly");
@@ -306,6 +360,13 @@ public class VerifyCommandTests
 
         Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
         Assert.Contains("stamps human review", run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>The <c>at</c> of the last verification event in a concept's text.</summary>
+    private static string Stamp(string text)
+    {
+        var events = OkfDocument.NormalizeVerified(OkfDocument.Parse(text).Frontmatter);
+        return ((OkfScalar)events[^1]["at"]!).Value;
     }
 
     /// <summary>

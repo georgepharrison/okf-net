@@ -63,7 +63,7 @@ public static class OkfTimestamp
 /// anything else compares by date. That makes every comparison here at least as
 /// sensitive as <c>OkfLinter</c>'s date-only test (<c>OKF0203</c>), never less.</para>
 /// </remarks>
-public readonly struct OkfTimestamp : IEquatable<OkfTimestamp>, IComparable<OkfTimestamp>
+public readonly struct OkfTimestamp
 {
     private OkfTimestamp(DateOnly date, DateTimeOffset instant, bool hasTime)
     {
@@ -169,57 +169,6 @@ public readonly struct OkfTimestamp : IEquatable<OkfTimestamp>, IComparable<OkfT
     /// <param name="today">The date to measure to.</param>
     /// <returns>The day count; negative when the timestamp is in the future.</returns>
     public int DaysUntil(DateOnly today) => today.DayNumber - Date.DayNumber;
-
-    /// <inheritdoc />
-    public int CompareTo(OkfTimestamp other) => Compare(this, other);
-
-    /// <inheritdoc />
-    public bool Equals(OkfTimestamp other) => Compare(this, other) == 0;
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is OkfTimestamp other && Equals(other);
-
-    /// <inheritdoc />
-    public override int GetHashCode() => Date.GetHashCode();
-
-    /// <inheritdoc />
-    public override string ToString() => Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-    /// <summary>Orders two timestamps.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when the left sorts before the right.</returns>
-    public static bool operator <(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) < 0;
-
-    /// <summary>Orders two timestamps.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when the left sorts after the right.</returns>
-    public static bool operator >(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) > 0;
-
-    /// <summary>Orders two timestamps.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when the left does not sort after the right.</returns>
-    public static bool operator <=(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) <= 0;
-
-    /// <summary>Orders two timestamps.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when the left does not sort before the right.</returns>
-    public static bool operator >=(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) >= 0;
-
-    /// <summary>Compares two timestamps for equality at the coarser of their precisions.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when they compare equal.</returns>
-    public static bool operator ==(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) == 0;
-
-    /// <summary>Compares two timestamps for inequality at the coarser of their precisions.</summary>
-    /// <param name="left">The left timestamp.</param>
-    /// <param name="right">The right timestamp.</param>
-    /// <returns><see langword="true" /> when they do not compare equal.</returns>
-    public static bool operator !=(OkfTimestamp left, OkfTimestamp right) => Compare(left, right) != 0;
 
     private static DateTimeOffset Midnight(DateOnly date) =>
         new(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);

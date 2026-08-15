@@ -21,19 +21,8 @@ internal static class VerifyCommand
     /// <param name="environment">The environment to resolve configuration against.</param>
     /// <param name="output">Where the report goes.</param>
     /// <param name="error">Where errors and <c>--verbose</c> notes go.</param>
-    /// <param name="clock">The clock the stamp's <c>at</c> comes from.</param>
-    /// <param name="gitEmail">
-    /// Reads <c>git config --global user.email</c>; defaults to the real read. Injected so
-    /// the identity chain is exercisable without a git installation.
-    /// </param>
     /// <returns>The process exit code.</returns>
-    public static int Run(
-        string[] args,
-        OkfEnvironment environment,
-        TextWriter output,
-        TextWriter error,
-        TimeProvider? clock = null,
-        Func<string?>? gitEmail = null)
+    public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
         VerifyArguments parsed;
         try
@@ -55,7 +44,7 @@ internal static class VerifyCommand
 
         try
         {
-            return Verify(parsed, environment, output, error, clock ?? TimeProvider.System, gitEmail);
+            return Verify(parsed, environment, output, error);
         }
         catch (OkfConfigException exception)
         {
@@ -78,9 +67,7 @@ internal static class VerifyCommand
         VerifyArguments arguments,
         OkfEnvironment environment,
         TextWriter output,
-        TextWriter error,
-        TimeProvider clock,
-        Func<string?>? gitEmail)
+        TextWriter error)
     {
         if (arguments.Paths.Count == 0)
         {
@@ -89,7 +76,7 @@ internal static class VerifyCommand
             return CliApplication.ExitUsage;
         }
 
-        if (ResolveActor(arguments, environment, error, gitEmail) is not { } actor)
+        if (ResolveActor(arguments, environment, error) is not { } actor)
         {
             return CliApplication.ExitUsage;
         }
@@ -146,7 +133,7 @@ internal static class VerifyCommand
             documents.Add(file);
         }
 
-        var at = clock.GetUtcNow();
+        var at = DateTimeOffset.UtcNow;
         var stamp = OkfStamp.FormatTimestamp(at);
 
         foreach (var path in documents)
@@ -177,8 +164,7 @@ internal static class VerifyCommand
     private static OkfActorResolution? ResolveActor(
         VerifyArguments arguments,
         OkfEnvironment environment,
-        TextWriter error,
-        Func<string?>? gitEmail)
+        TextWriter error)
     {
         if (arguments.By is { } by)
         {
@@ -198,7 +184,7 @@ internal static class VerifyCommand
         var resolution = OkfVerifyIdentity.Resolve(
             project,
             global,
-            gitEmail ?? (() => OkfVerifyIdentity.GlobalUserEmail(environment)));
+            () => OkfVerifyIdentity.GlobalUserEmail(environment));
 
         if (!resolution.IsResolved)
         {

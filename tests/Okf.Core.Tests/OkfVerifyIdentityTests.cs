@@ -58,6 +58,29 @@ public class OkfVerifyIdentityTests
     }
 
     [Fact]
+    public void AWhitespaceOnlyConfiguredActorIsAConfigurationError()
+    {
+        var exception = Assert.Throws<OkfConfigException>(() => OkfVerifyIdentity.Resolve(
+            Config("""{ "verify": { "actor": "   " } }""", "project"),
+            null,
+            () => null));
+
+        Assert.Contains("must not be empty", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnEmptyConfiguredActorFallsThroughRatherThanStamping()
+    {
+        // `"actor": ""` is a key somebody left blank, not an identity; the chain carries on.
+        var resolution = OkfVerifyIdentity.Resolve(
+            Config("""{ "verify": { "actor": "" } }""", "project"),
+            null,
+            () => "ringo@example.org");
+
+        Assert.Equal("human:ringo@example.org", resolution.Actor);
+    }
+
+    [Fact]
     public void TheGitEmailBecomesAHumanActor()
     {
         var resolution = OkfVerifyIdentity.Resolve(null, null, () => "ringo.harrison@gmail.com");
@@ -105,6 +128,26 @@ public class OkfVerifyIdentityTests
     }
 
     [Fact]
+    public void TheGitReadHonoursTheHomeItIsGiven()
+    {
+        // With no GIT_CONFIG_GLOBAL, git falls back to $HOME/.gitconfig — so HOME has to
+        // travel to the child process, or a test would read the operator's identity.
+        using var tree = new TempGitConfig();
+        tree.WriteHomeGitConfig("ringo@example.org");
+
+        Assert.Equal("ringo@example.org", OkfVerifyIdentity.GlobalUserEmail(tree.HomeOnlyEnvironment()));
+    }
+
+    [Fact]
+    public void AnEmptyGlobalConfigReadsAsNothing()
+    {
+        using var tree = new TempGitConfig();
+        File.WriteAllText(tree.GlobalConfigPath, string.Empty);
+
+        Assert.Null(OkfVerifyIdentity.GlobalUserEmail(tree.Environment(tree.Root)));
+    }
+
+    [Fact]
     public void TheRealGitReadFeedsTheChain()
     {
         using var tree = new TempGitConfig();
@@ -129,8 +172,27 @@ internal sealed class TempGitConfig : IDisposable
 
     public TempGitConfig() => Directory.CreateDirectory(this.root);
 
+    /// <summary>The tree's root, usable as a working directory for a git read.</summary>
+    public string Root => this.root;
+
     /// <summary>The global config file the tests point <c>GIT_CONFIG_GLOBAL</c> at.</summary>
     public string GlobalConfigPath => Path.Combine(this.root, "gitconfig");
+
+    /// <summary>Writes <c>$HOME/.gitconfig</c>, which git reads when GIT_CONFIG_GLOBAL is unset.</summary>
+    /// <param name="email">The email to record.</param>
+    public void WriteHomeGitConfig(string email) =>
+        File.WriteAllText(Path.Combine(this.root, ".gitconfig"), $"[user]\n\temail = {email}\n");
+
+    /// <summary>An environment carrying HOME and no GIT_CONFIG_GLOBAL.</summary>
+    /// <returns>The environment.</returns>
+    public OkfEnvironment HomeOnlyEnvironment() =>
+        new(
+            this.root,
+            [
+                new KeyValuePair<string, string>("HOME", this.root),
+                new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", string.Empty),
+                new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
+            ]);
 
     /// <summary>Writes the global git config, with or without a <c>user.email</c>.</summary>
     /// <param name="email">The email to record, or null to write a config that sets none.</param>

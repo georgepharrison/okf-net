@@ -187,6 +187,58 @@ public class OkfStampTests
         Assert.Equal("Body.", reparsed.Body.TrimEnd('\n'));
     }
 
+    [Fact]
+    public void AnInlineFlowSequenceFallsBackToTheEmitterAndStillStamps()
+    {
+        // `verified: [ {...} ]` is a shape the insertion deliberately does not reach: the
+        // emitter takes it, and the content is right even though the formatting moves.
+        var source = """
+            ---
+            type: Concept
+            verified: [{ by: "process:schema-check", at: 2026-08-01T00:00:00Z }]
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var events = OkfDocument.NormalizeVerified(
+            OkfDocument.Parse(OkfStamp.VerifyText(source, "human:ringo", At)).Frontmatter);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal("process:schema-check", Text(events[0], "by"));
+        Assert.Equal("human:ringo", Text(events[1], "by"));
+    }
+
+    [Fact]
+    public void DuplicateVerifiedKeysAreAParseErrorRatherThanAGuess()
+    {
+        // YAML rejects a duplicate key, so there is never a question of which one to
+        // extend — the refusal arrives from the parser before the stamp is attempted.
+        var source = """
+            ---
+            type: Concept
+            verified:
+              - { by: "process:a", at: 2026-08-01T00:00:00Z }
+            verified:
+              - { by: "process:b", at: 2026-08-02T00:00:00Z }
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        Assert.Throws<OkfDocumentException>(() => OkfStamp.VerifyText(source, "human:ringo", At));
+    }
+
+    [Fact]
+    public void AFileWithNoFrontmatterGainsSomeFromTheEmitter()
+    {
+        var stamped = OkfStamp.VerifyText("Just a body, no fence.\n", "human:ringo", At);
+
+        var document = OkfDocument.Parse(stamped);
+        Assert.Equal("human:ringo", Text(Assert.Single(OkfDocument.NormalizeVerified(document.Frontmatter)), "by"));
+        Assert.Equal("Just a body, no fence.", document.Body.TrimEnd('\n'));
+    }
+
     [Theory]
     [InlineData("---\ntype: Concept\n---\n\nBody.\n")]
     [InlineData("---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01 }\n---\n\nBody.\n")]

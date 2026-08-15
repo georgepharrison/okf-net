@@ -193,7 +193,9 @@ public class OkfInboxTests
         Assert.Equal([OkfInboxReason.SourceDrift], item.Reasons);
         var drifted = Assert.Single(item.DriftedSources);
         Assert.Equal("spec", drifted.Id);
+        Assert.Equal("https://example.org/spec", drifted.Resource);
         Assert.Equal("2026-08-12", drifted.LastModified);
+        Assert.Equal("spec", drifted.Display);
     }
 
     [Fact]
@@ -228,6 +230,56 @@ public class OkfInboxTests
         Assert.NotNull(item);
         Assert.Equal([OkfInboxReason.Unacknowledged], item.Reasons);
         Assert.Empty(item.DriftedSources);
+    }
+
+    [Fact]
+    public void ASourceWithNoIdIsNamedByItsResource()
+    {
+        var item = Classify("""
+            type: Concept
+            generated: { by: "human:ringo", at: 2026-08-10T00:00:00Z }
+            sources:
+              - resource: https://example.org/spec
+                last_modified: 2026-08-12
+            """);
+
+        Assert.NotNull(item);
+        var drifted = Assert.Single(item.DriftedSources);
+        Assert.Null(drifted.Id);
+        Assert.Equal("https://example.org/spec", drifted.Resource);
+        Assert.Equal("https://example.org/spec", drifted.Display);
+    }
+
+    [Fact]
+    public void ASourceWithNeitherIdNorResourceStillReportsItsDrift()
+    {
+        var item = Classify("""
+            type: Concept
+            generated: { by: "human:ringo", at: 2026-08-10T00:00:00Z }
+            sources:
+              - title: Anonymous
+                last_modified: 2026-08-12
+            """);
+
+        Assert.NotNull(item);
+        Assert.Equal("source", Assert.Single(item.DriftedSources).Display);
+    }
+
+    [Fact]
+    public void StaleDaysIsAbsentOnAConceptWhoseStaleAfterHasNotArrived()
+    {
+        // The concept is on the inbox for being unacknowledged, and `staleDays` is a
+        // measurement of an expiry that has not happened.
+        var item = Classify("""
+            type: Concept
+            stale_after: 2027-01-01
+            generated: { by: claude-fable/5, at: 2026-08-14T00:00:00Z }
+            """);
+
+        Assert.NotNull(item);
+        Assert.Equal([OkfInboxReason.Unacknowledged], item.Reasons);
+        Assert.Equal("2027-01-01", item.StaleAfter);
+        Assert.Null(item.StaleDays);
     }
 
     [Fact]

@@ -228,6 +228,7 @@ public class OkfTimestampTests
 
         // Same instant, two spellings: equal, and therefore neither is after the other.
         Assert.Equal(0, OkfTimestamp.Compare(stamp, same));
+        Assert.Equal(0, OkfTimestamp.Compare(same, stamp));
         Assert.False(OkfTimestamp.IsAfter(stamp, same));
         Assert.False(OkfTimestamp.IsAfter(same, stamp));
     }
