@@ -1346,18 +1346,26 @@ that a non-goal, and it stays one.
     `at` cannot be shown to predate the content, and reporting against a timestamp okf
     invented would be worse than saying nothing. A malformed `at` never wins the
     latest-verification comparison either, so it cannot mask a good one.
-- **Timestamps compare at the coarser of their two precisions, which is new and is a
-  strict refinement of the linter's date-only test.** `OkfTimestamp` carries both the
-  date as written and the instant, and `Compare` uses instants only when both sides have
-  a time. The alternative — coerce a bare date to midnight UTC and compare instants —
-  gets the drift signal backwards in the exact case it exists for: a source recording
-  `last_modified: 2026-08-15` against a concept generated `2026-08-15T01:41:50Z` would
-  read as "the source did not move after this was written", when a date-only value means
-  *some time that day*. Comparing by date instead makes everything `OKF0203` reports
-  reportable here, and adds the same-day case where both sides are instants, which the
-  linter's `text[..10]` truncation cannot see. The date compared is the one **written**,
-  not the UTC one: an instant written `2026-08-14T20:41:50-05:00` is the 14th to its
-  author and the 15th in UTC, and the author's day is what the document means.
+- **Timestamps compare at the coarser of their two precisions, and the drift test takes
+  the union of that ordering and the linter's.** `OkfTimestamp` carries both the date as
+  written and the instant, and `Compare` uses instants only when both sides have a time.
+  That is what lets two writes on the same day be ordered at all — the case the linter's
+  `text[..10]` truncation cannot see. It deliberately does *not* order a bare date against
+  a same-day instant: `last_modified: 2026-08-15` against a concept generated
+  `2026-08-15T01:41:50Z` reads as the same day, because a date-only value means *some time
+  that day*, and choosing midnight or the end of the day would be choosing the answer
+  rather than reading it. The date compared is the one **written**, not the UTC one: an
+  instant written `2026-08-14T20:41:50-05:00` is the 14th to its author and the 15th in
+  UTC, and the author's day is what the document means.
+  - **Which leaves one case where the two orderings disagree, and drift takes both.**
+    `2026-08-15T01:00:00+05:00` is a *later written date* than `2026-08-14T23:00:00Z` and
+    an *earlier instant*. `OKF0203` compares written dates, so it reports that source as
+    drifted; an instants-only comparison does not, and the inbox would then be quieter
+    than the linter about the same file — the one hole a single surface for "what needs a
+    person" must not have. So `Compare` stays a strict order, because the latest
+    verification is picked with it, and drift asks the wider question
+    (`IsAfterAtEitherPrecision`): later by instant **or** later by written date. Wider,
+    never weaker — equal stays equal, and an earlier value stays earlier.
 - **`okf verify` edits the file's text, not a re-emitted document, and this is a
   correctness decision rather than an optimization.** A round trip through YamlDotNet is
   faithful in CORE-2's sense — same keys, same order, same values — and is not

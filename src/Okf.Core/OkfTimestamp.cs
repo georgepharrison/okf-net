@@ -54,14 +54,20 @@ public static class OkfTimestamp
 /// <remarks>
 /// <para>The spec lets the same field be a bare date (<c>2026-08-14</c>) or a full
 /// instant (<c>2026-08-14T20:41:50-05:00</c>), often on the two sides of one comparison:
-/// a source records the day it changed, a generator records the second it ran. Coercing
-/// a bare date to midnight and comparing instants would then answer "the source did not
-/// change after the concept was written" for a source that changed later the same
-/// day — a false negative on exactly the drift signal decisions.md §5 calls the
-/// compensating control for cited-live sources.</para>
-/// <para>So precision is carried, not discarded: two instants compare as instants, and
-/// anything else compares by date. That makes every comparison here at least as
-/// sensitive as <c>OkfLinter</c>'s date-only test (<c>OKF0203</c>), never less.</para>
+/// a source records the day it changed, a generator records the second it ran. So
+/// precision is carried rather than discarded — two instants compare as instants, and
+/// anything coarser compares by date. Two writes on the same day are therefore ordered
+/// when both recorded a time, which the linter's <c>text[..10]</c> truncation cannot see;
+/// a bare date against a same-day instant reads as simultaneous rather than as drift,
+/// because a bare date says only "that day" and picking a time for it would be picking
+/// the answer.</para>
+/// <para>The date compared is the one <em>written</em>, not the UTC one, and that is why
+/// the two comparisons can disagree: <c>2026-08-15T01:00:00+05:00</c> is a later written
+/// date than <c>2026-08-14T23:00:00Z</c> and an earlier instant. Ordering follows the
+/// instants, because <see cref="Compare" /> has to be a strict order — something picks a
+/// maximum with it. A test that must not be less sensitive than
+/// <c>OkfLinter</c>'s date-only one (<c>OKF0203</c>) takes the union instead: see
+/// <see cref="IsAfterAtEitherPrecision" />.</para>
 /// </remarks>
 public readonly struct OkfTimestamp
 {
@@ -164,6 +170,24 @@ public readonly struct OkfTimestamp
     /// <returns><see langword="true" /> when both are present and the first is strictly later.</returns>
     public static bool IsAfter(OkfTimestamp? left, OkfTimestamp? right) =>
         left is { } a && right is { } b && IsAfter(a, b);
+
+    /// <summary>
+    /// Whether <paramref name="left" /> is later than <paramref name="right" /> at
+    /// <em>either</em> precision: the instants say so, or the dates as written do.
+    /// </summary>
+    /// <param name="left">The timestamp under test.</param>
+    /// <param name="right">The timestamp to beat.</param>
+    /// <returns><see langword="true" /> when either comparison makes it later.</returns>
+    /// <remarks>
+    /// For a signal that must never be quieter than the linter's — source drift against
+    /// <c>OKF0203</c>, which compares the written dates and nothing else. Where the two
+    /// sides carry different UTC offsets the date and the instant can disagree, and
+    /// <see cref="IsAfter(OkfTimestamp, OkfTimestamp)" /> alone would then hide a row the
+    /// linter reports on the same file. Equal stays equal: this is a wider "after", not a
+    /// weaker one.
+    /// </remarks>
+    public static bool IsAfterAtEitherPrecision(OkfTimestamp left, OkfTimestamp right) =>
+        IsAfter(left, right) || left.Date > right.Date;
 
     /// <summary>Whole days from this timestamp's date to a later date.</summary>
     /// <param name="today">The date to measure to.</param>

@@ -209,15 +209,38 @@ public class OkfTimestampTests
     [Fact]
     public void ABareDateAgainstAnInstantComparesByDate()
     {
-        // The trap this type exists for. `2026-08-15` coerced to midnight UTC would sort
-        // BEFORE an instant written later that same day, so a source that moved after the
-        // concept was written would read as not having moved.
+        // A bare date says "that day" and nothing finer, so against a same-day instant it
+        // is neither before nor after: picking a time for it — midnight, or the end of the
+        // day — would be picking the answer rather than reading it. Both directions are
+        // asserted, because a comparison answering "not after" one way and "after" the
+        // other would be an ordering that depends on which side you ask from.
         var sourceMoved = OkfTimestamp.Parse("2026-08-15")!.Value;
         var generated = OkfTimestamp.Parse("2026-08-15T01:41:50Z")!.Value;
 
         Assert.False(OkfTimestamp.IsAfter(sourceMoved, generated));
         Assert.False(OkfTimestamp.IsAfter(generated, sourceMoved));
         Assert.True(OkfTimestamp.IsAfter(OkfTimestamp.Parse("2026-08-16")!.Value, generated));
+    }
+
+    [Fact]
+    public void TheWiderComparisonTakesEitherPrecisionAndOnlyEverAddsToTheOrdering()
+    {
+        // `2026-08-15T01:00:00+05:00` is 2026-08-14T20:00Z — an EARLIER instant than
+        // 2026-08-14T23:00Z and a LATER written date. Ordering follows the instants;
+        // OKF0203 follows the written dates; the wider comparison follows both, so a
+        // drifted source cannot be reported by the linter and hidden by the inbox.
+        var offsetDate = OkfTimestamp.Parse("2026-08-15T01:00:00+05:00")!.Value;
+        var utcInstant = OkfTimestamp.Parse("2026-08-14T23:00:00Z")!.Value;
+
+        Assert.False(OkfTimestamp.IsAfter(offsetDate, utcInstant));
+        Assert.True(OkfTimestamp.IsAfterAtEitherPrecision(offsetDate, utcInstant));
+        Assert.True(OkfTimestamp.IsAfterAtEitherPrecision(utcInstant, offsetDate));
+
+        // Wider, not weaker: equal stays equal, and an earlier value stays earlier.
+        var stamp = OkfTimestamp.Parse("2026-08-15T01:41:50Z")!.Value;
+        Assert.False(OkfTimestamp.IsAfterAtEitherPrecision(stamp, stamp));
+        Assert.False(OkfTimestamp.IsAfterAtEitherPrecision(OkfTimestamp.Parse("2026-08-14")!.Value, stamp));
+        Assert.True(OkfTimestamp.IsAfterAtEitherPrecision(OkfTimestamp.Parse("2026-08-16")!.Value, stamp));
     }
 
     [Fact]

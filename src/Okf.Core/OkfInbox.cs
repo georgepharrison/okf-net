@@ -435,6 +435,11 @@ public static class OkfInboxScanner
     /// (PRD CORE-8). Without a readable <c>generated.at</c> there is nothing to compare
     /// against, and the spec's own answer — produce no signal — is the one taken.
     /// </summary>
+    /// <remarks>
+    /// The comparison is deliberately the wider one: the inbox must never be quieter about
+    /// drift than <c>OKF0203</c>, which compares the written dates alone, or a concept lint
+    /// reports would be missing from the list of what needs a person.
+    /// </remarks>
     private static IReadOnlyList<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfTimestamp? generatedAt)
     {
         if (generatedAt is not { } generated
@@ -448,7 +453,8 @@ public static class OkfInboxScanner
         foreach (var source in sources.OfType<OkfMapping>())
         {
             var lastModified = Text(source, "last_modified");
-            if (OkfTimestamp.Parse(lastModified) is { } modified && OkfTimestamp.IsAfter(modified, generated))
+            if (OkfTimestamp.Parse(lastModified) is { } modified
+                && OkfTimestamp.IsAfterAtEitherPrecision(modified, generated))
             {
                 drifted.Add(new OkfDriftedSource(Text(source, "id"), Text(source, "resource"), lastModified!));
             }
