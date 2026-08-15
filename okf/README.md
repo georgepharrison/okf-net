@@ -13,7 +13,8 @@ C# is incidental flavour.
 ```text
 okf/
 ├─ README.md          # this file — repo-facing, deliberately OUTSIDE every bundle root
-├─ okf.json           # project config: the team contract for lint severities
+├─ okf.json           # project config: the team contract for lint severities and tags
+├─ custodian/         # the machinery that maintains the bundle (stripped by the bundler)
 └─ bundles/
    └─ okf-net/        # the bundle root
 ```
@@ -25,10 +26,11 @@ The rule that falls out of this — **bundle root is never repo root** — is
 recorded as a concept in the bundle itself, under
 [`bundles/okf-net/format/bundle-self-description.md`](bundles/okf-net/format/bundle-self-description.md).
 
-The `custodian/` and `raw/` directories that `okf init` will scaffold are
-deliberately absent: no custodian agent maintains this bundle yet, and
-nothing has been captured into it. See the bundle's `about-this-bundle.md`
-for the current custodial status.
+`custodian/` holds the machinery that maintains the bundle — the recipe
+naming the two skills that do the work, and the capture-manifest check CI
+runs beside `okf lint`. It is producer-side and the bundler strips it; see
+[`custodian/README.md`](custodian/README.md) for what runs where, and the
+bundle's `about-this-bundle.md` for the current custodial status.
 
 ## Working with it
 
@@ -41,9 +43,11 @@ alias for `dotnet run --project src/Okf.Cli --`.
 | Regenerate indexes | `mise run cli -- index okf/bundles/okf-net` |
 | Fail on index drift | `mise run cli -- index --check okf/bundles/okf-net` |
 | Search the bundle | `mise run cli -- search "custodian" okf/` |
+| Check the capture manifest | `python3 okf/custodian/check-manifest.py` |
 
-The `dogfood` job in `.gitlab-ci.yml` runs the lint and the drift check
-from the same pipeline's source, so breaking the tool breaks this build.
+The `dogfood` job in `.gitlab-ci.yml` runs the lint, the drift check, and
+the manifest check from the same pipeline's source, so breaking the tool
+breaks this build.
 
 ## What belongs here
 
