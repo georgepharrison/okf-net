@@ -33,8 +33,37 @@ public class CliSurfaceTests
         var run = Cli.RunIn(home.Root, home.Root, "version");
 
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
-        Assert.NotEmpty(run.Output.Trim());
+        // Version-shaped, not merely non-empty: an unstamped or mis-stamped build that
+        // printed an empty string or a bare commit sha would pass `NotEmpty`.
+        Assert.Matches(@"^\d+\.\d+\.\d+", run.Output.Trim());
     }
+
+    /// <summary>
+    /// A published binary is stamped `-p:Version=<c>X.Y.Z-rc.N</c>` plus
+    /// `-p:SourceRevisionId=<c>&lt;short-sha&gt;</c>`, which the SDK joins into
+    /// `X.Y.Z-rc.N+sha` (issue #10). `okf version` shows the whole thing — the sha is
+    /// the half that identifies which build of a rebuildable tag is in front of you.
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0-rc.14+abc1234", "1.0.0-rc.14+abc1234")]
+    [InlineData("1.0.0-rc.14", "1.0.0-rc.14")]
+    [InlineData("0.0.0-dev", "0.0.0-dev")]
+    [InlineData(null, CliApplication.UnknownVersion)]
+    [InlineData("", CliApplication.UnknownVersion)]
+    public void DescribeKeepsBuildMetadata(string? informationalVersion, string expected) =>
+        Assert.Equal(expected, CliApplication.Describe(informationalVersion));
+
+    /// <summary>
+    /// MCP's `serverInfo.version` is a value a client may parse or compare, so it stays a
+    /// bare semantic version: build metadata is not part of precedence (semver §10).
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0-rc.14+abc1234", "1.0.0-rc.14")]
+    [InlineData("1.0.0+abc1234", "1.0.0")]
+    [InlineData("1.0.0-rc.14", "1.0.0-rc.14")]
+    [InlineData(null, CliApplication.UnknownVersion)]
+    public void SemanticVersionDropsBuildMetadata(string? informationalVersion, string expected) =>
+        Assert.Equal(expected, CliApplication.SemanticVersion(informationalVersion));
 
     [Fact]
     public void ListRulesCoversEveryShippedRule()

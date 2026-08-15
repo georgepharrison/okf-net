@@ -39,8 +39,52 @@ description = 'Run the okf CLI locally, e.g. `mise run cli -- lint ~/code/knowle
 run = "dotnet run --project src/Okf.Cli --"
 
 [tasks.publish-aot]
-description = "Publish the NativeAOT linux-x64 binary to artifacts/okf (PRD CLI-17)"
-run = "dotnet publish src/Okf.Cli --configuration Release --runtime linux-x64 --output artifacts/aot"
+description = "Publish the NativeAOT linux-x64 binary to artifacts/aot, version-stamped from `git describe` (PRD CLI-17)"
+# Version stamping lives HERE, not in MSBuild: shelling out to git from a build
+# would make builds non-deterministic and would fail in a source archive with no
+# `.git`. Directory.Build.props documents the SDK-side contract; this task and the
+# `publish` CI job are its only two callers, and both hand it a bare semver
+# (`-p:Version`) plus a commit (`-p:SourceRevisionId`).
+#
+# `git describe --tags --always --dirty` is the local source of truth. Its output is
+# normalized rather than passed through, because only the first shape below is a
+# valid version:
+#   v1.0.0-rc.14              exact tag       ->  1.0.0-rc.14
+#   v1.0.0-rc.14-3-g1f334c9   3 commits past  ->  1.0.0-rc.14  (+ sha metadata)
+#   1f334c9                   no tags at all  ->  0.0.0-dev    (+ sha metadata)
+# The distance/sha trailer becomes build metadata rather than part of the version,
+# where semver §10 puts it and where it cannot be mistaken for a prerelease ranking
+# above the tag it followed.
+run = """
+set -eu
+
+describe="$(git describe --tags --always --dirty 2>/dev/null || true)"
+revision="$(git rev-parse --short HEAD 2>/dev/null || true)"
+case "$describe" in
+  *-dirty) revision="${revision:-unknown}.dirty" ;;
+esac
+
+case "$describe" in
+  v[0-9]*)
+    version="${describe#v}"
+    version="$(printf '%s' "$version" | sed -E 's/(-[0-9]+-g[0-9a-f]+)?(-dirty)?$//')"
+    ;;
+  *)
+    version="0.0.0-dev"
+    ;;
+esac
+
+echo "==> publishing okf ${version}${revision:++$revision} (git describe: ${describe:-none})"
+dotnet publish src/Okf.Cli \\
+  --configuration Release \\
+  --runtime linux-x64 \\
+  --output artifacts/aot \\
+  -p:Version="$version" \\
+  ${revision:+-p:SourceRevisionId="$revision"}
+
+echo "==> artifacts/aot/okf version reports:"
+./artifacts/aot/okf version
+"""
 
 [tasks.check-commit]
 description = 'Validate a commit message against Conventional Commits. No args = check HEAD; pass -- -m "<message>" for a literal string, or -- <file> for a file. Shares scripts/check-commit-msg.sh with the commit-msg git hook.'
