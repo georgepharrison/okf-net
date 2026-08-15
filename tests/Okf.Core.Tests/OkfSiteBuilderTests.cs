@@ -208,6 +208,77 @@ public class OkfSiteBuilderTests
     }
 
     [Theory]
+    // A markdown link, an angle-bracket destination and a reference definition are three
+    // ways to write the same anchor, and a CommonMark autolink is a fourth that `DisableHtml`
+    // never sees. Each of them renders something a reader can click on a `file://` page.
+    [InlineData("[x](javascript:alert(1))")]
+    [InlineData("[x](JaVaScRiPt:alert(1))")]
+    [InlineData("[x]( javascript:alert(1))")]
+    // Markdig decodes the reference before this runs, and a browser drops the tab before it
+    // decides what scheme the URL carries.
+    [InlineData("[x](&#106;avascript:alert(1))")]
+    [InlineData("[x](java&#9;script:alert(1))")]
+    // `//` opens a JavaScript comment, so this is a working `javascript:` URL that also
+    // reads as external to anything matching on `://`.
+    [InlineData("[x](javascript://example.invalid%0Aalert(1))")]
+    [InlineData("[x](vbscript:msgbox(1))")]
+    [InlineData("[x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)")]
+    [InlineData("[x](<javascript:alert(1)>)")]
+    [InlineData("[x][r]\n\n[r]: javascript:alert(1)")]
+    [InlineData("<javascript:alert(1)>")]
+    [InlineData("<JaVaScRiPt:alert(1)>")]
+    // An image's `src` is the same attribute problem wearing a different name.
+    [InlineData("![x](javascript:alert(1))")]
+    [InlineData("![x](data:text/html,<script>alert(1)</script>)")]
+    // Not script, but still a navigation the site must not offer: `file:` reads the
+    // reader's disk, and neither is on the allowlist.
+    [InlineData("[x](file:///etc/passwd)")]
+    [InlineData("[x](about:blank)")]
+    public void ADestinationWithAnUnallowedSchemeNeverReachesAnAttribute(string markdown)
+    {
+        using var bundle = new TempBundle("kb");
+        bundle.Add("x.md", $"---\ntype: Concept\n---\n\n{markdown}\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        var body = model.Pages.Single().BodyHtml;
+
+        // The colon is what makes a destination a scheme, and the only place it may survive
+        // is inside the link's own text. Nothing in an `href` or a `src` may carry one.
+        foreach (var attribute in (string[])["href=\"", "src=\""])
+        {
+            foreach (var value in Values(body, attribute))
+            {
+                Assert.False(
+                    value.Contains(':', StringComparison.Ordinal),
+                    $"{markdown} left {attribute}{value}\" in the page");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("[x](https://example.invalid/a)", "https://example.invalid/a")]
+    [InlineData("[x](HTTP://example.invalid/a)", "HTTP://example.invalid/a")]
+    [InlineData("[x](mailto:a@b.invalid)", "mailto:a@b.invalid")]
+    [InlineData("<https://example.invalid/a>", "https://example.invalid/a")]
+    [InlineData("<a@b.invalid>", "mailto:a@b.invalid")]
+    public void AnAllowlistedSchemeIsLeftExactlyAsItWasWritten(string markdown, string expected)
+    {
+        using var bundle = new TempBundle("kb");
+        bundle.Add("x.md", $"---\ntype: Concept\n---\n\n{markdown}\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // The allowlist is not a filter on external links: the reader's own web is still the
+        // reader's to follow, and §6.1 leaves a destination okf-net cannot resolve alone.
+        Assert.Contains($"\"{expected}\"", model.Pages.Single().BodyHtml, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("index.html", "kb/hub.html", "kb/hub.html")]
     [InlineData("kb/hub.html", "kb/reviewed.html", "reviewed.html")]
     [InlineData("kb/deep/nested.html", "kb/hub.html", "../hub.html")]
@@ -324,5 +395,26 @@ public class OkfSiteBuilderTests
         // break the XML parse the smoke test performs.
         Assert.DoesNotContain("<", json, StringComparison.Ordinal);
         Assert.DoesNotContain("&", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>Every value of one attribute in a fragment of markup.</summary>
+    /// <param name="html">The markup to read.</param>
+    /// <param name="attribute">The attribute's name and its opening quote.</param>
+    /// <returns>The values, in document order.</returns>
+    private static IEnumerable<string> Values(string html, string attribute)
+    {
+        var index = html.IndexOf(attribute, StringComparison.Ordinal);
+        while (index >= 0)
+        {
+            var start = index + attribute.Length;
+            var end = html.IndexOf('"', start);
+            if (end < 0)
+            {
+                yield break;
+            }
+
+            yield return html[start..end];
+            index = html.IndexOf(attribute, end, StringComparison.Ordinal);
+        }
     }
 }

@@ -1,3 +1,4 @@
+using System.Text;
 using Markdig;
 using Markdig.Extensions.Footnotes;
 using Markdig.Renderers;
@@ -37,9 +38,26 @@ internal sealed record OkfSiteBody(
 /// <para><b>Links are rewritten on the AST.</b> Rewriting the rendered text with a regular
 /// expression would have to re-implement the parser's idea of what a link is; setting
 /// <see cref="LinkInline.Url" /> before rendering cannot disagree with it.</para>
+/// <para><b>Destinations carry an allowlisted scheme or none at all.</b> Disabling raw HTML
+/// closes one door into the page and not the other: <c>[x](javascript:alert(1))</c>,
+/// <c>&lt;javascript:alert(1)&gt;</c> and a reference definition pointing at one are all
+/// ordinary markdown, and each renders an anchor a reader can click. On a page opened from
+/// <c>file://</c> that anchor executes with no origin to contain it, which is the same hole
+/// <c>DisableHtml</c> exists to shut. A destination that
+/// carries any scheme outside <see cref="AllowedSchemes" /> is neutralized instead — it
+/// keeps its text and is marked broken, because §6.1's tolerance rule says mark, never
+/// drop.</para>
 /// </remarks>
 internal static class OkfSiteMarkdown
 {
+    /// <summary>
+    /// The schemes a generated page may point at. A relative destination carries no scheme
+    /// and is unaffected; everything else — <c>javascript:</c>, <c>vbscript:</c>,
+    /// <c>data:</c>, <c>file:</c>, <c>about:</c> — is neutralized.
+    /// </summary>
+    private static readonly HashSet<string> AllowedSchemes =
+        new(StringComparer.OrdinalIgnoreCase) { "http", "https", "mailto" };
+
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UsePipeTables()
         .UseFootnotes()
@@ -68,6 +86,17 @@ internal static class OkfSiteMarkdown
                 continue;
             }
 
+            // Checked before the destination is resolved, and for an image's `src` as well
+            // as an anchor's `href`: a scheme this generator will not emit must not reach a
+            // page by any route, including the one where `resolve` calls it external and
+            // hands it back untouched.
+            if (Blocked(url))
+            {
+                link.Url = Uri.EscapeDataString(url);
+                link.GetAttributes().AddClass("broken");
+                continue;
+            }
+
             var resolved = resolve(url);
 
             if (!link.IsImage && resolved.Href is { Length: > 0 } href)
@@ -93,6 +122,18 @@ internal static class OkfSiteMarkdown
             }
         }
 
+        // A CommonMark autolink is neither a link inline nor raw HTML, so neither the loop
+        // above nor `DisableHtml` has seen `<javascript:alert(1)>`. It carries its own
+        // destination as its own text, so a blocked one becomes exactly the text it was
+        // written as, with no anchor around it.
+        foreach (var autolink in document.Descendants<AutolinkInline>().ToList())
+        {
+            if (Blocked(autolink.IsEmail ? "mailto:" + autolink.Url : autolink.Url))
+            {
+                autolink.ReplaceBy(new LiteralInline(autolink.Url));
+            }
+        }
+
         // Read before rendering: `Order` is assigned while the document is parsed, and it
         // is exactly the number the rendered `fn:N` anchors carry, so the scan does not
         // depend on what the footnote-group renderer does to the group on its way out.
@@ -114,6 +155,51 @@ internal static class OkfSiteMarkdown
         writer.Flush();
 
         return new OkfSiteBody(writer.ToString(), links, orders);
+    }
+
+    /// <summary>Whether a destination carries a scheme the site refuses to point at.</summary>
+    /// <param name="url">The destination, as the parser decoded it.</param>
+    /// <returns><see langword="true" /> when the destination must be neutralized.</returns>
+    private static bool Blocked(string url) =>
+        Scheme(url) is { Length: > 0 } scheme && !AllowedSchemes.Contains(scheme);
+
+    /// <summary>The scheme a destination carries, or <see langword="null" /> when it is relative.</summary>
+    /// <param name="url">The destination, as the parser decoded it.</param>
+    /// <returns>The scheme, without its colon.</returns>
+    /// <remarks>
+    /// Read the way a browser reads it rather than the way <see cref="Uri" /> does. A browser
+    /// drops ASCII whitespace and C0 controls before it decides what scheme a URL carries, so
+    /// a destination written with a leading space, or with a tab spliced into the word by a
+    /// numeric character reference, still navigates to a <c>javascript:</c> URL — and Markdig
+    /// has already decoded that reference by the time this runs. Dropping them here too is
+    /// what keeps the allowlist from being one whitespace character wide. Scheme matching is
+    /// case-insensitive, because <c>JaVaScRiPt:</c> is the same URL.
+    /// </remarks>
+    private static string? Scheme(string url)
+    {
+        var builder = new StringBuilder(url.Length);
+        foreach (var character in url)
+        {
+            if (character > ' ' && character != '\u007f')
+            {
+                builder.Append(character);
+            }
+        }
+
+        var text = builder.ToString();
+        var end = 0;
+        while (end < text.Length
+               && (char.IsAsciiLetterOrDigit(text[end]) || text[end] is '+' or '-' or '.'))
+        {
+            end++;
+        }
+
+        // RFC 3986 §3.1: a scheme is a letter followed by letters, digits, `+`, `-` and `.`,
+        // and then a colon. Anything else — a leading `/`, a `#`, a bare relative path — has
+        // no scheme, which is the ordinary case for a link inside a bundle.
+        return end > 0 && end < text.Length && text[end] == ':' && char.IsAsciiLetter(text[0])
+            ? text[..end]
+            : null;
     }
 
     /// <summary>

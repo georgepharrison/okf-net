@@ -1825,6 +1825,21 @@ upstream validates it. The cost is visible and accepted — a foreign bundle usi
 the tag as text. okf-net's own generated-index marker is stripped before rendering, because it
 is the one HTML comment whose provenance the generator knows.
 
+**A link destination carries an allowlisted scheme or none at all** — `http:`, `https:`,
+`mailto:`, or a relative path. Disabling raw HTML shuts one door into the page and not the
+other: `[x](javascript:alert(1))`, `<javascript:alert(1)>` and a reference definition pointing
+at one are all ordinary markdown, none of them is an HTML tag, and each renders an anchor a
+reader can click — on a `file://` page, with no origin to contain it. So the scheme is read on
+the AST before the destination is resolved, and for an image's `src` as well as an anchor's
+`href`. It is read the way a browser reads it rather than the way `Uri` does:
+case-insensitively, and with ASCII whitespace and C0 controls dropped first, because a leading
+space or a tab spliced in by a numeric character reference does not stop a browser navigating
+to a `javascript:` URL, and Markdig has already decoded that reference. A destination outside
+the allowlist is percent-escaped into one inert relative segment and marked `broken` — §6.1
+says mark, never drop, and the reader still sees what was written. The cost is stated: `tel:`
+links and `data:` images are refused as well. Adding a scheme is a one-line change to the
+allowlist; the default is the small set a knowledge site needs.
+
 **Every page is well-formed XML, and the suite parses it.** Attributes are quoted, boolean
 attributes carry values, void elements are self-closed, and inline `<style>`/`<script>` bodies
 are wrapped in a comment-hidden CDATA section (`/*<![CDATA[*/ … /*]]>*/`) — a wrapper browsers
