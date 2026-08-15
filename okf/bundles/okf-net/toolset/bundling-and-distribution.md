@@ -61,10 +61,13 @@ The same vault, packaged by the same version with the same stamp, produces a
 rebuild cannot be checked against a published digest, and two people cannot
 confirm they received the same knowledge.
 
-What that costs, concretely: entries sorted by path, no directory entries,
-every archive timestamp fixed at `1980-01-01T00:00:00Z` (not the file's mtime,
-which a fresh clone rewrites; not the epoch, which a zip's MS-DOS timestamp
-cannot hold), ownership `0:0` with empty names, and mode `0644` on everything.
+What that costs, concretely: entries sorted by path, no directory entries, a
+modification time fixed at `1980-01-01T00:00:00Z` (not the file's mtime, which a
+fresh clone rewrites; not the epoch, which a zip's MS-DOS timestamp cannot
+hold), ownership `0:0` with empty names, and mode `0644` on everything. tar's
+`atime` and `ctime` are left NUL rather than pinned — already constant, and
+pinning them puts bytes where *ustar* keeps its path `prefix`, which is enough
+to make Python's `tarfile` misread every name in the archive.
 
 One value in the output comes from a clock — the manifest's `generatedAt` — and
 `--generated-at` pins it. The tag pipeline passes the commit's timestamp, so a
@@ -80,11 +83,14 @@ included, the links that now dangle, and a `sha256` for every file shipped.
 
 Three things about it are decisions rather than details:
 
-- **It sits outside the bundle root** for the README trap's reason. Every
-  non-reserved file inside a bundle root is a concept that must carry
-  frontmatter with a non-empty `type`;[^okf-spec] a manifest inside one would
-  fail the conformance check it exists to support. A consumer who ignores or
-  deletes it still holds a complete `cat`-readable bundle.
+- **It sits outside the bundle root**, alongside where `okf.json` sits, because
+  it describes the *distribution* and not any one bundle. What a consumer
+  receives has to stay exactly the bundle the producer had, so that ignoring the
+  manifest — or deleting it — still leaves a complete `cat`-readable bundle. Note
+  what the reason is **not**: conformance is scoped to markdown, since §11.1 asks
+  for frontmatter on "every non-reserved `.md` file",[^okf-spec] so a `.json` in a
+  bundle root lints clean, exactly as the `.py` attesters already there do. The
+  README trap catches markdown; it does not reach this file.
 - **It is the one file it does not hash.** A manifest cannot record its own
   digest without a fixed point, and a self-attesting manifest proves nothing:
   the claim is only as strong as the channel it arrived over. The hashes exist

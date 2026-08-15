@@ -116,7 +116,7 @@ violate OKF conformance):
 <project>/okf/
   README.md          # repo-facing docs, outside any bundle root
   bundles/<name>/    # one or many OKF bundle roots
-  custodian/         # skill + config for the maintaining agent (strippable)
+  custodian/         # skill + config for the maintaining agent (never distributed)
 ```
 
 ## Status

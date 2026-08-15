@@ -1557,7 +1557,8 @@ lets two people confirm they received the same knowledge.
 - **The tar entry format is GNU, and finding that out is the milestone's sharpest
   lesson.** The first implementation wrote PAX, because PAX is the modern format and
   carries timestamps losslessly. It is not reproducible in .NET: every PAX
-  extended-header entry is named `./PaxHeaders.<process-id>/<path>`, so an archive embeds
+  extended-header entry is named `./PaxHeaders.<process-id>/.` — a constant, whatever the
+  entry's path — so an archive embeds
   the pid of the process that wrote it and two builds of the same vault differ in a few
   bytes per file. **The determinism test passed anyway**, because both writes happened
   inside one test process; the defect surfaced only when the dogfood vault was packaged
@@ -1566,7 +1567,9 @@ lets two people confirm they received the same knowledge.
   measurement too — it throws on a path over 100 characters that cannot be split across
   its name and prefix fields, which an arbitrary consumer's bundle can reach (measured: a
   350-character path throws; GNU writes it through a constant-named long-link entry).
-  GNU carries mtime in the header and needs no extended headers.
+  GNU carries mtime in the header and embeds no pid. It is not entry-free either — a path
+  over 100 characters gets a preceding `././@LongLink` block — but that name is a constant
+  and carries no host state, which is the property the format choice turns on.
   - **The test that now catches it reads the raw 512-byte header blocks** and asserts that
     every name in the archive is one the plan named. `TarReader` consumes extended headers
     silently, so no test written through the reader can see an entry the writer invented —
@@ -1603,13 +1606,20 @@ The distribution manifest sits at the distribution **root** — outside every bu
 and carries `manifestVersion`, `okfVersion`, `generator`, `sourceVault`, `generatedAt`,
 `bundles`, `externalLinks`, and a `sha256` for every file shipped.
 
-- **Outside the bundle root, for the README trap's reason.** §11 makes every non-reserved
-  file in a bundle a concept that must carry parseable frontmatter with a non-empty `type`.
-  A manifest *inside* a bundle root would therefore be a frontmatter-less concept and would
-  fail the conformance check it exists to support — the same trap that keeps `README.md`
-  out of a bundle root (topic 2). It also means a consumer who deletes it, or never notices
-  it, still has a complete `cat`-readable bundle, which is the §1 promise the manifest must
-  not quietly withdraw.
+- **Outside the bundle root, because it describes the distribution rather than a bundle.**
+  What a consumer receives has to stay exactly the bundle the producer had, so a consumer
+  who deletes the manifest — or never notices it — still holds a complete `cat`-readable
+  bundle, which is the §1 promise the manifest must not quietly withdraw. It sits where
+  `okf.json` sits, for the same reason: a file about the container does not belong inside
+  the thing it contains.
+  - **The conformance argument first given for this was checked and is wrong**, and the
+    correction is worth recording because the wrong version is the intuitive one. §11.1
+    asks for parseable frontmatter on "every non-reserved **`.md` file** in the tree" — it
+    is scoped to markdown. A `.json` inside a bundle root is therefore *not* a
+    frontmatter-less concept and does not fail conformance; measured, a bundle root holding
+    both an `okf-bundle.json` and an attester `.py` lints 0/0/0, as it must, or §6.3's
+    code-as-content convention could not work at all. The README trap (topic 2) is real and
+    is a *markdown* trap. The placement is unchanged; only the reason for it is.
 - **The manifest is the one unhashed file.** It cannot record its own digest without a
   fixed point, and a self-attesting manifest proves nothing anyway: the integrity claim is
   only as strong as the channel the manifest itself arrived over. What the hashes are for

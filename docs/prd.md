@@ -484,8 +484,10 @@ Rationale and open spikes for each item are logged in
 
 **Bundler. BUILT (2026-08-15, work item #5; see decisions.md, "the bundler milestone").**
 `okf bundle [path] --out <file-or-directory>` packages a vault's bundles for consume-only
-distribution as a tar.gz (default), a zip, or a plain directory — the three shapes §3
-permits. It ships `bundles/<name>/**` and one `okf-bundle.json` at the root; the custodian
+distribution as a tar.gz (default), a zip, or a plain directory, which between them cover
+every shape §3 permits — §3's own three are "a git repository", "a tarball or zip archive
+of the directory", and "a subdirectory within a larger repository", and a `dir`
+distribution committed anywhere satisfies the first and the third. It ships `bundles/<name>/**` and one `okf-bundle.json` at the root; the custodian
 machinery needs no stripping because topic 1 already put it *beside* the bundle rather than
 inside it, and `raw/` stays a producer-side archive per Q3. Archives are deterministic
 (sorted entries, fixed timestamps, normalized modes) so the same vault yields byte-identical

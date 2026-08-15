@@ -386,7 +386,7 @@ public class OkfBundlerTests
     /// <summary>
     /// Every header block in the archive names a file the plan named. The point is what it
     /// rules out: a tar writer may emit bookkeeping entries of its own — .NET's PAX format
-    /// writes one per file, named <c>./PaxHeaders.&lt;process-id&gt;/…</c> — and an entry
+    /// writes one per file, named <c>./PaxHeaders.&lt;process-id&gt;/.</c> — and an entry
     /// whose name okf-net does not control is an entry that can differ between two builds
     /// of the same vault. Reading the raw blocks is deliberate: <c>TarReader</c> consumes
     /// extended headers silently, which is exactly how a byte-comparison inside one
@@ -405,6 +405,51 @@ public class OkfBundlerTests
             .Append(OkfDistributionManifest.FileName)
             .Order(StringComparer.Ordinal);
         Assert.Equal(expected, RawTarNames(archive));
+    }
+
+    /// <summary>
+    /// The long-path case the GNU-over-ustar decision rests on. Ustar throws outright on a
+    /// path it cannot split across its 100-byte name and 155-byte prefix; GNU writes one
+    /// through a preceding <c>././@LongLink</c> block. That block is the one entry the
+    /// bundler does not name, so the reproducibility claim depends on its name being a
+    /// <em>constant</em> rather than something like PAX's pid — which is asserted here by
+    /// packaging the same vault twice and comparing bytes, with the archive's own header
+    /// blocks read raw so the extra entry cannot hide.
+    /// </summary>
+    [Fact]
+    public void A_path_too_long_for_ustar_is_written_through_a_constant_named_long_link_entry()
+    {
+        using var tree = new BundlerVault();
+        var deep = "bundles/alpha/" + string.Join('/', Enumerable.Repeat(new string('d', 30), 8));
+        tree.Write(deep + "/a-concept-with-a-very-long-path.md", Concept("Deep", "Far down."));
+        var first = Path.Combine(tree.Output, "first.tar.gz");
+        var second = Path.Combine(tree.Output, "second.tar.gz");
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+
+        OkfBundler.Write(plan, first, OkfDistributionFormat.TarGz);
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), second, OkfDistributionFormat.TarGz);
+
+        // The path really is past what ustar can hold, or the test proves nothing.
+        var packaged = Assert.Single(plan.Entries, entry => entry.Path.Length > 100);
+        Assert.Equal(deep + "/a-concept-with-a-very-long-path.md", packaged.Path);
+
+        // Every raw header name is either one the plan named, the truncated head of one
+        // (which is what GNU leaves in the 100-byte name field of a long-named entry), or
+        // the long-link block itself — whose name must be that constant and nothing
+        // host-derived. The long-link block must actually be there, or the archive never
+        // exercised the case.
+        var named = plan.Entries.Select(entry => entry.Path)
+            .Append(OkfDistributionManifest.FileName)
+            .ToList();
+        var names = RawTarNames(first).ToList();
+        Assert.Contains("././@LongLink", names);
+        Assert.All(names, name => Assert.True(
+            name == "././@LongLink"
+            || named.Any(known => known.StartsWith(name, StringComparison.Ordinal)),
+            $"the archive carries an entry named '{name}', which the bundler did not name."));
+
+        Assert.Equal(File.ReadAllBytes(first), File.ReadAllBytes(second));
+        Assert.True(OkfBundler.Verify(first).IsValid);
     }
 
     [Fact]

@@ -54,13 +54,17 @@ future session (human or agent) relearns them. Newest first within sections.
 - `dotnet new gitignore` ships an older snapshot of GitHub's
   `VisualStudio.gitignore`; the upstream file can be newer.
 - **PAX tar archives written by `System.Formats.Tar` are not reproducible**:
-  every extended-header entry is named `./PaxHeaders.<process-id>/<path>`, so
-  the archive embeds the writing process's pid. `TarReader` hides those
-  entries, so a test written through the reader cannot see them, and a
-  two-writes-in-one-process byte comparison passes. Use `TarEntryFormat.Gnu`
-  (mtime in the header, no extended entries, no 100-character path limit).
-  Ustar is reproducible but throws on a path over 100 characters it cannot
-  split. `GZipStream` is fine — its header carries MTIME 0 and no filename.
+  every entry is preceded by an extended header named `./PaxHeaders.<pid>/.`
+  (a constant, whatever the entry's path), so the archive embeds the writing
+  process's pid. `TarReader` hides those entries, so a test written through
+  the reader cannot see them, and a two-writes-in-one-process byte comparison
+  passes. Use `TarEntryFormat.Gnu` — mtime in the header, no pid anywhere, and
+  no 100-character path limit. GNU is not *entry*-free: a path over 100
+  characters gets a preceding `././@LongLink` block, but that name is a
+  constant and carries no host state, which is the property that matters.
+  Ustar is reproducible but throws outright on a path over 100 characters it
+  cannot split across its name and prefix fields. `GZipStream` is fine — its
+  header carries MTIME 0 and no filename.
 - **Do NOT set `AccessTime`/`ChangeTime` on a `GnuTarEntry`.** Unset they are
   already deterministic — `System.Formats.Tar` writes NUL bytes, which is
   what GNU tar itself writes for a non-incremental entry — and pinning them

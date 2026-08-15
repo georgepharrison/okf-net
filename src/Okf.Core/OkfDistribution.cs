@@ -139,11 +139,13 @@ public sealed class OkfDistributionVerification
 /// </summary>
 /// <remarks>
 /// <para>It sits at the distribution root, <em>outside</em> every bundle root, for the
-/// same reason <c>okf.json</c> does: a bundle root may hold nothing but conformant
-/// concepts and reserved files (§11), so a manifest inside one would be a
-/// frontmatter-less concept and would fail the conformance check it exists to support.
-/// A consumer that ignores it entirely still has a complete, `cat`-readable bundle —
-/// which is the promise §1 makes and the manifest must not quietly withdraw.</para>
+/// same reason <c>okf.json</c> does: it describes the distribution rather than any one
+/// bundle, and what a consumer receives has to stay exactly the bundle the producer had.
+/// A consumer that ignores the manifest, or deletes it, still has a complete
+/// <c>cat</c>-readable bundle — which is the promise §1 makes and the manifest must not
+/// quietly withdraw. Note that conformance is <em>not</em> the reason: §11.1 is scoped to
+/// "every non-reserved <c>.md</c> file", so a <c>.json</c> in a bundle root lints clean,
+/// as the <c>.py</c> attesters §6.3 blesses already do.</para>
 /// <para>The manifest is the one file it does not hash. It cannot record its own digest
 /// without a fixed point, and a self-attesting manifest proves nothing anyway: the
 /// integrity claim it carries is only as good as the channel the manifest itself arrived

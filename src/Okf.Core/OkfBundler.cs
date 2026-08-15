@@ -528,7 +528,7 @@ public static class OkfBundler
         // filename, which is what keeps the compressed stream reproducible.
         //
         // GNU rather than PAX, and this is a reproducibility decision rather than a taste
-        // one: .NET names every PAX extended-header entry `./PaxHeaders.<process-id>/…`,
+        // one: .NET names every PAX extended-header entry `./PaxHeaders.<process-id>/.`,
         // so a PAX archive embeds the pid of the process that wrote it and two builds of
         // the same vault differ. GNU carries mtime in the header itself, needs no extended
         // headers, and — unlike ustar — has no 100-character limit on a path, which an
