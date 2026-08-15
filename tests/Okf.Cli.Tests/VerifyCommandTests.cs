@@ -222,6 +222,31 @@ public class VerifyCommandTests
         Assert.Contains("okf lint", run.Error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("""rin\"go""")]
+    [InlineData(@"ringo\\smith")]
+    public void AConfiguredActorThatWouldNotSurviveQuotingIsRefusedBeforeTheDryRunPrintsIt(string jsonActor)
+    {
+        // The §7 check exists because the actor is written into a double-quoted YAML
+        // scalar. Applying it only to `--by` left `verify.actor` reaching the stamp
+        // unchecked: `--dry-run` printed the malformed entry as though it would be
+        // written, and the real run died inside the library instead of refusing at the
+        // door. (The argument is the JSON spelling; the actor itself holds a quote or a
+        // backslash.)
+        using var tree = new Vault(actor: jsonActor);
+        var before = tree.Read("bundles/b/widgets.md");
+
+        var dryRun = tree.Verify("bundles/b/widgets.md", "--dry-run");
+        var run = tree.Verify("bundles/b/widgets.md");
+
+        Assert.Equal(CliApplication.ExitUsage, dryRun.ExitCode);
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("is not an actor", dryRun.Error, StringComparison.Ordinal);
+        Assert.Contains("verify.actor in", dryRun.Error, StringComparison.Ordinal);
+        Assert.Empty(dryRun.Output);
+        Assert.Equal(before, tree.Read("bundles/b/widgets.md"));
+    }
+
     [Fact]
     public void WithNoIdentityAnywhereTheCommandRefusesAndSaysWhatToSet()
     {

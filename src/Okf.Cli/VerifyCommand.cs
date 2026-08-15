@@ -161,30 +161,19 @@ internal static class VerifyCommand
     /// <c>--by</c> wins outright: it is the escape hatch for a second actor recording a
     /// machine confirmation, which the configured human identity by definition is not.
     /// </summary>
+    /// <remarks>
+    /// Whatever the source, the actor is checked against §7 here. <c>OkfStamp</c> checks it
+    /// again and throws, but that is a library guard reached after the dry run has already
+    /// printed the entry it would write — so an actor from configuration or from the git
+    /// email has to be refused at the door, with the source named, or `--dry-run` reports a
+    /// stamp the real run cannot make.
+    /// </remarks>
     private static OkfActorResolution? ResolveActor(
         VerifyArguments arguments,
         OkfEnvironment environment,
         TextWriter error)
     {
-        if (arguments.By is { } by)
-        {
-            if (!OkfActor.IsValid(by))
-            {
-                error.WriteLine(
-                    $"okf: error: '{by}' is not an actor. §7 spells one `<producer>/<version>`, " +
-                    "`human:<id>`, or `process:<id>`.");
-                return null;
-            }
-
-            return OkfActorResolution.Resolved(by, "--by");
-        }
-
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath);
-        var project = LoadProjectConfig(arguments, environment);
-        var resolution = OkfVerifyIdentity.Resolve(
-            project,
-            global,
-            () => OkfVerifyIdentity.GlobalUserEmail(environment));
+        var resolution = Resolve(arguments, environment);
 
         if (!resolution.IsResolved)
         {
@@ -192,7 +181,31 @@ internal static class VerifyCommand
             return null;
         }
 
+        if (!OkfActor.IsValid(resolution.Actor))
+        {
+            error.WriteLine(
+                $"okf: error: '{resolution.Actor}' (from {resolution.Source}) is not an actor. " +
+                "§7 spells one `<producer>/<version>`, `human:<id>`, or `process:<id>`.");
+            return null;
+        }
+
         return resolution;
+    }
+
+    /// <summary>The identity chain, before it is checked: <c>--by</c>, else configuration, else git.</summary>
+    private static OkfActorResolution Resolve(VerifyArguments arguments, OkfEnvironment environment)
+    {
+        if (arguments.By is { } by)
+        {
+            return OkfActorResolution.Resolved(by, "--by");
+        }
+
+        var global = OkfConfig.TryLoad(environment.GlobalConfigPath);
+        var project = LoadProjectConfig(arguments, environment);
+        return OkfVerifyIdentity.Resolve(
+            project,
+            global,
+            () => OkfVerifyIdentity.GlobalUserEmail(environment));
     }
 
     /// <summary>
