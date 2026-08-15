@@ -51,7 +51,8 @@ a bundle stays `cat`-readable and `git clone`-portable (spec §1).
 
 The following are explicitly **out of scope** for MVP and tracked as roadmap in §5:
 
-- **Bundler** — packaging a bundle for consume-only distribution.
+- **Bundler** — packaging a bundle for consume-only distribution. (Out of scope for MVP;
+  built post-MVP as `okf bundle` — see §5.)
 - **Static site generator** — rendering a bundle as a browsable site.
 - **Pi extension / widget** — the TypeScript shim and any UI surface.
 - **Vectorization / semantic index** — sqlite-vec or equivalent.
@@ -428,6 +429,7 @@ instructions for agents; they call the CLI rather than reimplementing anything.
 | `okf register [path]` | Add a bundle/vault to the registry (idempotent) | — | 0 · 2 usage |
 | `okf unregister [path]` | Remove a registry entry (idempotent) | — | 0 · 2 usage |
 | `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | — | 0 created · 1 refused (would overwrite) · 2 usage |
+| `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
 | `okf mcp` | Run the stdio MCP server (search/read/list) | — | 0 clean shutdown · 2 startup failure |
 
 Global flags apply to every command: `--verbose` (report vault resolution and effective
@@ -480,11 +482,26 @@ CLI-4.
 Rationale and open spikes for each item are logged in
 [decisions.md](decisions.md#open-items-tracked-in-session-task-list-mirrored-here).
 
-**Bundler.** Packages a bundle for consume-only distribution by stripping custodian
-machinery (skill, scripts, recipe config, hooks) so a consumer receives only readable
-markdown. Requires a spike on cross-bundle concept references: whether a reference to a
-concept in another bundle is inlined, vendored, or left as a deliberately dangling link,
-and how the bundler records the choice.
+**Bundler. BUILT (2026-08-15, work item #5; see decisions.md, "the bundler milestone").**
+`okf bundle [path] --out <file-or-directory>` packages a vault's bundles for consume-only
+distribution as a tar.gz (default), a zip, or a plain directory, which between them cover
+every shape §3 permits — §3's own three are "a git repository", "a tarball or zip archive
+of the directory", and "a subdirectory within a larger repository", and a `dir`
+distribution committed anywhere satisfies the first and the third. It ships `bundles/<name>/**` and one `okf-bundle.json` at the root; the custodian
+machinery needs no stripping because topic 1 already put it *beside* the bundle rather than
+inside it, and `raw/` stays a producer-side archive per Q3. Archives are deterministic
+(sorted entries, fixed timestamps, normalized modes) so the same vault yields byte-identical
+bytes, and the manifest records a `sha256` per file that `--verify` re-checks (exit 1 on a
+mismatch). `--lint` runs the linter over the packaged result the way a consumer sees it —
+default severities, no config, no vault.
+
+The cross-bundle-reference spike is **resolved**: a link into a bundle the caller left out
+is left **dangling** (§6.1 obliges every consumer to tolerate a broken link), warned about
+per link on stderr, and recorded in the manifest's `externalLinks`. Vendoring the linked
+concept was rejected for duplicating a document's trust state along with its text, and
+refusing to package without a flag was rejected for blocking what the spec permits. Because
+a distribution keeps the vault's `bundles/<name>/` layout, a link between two *packaged*
+bundles still resolves, so the dangling case is exactly the subset case.
 
 **Static site generator.** Replaces the Obsidian dependency with a generated browsable
 site; GitLab Pages and plain file handoff are the target outputs, with

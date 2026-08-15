@@ -53,6 +53,37 @@ future session (human or agent) relearns them. Newest first within sections.
   `PublishAot=true` publish of an executable is the only actual proof.
 - `dotnet new gitignore` ships an older snapshot of GitHub's
   `VisualStudio.gitignore`; the upstream file can be newer.
+- **PAX tar archives written by `System.Formats.Tar` are not reproducible**:
+  every entry is preceded by an extended header named `./PaxHeaders.<pid>/.`
+  (a constant, whatever the entry's path), so the archive embeds the writing
+  process's pid. `TarReader` hides those entries, so a test written through
+  the reader cannot see them, and a two-writes-in-one-process byte comparison
+  passes. Use `TarEntryFormat.Gnu` — mtime in the header, no pid anywhere, and
+  no 100-character path limit. GNU is not *entry*-free: a path over 100
+  characters gets a preceding `././@LongLink` block, but that name is a
+  constant and carries no host state, which is the property that matters.
+  Ustar is reproducible but throws outright on a path over 100 characters it
+  cannot split across its name and prefix fields. `GZipStream` is fine — its
+  header carries MTIME 0 and no filename.
+- **Do NOT set `AccessTime`/`ChangeTime` on a `GnuTarEntry`.** Unset they are
+  already deterministic — `System.Formats.Tar` writes NUL bytes, which is
+  what GNU tar itself writes for a non-incremental entry — and pinning them
+  breaks readers without helping any: GNU puts atime/ctime at byte 345, which
+  in ustar is where the `prefix` field begins, and CPython's `tarfile` joins
+  `prefix` onto the entry name for every non-GNU-typed entry without checking
+  the archive's magic first. Pinned, `tar -xzf` and libarchive read the
+  archive correctly while the Python standard library extracts it into a
+  directory named after the octal timestamp (`02263523000/bundles/…`).
+  Reproducibility and interoperability are two claims: byte-comparing two of
+  your own archives proves the first and says nothing about the second, so
+  read one back with a *different* implementation.
+- **`TarEntry.DataStream` is null for a zero-length file**, because tar stores
+  one as a header with no data section. Reading null as "not a file" makes an
+  empty file vanish from anything that reads the archive back — here
+  `okf bundle --verify` reported the bundler's own tar.gz as *missing* a file
+  it had just written, while the zip and directory shapes passed. Switch on
+  `EntryType`, and read a null `DataStream` on a regular-file entry as
+  `Stream.Null`.
 
 ## Testing
 
@@ -74,6 +105,14 @@ future session (human or agent) relearns them. Newest first within sections.
   Review is not overhead here; it is where correctness came from.
 - A stalled subagent can be resumed with its on-disk work intact — check
   `git status` first, then resume it with a summary of confirmed state.
+- Parallel builders on separate branches independently created the same type
+  name (`Okf.Core.OkfTimestamp`, in work items #4 and #7) with different
+  meanings — a write-form renderer and a comparison type. File-level
+  conflict-minimization cannot prevent this: neither branch's file existed in
+  the other, so git had nothing to conflict on and the collision only surfaced
+  at merge. Reviews caught it pre-merge and the comparison type became
+  `OkfLifecycleInstant`. Mitigation for next time: reserve new type names in
+  the prompt, or give each parallel builder its own namespace.
 - Repo-local git identity may be an *agent* identity
   (`ringo.harrison+agent@gmail.com`) — anything deriving a human identity
   (e.g. `okf verify`) must read **global** git config, never local.

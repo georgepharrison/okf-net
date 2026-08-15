@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -25,9 +25,11 @@ sources:
 A **custodian** is the agent or process that maintains a bundle: discovery,
 enrichment, prose writing, index regeneration, and the log. It is
 producer-side machinery, triggered by git hooks and CI. A **bundler** is its
-counterpart on the way out, packaging a bundle for distribution by stripping
-the custodian machinery so a consumer receives only readable
-markdown.[^decisions]
+counterpart on the way out, packaging a bundle for distribution so a consumer
+receives only readable markdown.[^decisions] It is built: `okf bundle` ships
+`bundles/` and nothing else, and what it does with the links that leave a
+packaged bundle is [bundling and
+distribution](../toolset/bundling-and-distribution.md).
 
 Consumers are **consume-only**. A bundle is readable markdown, and reading it
 never requires executing anything — which is the single constraint that makes
@@ -36,8 +38,10 @@ everything else about the custodian a producer's private business.
 # Where the machinery lives
 
 Beside the bundle, never inside it: `<project>/okf/custodian/` holds the
-recipe configuration, the prompts, and the scripts, and the bundler strips the
-whole directory on the way out. The skills themselves are *referenced* from
+recipe configuration, the prompts, and the scripts, and no distribution ever
+carries it — not because the bundler strips it, but because the packaging walk
+starts at `bundles/` and never reaches it. The skills themselves are
+*referenced* from
 the recipe rather than copied into it — a vendored copy is a copy that
 drifts.
 

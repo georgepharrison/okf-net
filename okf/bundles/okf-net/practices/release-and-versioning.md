@@ -2,8 +2,8 @@
 type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
-tags: [okf-net, release, versioning, semantic-release, conventional-commits]
-generated: { by: claude-fable/5, at: 2026-08-14T23:41:35-05:00 }
+tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
+generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,11 +67,16 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces one artifact: a self-contained NativeAOT
-`linux-x64` binary, of the kind described in [library, CLI, MCP
-layering](../toolset/library-cli-mcp-layering.md). It goes to the project's
-generic package registry as `okf/<version>/okf-linux-x64`, and the release
-gains an asset link pointing at it.
+The `publish` job produces two artifacts under one package version. The first
+is a self-contained NativeAOT `linux-x64` binary, of the kind described in
+[library, CLI, MCP layering](../toolset/library-cli-mcp-layering.md); it goes
+to the project's generic package registry as `okf/<version>/okf-linux-x64`.
+The second is `okf-net-knowledge.tar.gz`: **this bundle**, packaged by the
+binary the same job just built, so every release ships the toolset's own
+knowledge as an installable OKF bundle. How it is packaged — and why the
+archive is byte-reproducible from the tag — is [bundling and
+distribution](../toolset/bundling-and-distribution.md). The release gains an
+asset link per artifact.
 
 **Written, not yet run.** Only a tag pipeline runs the job, and no tag has
 been cut since it was written, so nothing below is observed behaviour — it is

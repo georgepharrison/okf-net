@@ -2,13 +2,14 @@
 
 # Concept
 
+* [Bundling and Distribution](bundling-and-distribution.md) - The bundler ships bundles/ and nothing else, deterministically, with a manifest attesting what shipped and which links now dangle.
 * [Index Generation and Drift](index-generation-and-drift.md) - Generated indexes carry a marker, only marked files can drift, and five states describe every index on disk.
 * [Library, CLI, and MCP Layering](library-cli-mcp-layering.md) - All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
 * [Vaults, Registry, and Configuration](vault-registry-and-config.md) - How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
 
 # Guide
 
-* [About the Toolset Domain](about.md) - How okf-net is built — layering, lint severities, search semantics, index generation, and vault resolution.
+* [About the Toolset Domain](about.md) - How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, and distribution.
 
 # Reference
 

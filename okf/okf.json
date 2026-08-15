@@ -119,6 +119,11 @@
       "determinism",
       "diagnostics",
       "discovery",
+      // Added with toolset/bundling-and-distribution.md (work item #5): the
+      // consume-only packaging path, which is machinery rather than a release
+      // process — `release` is how a version is cut, `distribution` is what a
+      // consumer receives.
+      "distribution",
       "drift",
       "generation",
       "index",

@@ -74,6 +74,22 @@ run = [
 description = 'Run the okf CLI locally, e.g. `mise run cli -- lint ~/code/knowledge-catalog/okf/bundles/ga4`'
 run = "dotnet run --project src/Okf.Cli --"
 
+[tasks.bundle]
+description = "Package the dogfood bundle for consume-only distribution into artifacts/, and lint the result as a consumer would (work item #5)"
+# The same command the tag pipeline's `publish` job runs, minus the pinned
+# `--generated-at`: locally the stamp is now, in CI it is the commit's timestamp,
+# which is what makes the released archive reproducible from the tag alone.
+#
+# `--lint` is the gate that matters here: it lints what SHIPPED, with default
+# severities and no okf.json, so a promotion in this vault's config cannot make a
+# non-conformant distribution look fine. `--verify` re-hashes the archive against
+# the manifest it just wrote — cheap, and it proves the attestation is readable by
+# the same binary that produced it.
+run = [
+  "dotnet run --project src/Okf.Cli -- bundle okf/ --out artifacts/okf-net-knowledge.tar.gz --lint",
+  "dotnet run --project src/Okf.Cli -- bundle --verify artifacts/okf-net-knowledge.tar.gz",
+]
+
 [tasks.publish-aot]
 description = "Publish the NativeAOT linux-x64 binary to artifacts/aot, version-stamped from `git describe` (PRD CLI-17)"
 # Version stamping lives HERE, not in MSBuild: shelling out to git from a build

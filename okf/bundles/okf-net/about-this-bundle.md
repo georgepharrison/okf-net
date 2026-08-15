@@ -3,7 +3,7 @@ type: Guide
 title: About This Bundle
 description: What the okf-net bundle covers, who maintains it, and how to consume it.
 tags: [okf-net, bundle, meta, dogfood]
-generated: { by: claude-fable/5, at: 2026-08-15T02:15:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
 sources:
   - id: prd
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/prd.md
@@ -20,9 +20,11 @@ sources:
 This is the knowledge bundle for **okf-net**, a .NET toolset for producing,
 validating, and consuming OKF v0.2 knowledge bundles.[^prd] It is designed to
 ship as a library (`Okf.Core`), a single self-contained CLI binary (`okf`)
-that also hosts an MCP server (`okf mcp`), and a pair of agent skills. Of
-those, `Okf.Core`, the CLI's `lint`, `index`, and `search` commands, and the
-MCP server are built today; the skills are a later milestone.
+that also hosts an MCP server (`okf mcp`), and a pair of agent skills. All
+three are built: `Okf.Core`, the CLI's `init`, `lint`, `index`, `search`,
+`inbox`, `verify` and `bundle` commands, the MCP server, and the two skills in
+`skills/`. What remains designed rather than built is the registry
+(`okf register`), the site generator, and the Pi shim.
 
 The bundle is the toolset's own dogfood: okf-net's knowledge, kept in
 okf-net's format, validated by okf-net in okf-net's pipeline. It doubles as
@@ -94,6 +96,12 @@ Beyond that:
 - **The CLI.** `okf search <query>` returns ranked, links-first results with
   a trust tier and stale flag on each hit; `okf lint` reports on the bundle
   without modifying it.
+- **As a distributed archive.** `okf bundle` packages this bundle for
+  consume-only distribution, and every release ships the result as
+  `okf-net-knowledge.tar.gz`. What you receive is `bundles/okf-net/**` plus an
+  `okf-bundle.json` recording a `sha256` per file — never this repository's
+  `raw/` captures or its custodian machinery. See [bundling and
+  distribution](toolset/bundling-and-distribution.md).
 - **MCP.** `okf mcp [path]` runs a read-only server over stdio from the same
   binary, exposing `okf_list`, `okf_search`, and `okf_read`. It resolves
   vaults and scope by exactly the CLI's rules, so the two never disagree
