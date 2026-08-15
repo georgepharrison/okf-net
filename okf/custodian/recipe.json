@@ -64,8 +64,12 @@
   // agent. The gates are mechanical; the enrichment they gate is still invoked
   // by a person opening a session with the skills above.
   "triggers": {
+    // Both arms of .githooks/pre-commit. `checkManifest` is conditional: it
+    // runs only when the staged set touches okf/raw/, which is what keeps a
+    // commit that touches nothing else free of it.
     "pre-commit": [
-      "markdownlint (.githooks/pre-commit)"
+      "markdownlint (.githooks/pre-commit)",
+      "checkManifest (only when okf/raw/ is staged)"
     ],
     "ci": [
       "lint",

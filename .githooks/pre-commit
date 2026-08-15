@@ -24,7 +24,13 @@ if [[ ${#staged_md[@]} -gt 0 ]]; then
   mise exec -- markdownlint-cli2 "${staged_md[@]}" || status=1
 fi
 
-if git diff --cached --name-only --diff-filter=ACMD -- 'okf/raw' | grep -q .; then
+# No --diff-filter here, deliberately: the markdown arm filters to ACM because
+# there is no point linting a deleted file, but the manifest arm wants ANY
+# staged change touching okf/raw/. A rename is the case that motivates it — git
+# reports `git mv okf/raw/a okf/raw/b` as R, which --diff-filter=ACMD drops,
+# and a renamed capture is precisely what breaks the manifest: the recorded
+# path stops existing and the new one is claimed by nobody.
+if git diff --cached --name-only -- 'okf/raw' | grep -q .; then
   if command -v python3 >/dev/null 2>&1; then
     python3 okf/custodian/check-manifest.py || status=1
   else
