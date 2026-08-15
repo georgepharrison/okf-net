@@ -969,13 +969,14 @@ that exists, on the only bundle we own. Everything below was taken while walking
   mechanically decidable part now, in Python 3 stdlib (§3: custodian scripts are Python so
   they run in arbitrary consumer and CI environments), read-only, offline, with `okf
   lint`'s exit-code convention. Its invariants: the manifest parses at `manifestVersion`
-  1; every entry carries the six required keys, a unique `<YYYY-MM-DD>-<slug>` id, a
-  `flat`/`packet` form, and ISO-8601-with-offset timestamps; every `files[].path` stays
-  inside `raw/`, exists, and hashes to its recorded `sha256`; a `flat` capture is one file
-  named `<id>.<ext>` and a `packet`'s files live under `<id>/`; **nothing sits in `raw/`
-  unclaimed by an entry**; and a closed `ingestion` carries `at`, `by`, and `concepts`
-  paths that name files that exist, resolved from the *vault* root. It repairs nothing, on
-  principle.
+  1; every entry carries the six required keys, a unique `<YYYY-MM-DD>-<slug>` id opening
+  on a day that exists, a `flat`/`packet` form, and ISO-8601-with-offset timestamps; every
+  `files[].path` stays inside `raw/`, exists, and hashes to its recorded `sha256`; a `flat`
+  capture is one file named `<id>.<ext>` and a `packet`'s files live under `<id>/`;
+  **nothing sits in `raw/` unclaimed by an entry**, symbolic links included — a link is not
+  the bytes that were retrieved, and a linked directory is a tree the walk cannot see into;
+  and a closed `ingestion` carries `at`, `by`, and `concepts` paths that name files that
+  exist, resolved from the *vault* root. It repairs nothing, on principle.
   - **What it deliberately does not check**: whether the concept is a good rendering of
     the artifact (the prose layer, which is the custodian's job and not a script's), and
     whether the artifact still matches its `originalUrl` (the network, which no gate here
