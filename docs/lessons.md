@@ -53,6 +53,15 @@ future session (human or agent) relearns them. Newest first within sections.
   `PublishAot=true` publish of an executable is the only actual proof.
 - `dotnet new gitignore` ships an older snapshot of GitHub's
   `VisualStudio.gitignore`; the upstream file can be newer.
+- **PAX tar archives written by `System.Formats.Tar` are not reproducible**:
+  every extended-header entry is named `./PaxHeaders.<process-id>/<path>`, so
+  the archive embeds the writing process's pid. `TarReader` hides those
+  entries, so a test written through the reader cannot see them, and a
+  two-writes-in-one-process byte comparison passes. Use `TarEntryFormat.Gnu`
+  (mtime in the header, no extended entries, no 100-character path limit; pin
+  `AccessTime`/`ChangeTime` too). Ustar is reproducible but throws on a path
+  over 100 characters it cannot split. `GZipStream` is fine — its header
+  carries MTIME 0 and no filename.
 
 ## Testing
 

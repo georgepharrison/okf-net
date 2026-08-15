@@ -1554,6 +1554,25 @@ lets two people confirm they received the same knowledge.
   time zone. Both were verified by building the same archive twice, 1.1 seconds apart,
   and comparing bytes — which is also how the test asserts it, with every source file
   re-stamped in between.
+- **The tar entry format is GNU, and finding that out is the milestone's sharpest
+  lesson.** The first implementation wrote PAX, because PAX is the modern format and
+  carries timestamps losslessly. It is not reproducible in .NET: every PAX
+  extended-header entry is named `./PaxHeaders.<process-id>/<path>`, so an archive embeds
+  the pid of the process that wrote it and two builds of the same vault differ in a few
+  bytes per file. **The determinism test passed anyway**, because both writes happened
+  inside one test process; the defect surfaced only when the dogfood vault was packaged
+  twice from the shipped binary and the digests were compared, which is the thing the
+  claim is actually about. Ustar was the obvious alternative and was rejected on
+  measurement too — it throws on a path over 100 characters that cannot be split across
+  its name and prefix fields, which an arbitrary consumer's bundle can reach (measured: a
+  350-character path throws; GNU writes it through a constant-named long-link entry).
+  GNU carries mtime in the header, needs no extended headers, and its `atime`/`ctime`
+  fields are pinned like every other timestamp here.
+  - **The test that now catches it reads the raw 512-byte header blocks** and asserts that
+    every name in the archive is one the plan named. `TarReader` consumes extended headers
+    silently, so no test written through the reader can see an entry the writer invented —
+    which is exactly how a byte comparison inside one process passes while two release
+    builds disagree.
 - **`generatedAt` is the only clock reading anywhere in the packaging path**, and
   `--generated-at <instant>` pins it. This is the reproducible-builds `SOURCE_DATE_EPOCH`
   problem in miniature and it gets the same answer: an honest timestamp by default, an

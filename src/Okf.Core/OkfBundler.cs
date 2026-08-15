@@ -509,16 +509,26 @@ public static class OkfBundler
         // path implies, and an entry that carries no bytes is one more thing to have to
         // make deterministic. The gzip header .NET writes carries no timestamp and no
         // filename, which is what keeps the compressed stream reproducible.
+        //
+        // GNU rather than PAX, and this is a reproducibility decision rather than a taste
+        // one: .NET names every PAX extended-header entry `./PaxHeaders.<process-id>/…`,
+        // so a PAX archive embeds the pid of the process that wrote it and two builds of
+        // the same vault differ. GNU carries mtime in the header itself, needs no extended
+        // headers, and — unlike ustar — has no 100-character limit on a path, which an
+        // arbitrary consumer's bundle may well exceed. Its atime/ctime fields are pinned
+        // for the same reason every other timestamp here is.
         using var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true);
-        using var tar = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true);
+        using var tar = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
 
         foreach (var (path, open) in Contents(plan))
         {
             using var content = open();
-            tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, path)
+            tar.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, path)
             {
                 DataStream = content,
                 ModificationTime = ArchiveTimestamp,
+                AccessTime = ArchiveTimestamp,
+                ChangeTime = ArchiveTimestamp,
                 Mode = FileMode,
                 Uid = 0,
                 Gid = 0,

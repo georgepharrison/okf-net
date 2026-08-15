@@ -383,6 +383,30 @@ public class OkfBundlerTests
         Assert.Equal(OkfDistributionManifest.FileName, names[^1]);
     }
 
+    /// <summary>
+    /// Every header block in the archive names a file the plan named. The point is what it
+    /// rules out: a tar writer may emit bookkeeping entries of its own — .NET's PAX format
+    /// writes one per file, named <c>./PaxHeaders.&lt;process-id&gt;/…</c> — and an entry
+    /// whose name okf-net does not control is an entry that can differ between two builds
+    /// of the same vault. Reading the raw blocks is deliberate: <c>TarReader</c> consumes
+    /// extended headers silently, which is exactly how a byte-comparison inside one
+    /// process can pass while two release builds disagree.
+    /// </summary>
+    [Fact]
+    public void The_archive_carries_no_bookkeeping_entry_the_bundler_did_not_name()
+    {
+        using var tree = new BundlerVault();
+        var archive = Path.Combine(tree.Output, "bundle.tar.gz");
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+
+        OkfBundler.Write(plan, archive, OkfDistributionFormat.TarGz);
+
+        var expected = plan.Entries.Select(entry => entry.Path)
+            .Append(OkfDistributionManifest.FileName)
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(expected, RawTarNames(archive));
+    }
+
     [Fact]
     public void Archive_entries_carry_no_owner_and_a_normalized_mode()
     {
@@ -391,7 +415,7 @@ public class OkfBundlerTests
 
         OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), archive, OkfDistributionFormat.TarGz);
 
-        foreach (var entry in TarEntries(archive).Cast<PaxTarEntry>())
+        foreach (var entry in TarEntries(archive).Cast<GnuTarEntry>())
         {
             // Whose machine built the archive is not part of what was packaged, and a
             // producer's umask must not travel with the knowledge.
@@ -596,6 +620,39 @@ public class OkfBundlerTests
     private static string Concept(string title, string body) =>
         $"---\ntype: Concept\ntitle: {title}\ndescription: A fixture concept.\n---\n\n{body}\n";
 
+    /// <summary>
+    /// Every name in the archive's raw 512-byte header blocks, sorted — including any a
+    /// tar writer added for its own bookkeeping, which <see cref="TarReader" /> hides.
+    /// </summary>
+    private static IEnumerable<string> RawTarNames(string archive)
+    {
+        using var file = File.OpenRead(archive);
+        using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var raw = new MemoryStream();
+        gzip.CopyTo(raw);
+        var bytes = raw.ToArray();
+
+        var names = new List<string>();
+        for (var offset = 0; offset + 512 <= bytes.Length; offset += 512)
+        {
+            var block = bytes.AsSpan(offset, 512);
+            if (block.TrimStart((byte)0).Length == 0)
+            {
+                // The two zero blocks that end an archive.
+                break;
+            }
+
+            var name = Encoding.UTF8.GetString(block[..100].TrimEnd((byte)0));
+            var size = Convert.ToInt64(
+                Encoding.ASCII.GetString(block.Slice(124, 12)).Trim('\0', ' '),
+                fromBase: 8);
+            names.Add(name);
+            offset += (int)((size + 511) / 512) * 512;
+        }
+
+        return names.Order(StringComparer.Ordinal);
+    }
+
     /// <summary>Every entry of a tar.gz, in the order it was written.</summary>
     private static List<TarEntry> TarEntries(string archive)
     {
@@ -667,10 +724,10 @@ public class OkfBundlerTests
                 contents[path] = content;
                 using var file = File.Create(output);
                 using var gzip = new GZipStream(file, CompressionLevel.Optimal);
-                using var writer = new TarWriter(gzip, TarEntryFormat.Pax);
+                using var writer = new TarWriter(gzip, TarEntryFormat.Gnu);
                 foreach (var (name, text) in contents.OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 {
-                    writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name)
+                    writer.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, name)
                     {
                         DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)),
                     });
