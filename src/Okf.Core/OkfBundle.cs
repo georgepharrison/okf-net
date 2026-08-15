@@ -83,7 +83,24 @@ public sealed class OkfBundle
     public IReadOnlyList<string> MarkdownFiles()
     {
         var files = new List<string>();
-        Collect(Root, files);
+        Collect(Root, "*.md", files);
+        files.Sort(static (left, right) => string.CompareOrdinal(left, right));
+        return files;
+    }
+
+    /// <summary>
+    /// Every file in the tree, not only the markdown, under exactly the rules
+    /// <see cref="MarkdownFiles" /> walks by: no dotfiles, no dot-directories, and no
+    /// symlink that leaves the bundle. A bundle's content is more than its concepts —
+    /// spec §6.3's <c>references/</c> convention explicitly covers code, and Google's own
+    /// bundles carry <c>.py</c> attesters and a <c>viz.html</c> — so the bundler ships
+    /// what the walk sees rather than what the linter reads.
+    /// </summary>
+    /// <returns>The absolute paths of the bundle's files, in ordinal path order.</returns>
+    public IReadOnlyList<string> ContentFiles()
+    {
+        var files = new List<string>();
+        Collect(Root, "*", files);
         files.Sort(static (left, right) => string.CompareOrdinal(left, right));
         return files;
     }
@@ -222,9 +239,9 @@ public sealed class OkfBundle
         }
     }
 
-    private void Collect(string directory, List<string> files)
+    private void Collect(string directory, string pattern, List<string> files)
     {
-        foreach (var file in Directory.EnumerateFiles(directory, "*.md"))
+        foreach (var file in Directory.EnumerateFiles(directory, pattern))
         {
             if (Path.GetFileName(file).StartsWith('.'))
             {
@@ -250,7 +267,7 @@ public sealed class OkfBundle
             // non-null exactly for symlinks and other reparse points.
             if (!child.Name.StartsWith('.') && child.LinkTarget is null)
             {
-                Collect(child.FullName, files);
+                Collect(child.FullName, pattern, files);
             }
         }
     }
