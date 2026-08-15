@@ -568,6 +568,53 @@ public class OkfLinterTests
         Assert.Equal(10, diagnostic.Line);
     }
 
+    [SkippableFact]
+    public void OKF0309JudgesTheWrittenPathAndNotWhereASymlinkLands()
+    {
+        using var bundle = new TempBundle();
+        using var outside = new TempBundle("outside");
+        outside.Add("stranger.md", CleanConcept);
+
+        bundle.Add(
+            "metrics/revenue.md",
+            """
+            ---
+            type: Metric
+            title: Revenue
+            description: d
+            tags: [t]
+            ---
+
+            # Revenue
+
+            Through a link that stays inside as written: [stranger](./stranger.md).
+            """);
+
+        try
+        {
+            File.CreateSymbolicLink(
+                Path.Combine(bundle.Root, "metrics", "stranger.md"),
+                Path.Combine(outside.Root, "stranger.md"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create symlinks: {exception.Message}");
+        }
+
+        var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(bundle.Bundle);
+
+        // Deliberate, and the boundary between the two containment notions in this
+        // codebase: OKF0309 reads the path the author *wrote* (decisions.md, the
+        // lint/search friction milestone: "this is a report, not a control ... nothing
+        // here reads anything"), so a link that is bundle-relative as written is not
+        // reported however the filesystem resolves it. Refusing to *read* through the
+        // link is the separate, harder control, and it is already in force: the walk
+        // leaves the symlinked file out of the bundle entirely, so only `revenue.md` is
+        // linted.
+        Assert.Equal(1, result.FileCount);
+        Assert.Empty(result.Diagnostics);
+    }
+
     [Fact]
     public void OKF0303CatchesTitleAndFilenameCollisions()
     {
