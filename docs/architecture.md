@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Forty-four numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Forty-eight numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -737,6 +737,62 @@ flowchart TB
   per-push gate, because a gate that flakes gets disabled.
 - **Source:** [AGENTS.md](../AGENTS.md),
   [mutation testing](decisions.md#proposed-decisions-decided-2026-08-15-review-9-mutation-testing-work-item-11-2026-08-14)
+
+### AD-45 — A `sources[].resource` naming an in-bundle concept is written bundle-root-relative
+
+- **Binds:** both producer skills, every concept's `sources`, `OKF0308`
+- **Prevents:** a citation that only resolves because okf-net is lenient — the consumer who
+  implements §6.2 literally gets a dangling pointer.
+- **Rule:** When a source is a concept in the same bundle, write it with the leading slash:
+  `/references/agent-skills.md`, never `references/agent-skills.md`. §6.2 resolves a
+  relative path **from the citing document**, so the bare form names
+  `<citing-dir>/references/…` and survives here only because `LintText` falls back to the
+  bundle root — a leniency added for Google's own bundles, not a form to author in. The
+  reader stays tolerant of both; the writer emits one.
+- **Source:** [custodian activation](decisions.md#proposed-decisions-decided-2026-08-15-review-9-custodian-activation-on-this-repo-work-item-20-2026-08-15),
+  [lint/search friction](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-lintsearch-friction-milestone-work-item-21-2026-08-14)
+
+### AD-46 — The pre-commit hook carries only what is instant; `okf lint` is a CI gate
+
+- **Binds:** `.githooks/`, the `dogfood` job, ACC-6
+- **Prevents:** every commit in every consuming project waiting on a `dotnet run`, and the
+  hook being deleted the week after it is added.
+- **Rule:** No git hook invokes the `okf` binary. `pre-commit` runs `markdownlint-cli2` over
+  staged markdown, and `check-manifest.py` only when something under `okf/raw/` is staged;
+  `commit-msg` runs `scripts/check-commit-msg.sh`. `okf lint`, `okf index --check` and the
+  manifest check all run in CI. ACC-6 asks that the path *can* run in a hook, not that it
+  must.
+- **Source:** [custodian activation](decisions.md#proposed-decisions-decided-2026-08-15-review-9-custodian-activation-on-this-repo-work-item-20-2026-08-15),
+  PRD ACC-6
+
+### AD-47 — `about.md` describes its directory, and a conventional filename never collides
+
+- **Binds:** `OkfIndexGenerator`, `OkfBundle.IsConventionalFile`, `OKF0303`
+- **Prevents:** the one file the index generator asks a bundle to add being reported as a
+  near-duplicate of every sibling directory's copy of it.
+- **Rule:** A subdirectory entry takes its blurb from `<subdir>/about.md`'s `description`,
+  and is emitted blurb-less when there is none. A conventional filename is exempt from
+  **both** arms of `OKF0303` — the filename arm and the title arm — and neither reports a
+  collision nor seeds one for a later file, because the generic title that comes with a
+  conventional name (`title: About`) is as much a convention as the name. Reserved names
+  need no exemption: §3.1 keeps them out of the concept walk entirely.
+- **Source:** [Q1](decisions.md#open-question-resolutions-2026-08-14),
+  [lint review flags](decisions.md#proposed-decisions-decided-2026-08-15-review-9-lint-review-flags-2026-08-14),
+  [index milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-index-milestone-2026-08-14)
+
+### AD-48 — Tag governance ships off, and its two rules move together
+
+- **Binds:** `OKF0304`, `OKF0305`, `lint.tagRegistry`
+- **Prevents:** promoting the registry rule alone, which would make deleting the `tags` key
+  the cheapest way to satisfy tag governance.
+- **Rule:** `OKF0304` (missing-tags) and `OKF0305` (unregistered-tag) both ship `hidden` and
+  are one decision: a consumer raises both or neither. A registry is opt-in configuration —
+  absent `lint.tagRegistry`, `OKF0305` has nothing to say. Where the registry is enabled it
+  is a ratchet rather than a redesign: `warning`, so a new word is named rather than
+  rejected, and the trigger for promoting it to `error` is recorded rather than left to
+  inertia.
+- **Source:** [custodian activation](decisions.md#proposed-decisions-decided-2026-08-15-review-9-custodian-activation-on-this-repo-work-item-20-2026-08-15),
+  [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14)
 
 ## Consistency Conventions
 

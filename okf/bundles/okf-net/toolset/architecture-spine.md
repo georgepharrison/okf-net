@@ -62,13 +62,14 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The forty-four rules cover layering and the offline contract, the diagnostic
+The forty-eight rules cover layering and the offline contract, the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, trust derivation and acknowledgment, the canonical timestamp,
 configuration precedence, search determinism and its engine-agnostic result
 contract, MCP containment, the bundler's dangling-and-record answer, the
-site's untrusted-data posture, release stamping, the license gate, and the
-rule that tests must be shown to constrain the code.
+site's untrusted-data posture, release stamping, the license gate, the split
+between what a commit hook may cost and what CI owes, and the rule that tests
+must be shown to constrain the code.
 
 # The rules the document keeps about itself
 
