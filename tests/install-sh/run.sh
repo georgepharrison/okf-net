@@ -273,6 +273,19 @@ check_eq "exits 0" "0" "$rc"
 check_not_contains "does not build a doubled slash into the URLs it reports" "$base//" "$out"
 if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
 
+# More than one of them, because `${VAR%/}` strips exactly one and a base URL pasted with
+# `//` on the end is ordinary. install.ps1's `TrimEnd('/')` strips all of them, and the two
+# installers must not disagree about what the same environment variable means.
+dir="$work/bin-baseslashes-$sh_bin"
+set +e
+out="$(OKF_INSTALL_URL="$base///" OKF_INSTALL_DIR="$dir" "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0 with several trailing slashes" "0" "$rc"
+check_not_contains "trims every trailing slash, not just the last" "$base//" "$out"
+check_contains "and still names the manifest it fetched" "$base/latest.json" "$out"
+if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
+
 note "[$sh_bin] https stays https across redirects"
 # The installer follows redirects, which means one 302 to `http://` would fetch the
 # manifest AND the binary in cleartext — and a sha256 checked against a manifest that

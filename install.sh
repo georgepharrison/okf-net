@@ -26,10 +26,16 @@
 
 set -eu
 
-# Trailing slash trimmed once, here, because every URL below is built by appending to this
-# and `https://host//latest.json` is a different URL to most caches and some servers.
+# Trailing slashes trimmed here, because every URL below is built by appending to this and
+# `https://host//latest.json` is a different URL to most caches and some servers. ALL of
+# them, not one: `${VAR%/}` strips a single slash, so a base URL ending `//` — an ordinary
+# copy-paste — would still build the doubled path this exists to prevent. install.ps1 uses
+# `TrimEnd('/')`, which strips all of them, and the two installers should not disagree
+# about what the same environment variable means.
 OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.okf.tychostation.dev}"
-OKF_BASE_URL="${OKF_BASE_URL%/}"
+while [ "${OKF_BASE_URL%/}" != "$OKF_BASE_URL" ]; do
+  OKF_BASE_URL="${OKF_BASE_URL%/}"
+done
 OKF_DIR="${OKF_INSTALL_DIR:-$HOME/.local/bin}"
 
 version=""
