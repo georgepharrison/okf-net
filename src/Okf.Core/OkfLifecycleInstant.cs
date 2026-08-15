@@ -26,7 +26,7 @@ namespace Okf.Core;
 /// date than <c>2026-08-14T23:00:00Z</c> and an earlier instant. Ordering follows the
 /// instants, because <see cref="Compare" /> has to be a strict order — something picks a
 /// maximum with it. A test that must not be less sensitive than
-/// <c>OkfLinter</c>'s date-only one (<c>OKF0203</c>) takes the union instead: see
+/// <c>OkfLinter</c>'s date-only one (<c>OKF0103</c>) takes the union instead: see
 /// <see cref="IsAfterAtEitherPrecision" />.</para>
 /// </remarks>
 public readonly struct OkfLifecycleInstant
@@ -140,7 +140,7 @@ public readonly struct OkfLifecycleInstant
     /// <returns><see langword="true" /> when either comparison makes it later.</returns>
     /// <remarks>
     /// For a signal that must never be quieter than the linter's — source drift against
-    /// <c>OKF0203</c>, which compares the written dates and nothing else. Where the two
+    /// <c>OKF0103</c>, which compares the written dates and nothing else. Where the two
     /// sides carry different UTC offsets the date and the instant can disagree, and
     /// <see cref="IsAfter(OkfLifecycleInstant, OkfLifecycleInstant)" /> alone would then hide a row the
     /// linter reports on the same file. Equal stays equal: this is a wider "after", not a

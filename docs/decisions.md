@@ -1364,7 +1364,7 @@ that a non-goal, and it stays one.
 
 - **`okf inbox` reports per concept, not per finding, and that is the difference between
   it and `okf lint`.** The two commands look at the same three signals — acknowledgment
-  (CORE-15), staleness (`OKF0202`), source drift (`OKF0203`) — and answer different
+  (CORE-15), staleness (`OKF0202`), source drift (`OKF0103`) — and answer different
   questions with them. Lint asks whether a bundle is in good order, so a concept that is
   expired *and* citing two moved sources is three diagnostics at three severities. The
   inbox asks what a person should look at next, so the same concept is one row carrying
@@ -1403,7 +1403,7 @@ that a non-goal, and it stays one.
   UTC, and the author's day is what the document means.
   - **Which leaves one case where the two orderings disagree, and drift takes both.**
     `2026-08-15T01:00:00+05:00` is a *later written date* than `2026-08-14T23:00:00Z` and
-    an *earlier instant*. `OKF0203` compares written dates, so it reports that source as
+    an *earlier instant*. `OKF0103` compares written dates, so it reports that source as
     drifted; an instants-only comparison does not, and the inbox would then be quieter
     than the linter about the same file — the one hole a single surface for "what needs a
     person" must not have. So `Compare` stays a strict order, because the latest

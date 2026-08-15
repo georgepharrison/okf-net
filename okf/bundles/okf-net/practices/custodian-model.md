@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T19:02:42Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -115,7 +115,7 @@ step with.
 
 Of the five steps of the chain, four are now mechanical. `okf inbox` derives
 the acknowledgment, staleness, and drift state; `okf verify` stamps; `okf lint`
-reports staleness (`OKF0202`) and drift (`OKF0203`) against the bundle's
+reports staleness (`OKF0202`) and drift (`OKF0103`) against the bundle's
 conformance; `log.md` is checked for ordering. The fetch-and-draft step in the
 middle is an agent's work and stays that way.
 

@@ -94,7 +94,7 @@ public class OkfLifecycleInstantTests
     {
         // `2026-08-15T01:00:00+05:00` is 2026-08-14T20:00Z — an EARLIER instant than
         // 2026-08-14T23:00Z and a LATER written date. Ordering follows the instants;
-        // OKF0203 follows the written dates; the wider comparison follows both, so a
+        // OKF0103 follows the written dates; the wider comparison follows both, so a
         // drifted source cannot be reported by the linter and hidden by the inbox.
         var offsetDate = OkfLifecycleInstant.Parse("2026-08-15T01:00:00+05:00")!.Value;
         var utcInstant = OkfLifecycleInstant.Parse("2026-08-14T23:00:00Z")!.Value;
