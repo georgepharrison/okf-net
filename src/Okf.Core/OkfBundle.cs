@@ -100,7 +100,8 @@ public sealed class OkfBundle
     /// <summary>
     /// Turns a bundle-relative path into an absolute one, refusing anything that lands
     /// outside the bundle root (PRD MCP-5, CORE-12). The check is on the normalized path,
-    /// so <c>a/../..</c> is refused however it is spelled.
+    /// so <c>a/../..</c> is refused however it is spelled, and on the real one, so a symlink
+    /// pointing out of the bundle is refused too.
     /// </summary>
     /// <param name="relativePath">A bundle-relative path, empty for the root itself.</param>
     /// <param name="fullPath">The absolute path, when it is inside the bundle.</param>
@@ -109,19 +110,21 @@ public sealed class OkfBundle
     {
         fullPath = null;
 
-        if (relativePath is not null && Path.IsPathRooted(relativePath))
+        if (relativePath is not null
+            && (Path.IsPathRooted(relativePath) || relativePath.Contains('\0', StringComparison.Ordinal)))
         {
             // An absolute path is never bundle-relative, even when it happens to point
             // inside the bundle: accepting it would make the caller's path grammar depend
-            // on where the bundle sits on this machine.
+            // on where the bundle sits on this machine. A NUL is refused before
+            // `Path.GetFullPath` sees it, because it throws on one rather than answering —
+            // and a containment check that throws is one a caller can turn into a crash.
             return false;
         }
 
         var candidate = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
 
-        if (!string.Equals(candidate, Root, StringComparison.Ordinal)
-            && !candidate.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        if (!IsInside(candidate))
         {
             return false;
         }
@@ -132,6 +135,11 @@ public sealed class OkfBundle
 
     /// <inheritdoc />
     public override string ToString() => Root;
+
+    /// <summary>Whether an absolute path is the bundle root or sits under it, textually.</summary>
+    private bool IsInside(string path) =>
+        string.Equals(path, Root, StringComparison.Ordinal)
+        || path.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
 
     private static void Collect(string directory, List<string> files)
     {

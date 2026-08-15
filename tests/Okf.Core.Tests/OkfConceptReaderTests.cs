@@ -137,6 +137,11 @@ public class OkfConceptReaderTests
     [InlineData("..", false)]
     [InlineData("topics/../..", false)]
     [InlineData("/etc", false)]
+
+    // A NUL is refused rather than passed to `Path.GetFullPath`, which throws on one. A
+    // containment check that throws is one a caller can turn into a crash, and `okf mcp`
+    // hands this method whatever text a client sent.
+    [InlineData("topics/wid\0gets.md", false)]
     public void TryResolveConfinesEveryPathToTheBundleRoot(string relative, bool contained)
     {
         using var bundle = Bundle();

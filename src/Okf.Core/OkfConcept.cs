@@ -241,15 +241,21 @@ public static class OkfConceptReader
     /// <param name="id">The id or path.</param>
     /// <returns>The relative path ending in <c>.md</c>, or <see langword="null" />.</returns>
     /// <remarks>
-    /// A backslash is rejected rather than treated as a separator: bundle-relative paths use
-    /// <c>/</c> everywhere (that is what <see cref="OkfBundle.RelativePath" /> emits), and
-    /// silently reinterpreting a separator is how containment checks get bypassed on one
-    /// platform and not another.
+    /// <para>A backslash is rejected rather than treated as a separator: bundle-relative
+    /// paths use <c>/</c> everywhere (that is what <see cref="OkfBundle.RelativePath" />
+    /// emits), and silently reinterpreting a separator is how containment checks get bypassed
+    /// on one platform and not another.</para>
+    /// <para>A NUL is rejected for a blunter reason: no filesystem accepts one in a name, and
+    /// <see cref="Path.GetFullPath(string)" /> throws on one rather than answering. A caller
+    /// that can be handed arbitrary text — <c>okf mcp</c> can — must get an answer, not an
+    /// exception.</para>
     /// </remarks>
     public static string? Normalize(string? id)
     {
         var trimmed = id?.Trim();
-        if (string.IsNullOrEmpty(trimmed) || trimmed.Contains('\\', StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(trimmed)
+            || trimmed.Contains('\\', StringComparison.Ordinal)
+            || trimmed.Contains('\0', StringComparison.Ordinal))
         {
             return null;
         }

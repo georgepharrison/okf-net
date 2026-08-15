@@ -159,53 +159,69 @@ internal sealed class McpServer
             var isRequest = root.TryGetProperty("id", out var id) && id.ValueKind != JsonValueKind.Null;
             var identifier = isRequest ? id : (JsonElement?)null;
 
-            if (!root.TryGetProperty("jsonrpc", out var version)
-                || version.ValueKind != JsonValueKind.String
-                || !string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal))
-            {
-                if (isRequest)
-                {
-                    WriteError(identifier, InvalidRequest, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
-                }
-
-                return;
-            }
-
-            if (!root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String)
-            {
-                if (isRequest)
-                {
-                    WriteError(identifier, InvalidRequest, "A JSON-RPC message must carry a string \"method\".");
-                }
-
-                return;
-            }
-
-            if (!isRequest)
-            {
-                // Nothing okf-net exposes changes on a notification: it has no subscriptions
-                // and no write tools (MCP-4). `notifications/initialized` and the rest are
-                // therefore accepted and ignored, silently, as the spec requires.
-                return;
-            }
-
-            var parameters = root.TryGetProperty("params", out var value) ? value : (JsonElement?)null;
-
             try
             {
-                Dispatch(method.GetString()!, parameters, identifier);
+                Respond(root, isRequest, identifier);
             }
             catch (McpProtocolException exception)
             {
                 WriteError(identifier, exception.Code, exception.Message);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception)
             {
                 // A bundle that moved or turned unreadable under us is the environment's
-                // failure, not the client's, and it must not take the server down.
+                // failure, not the client's, and it must not take the server down. Nor may
+                // anything else: the loop's contract is that it survives whatever arrives on
+                // stdin, and a client reaches code that throws types this method cannot
+                // enumerate — `System.Text.Json` alone throws `InvalidOperationException`
+                // when a string carrying an unpaired `\uD800` escape is read, which is legal
+                // to parse and possible in any field. Dying there would lose every request
+                // still queued behind it, so an unexpected failure is reported as one and
+                // the next line is read.
                 WriteError(identifier, InternalError, exception.Message);
             }
         }
+    }
+
+    /// <summary>
+    /// Validates one parsed message and answers it. Everything that can throw lives here
+    /// rather than in <see cref="Handle" />, which owns the one place a failure is turned
+    /// back into a response.
+    /// </summary>
+    private void Respond(JsonElement root, bool isRequest, JsonElement? identifier)
+    {
+        if (!root.TryGetProperty("jsonrpc", out var version)
+            || version.ValueKind != JsonValueKind.String
+            || !string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal))
+        {
+            if (isRequest)
+            {
+                WriteError(identifier, InvalidRequest, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
+            }
+
+            return;
+        }
+
+        if (!root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String)
+        {
+            if (isRequest)
+            {
+                WriteError(identifier, InvalidRequest, "A JSON-RPC message must carry a string \"method\".");
+            }
+
+            return;
+        }
+
+        if (!isRequest)
+        {
+            // Nothing okf-net exposes changes on a notification: it has no subscriptions
+            // and no write tools (MCP-4). `notifications/initialized` and the rest are
+            // therefore accepted and ignored, silently, as the spec requires.
+            return;
+        }
+
+        var parameters = root.TryGetProperty("params", out var value) ? value : (JsonElement?)null;
+        Dispatch(method.GetString()!, parameters, identifier);
     }
 
     private void Dispatch(string method, JsonElement? parameters, JsonElement? id)
@@ -316,13 +332,29 @@ internal sealed class McpServer
     private static void WriteId(Utf8JsonWriter writer, JsonElement? id)
     {
         writer.WritePropertyName("id");
-        if (id is { } value)
+        if (id is not { } value)
         {
-            // Echoed verbatim, whatever the client used: JSON-RPC ids may be strings or
-            // numbers, and a client is entitled to get its own back.
-            value.WriteTo(writer);
+            writer.WriteNullValue();
+            return;
         }
-        else
+
+        // Echoed verbatim, whatever the client used: JSON-RPC ids may be strings or numbers,
+        // and a client is entitled to get its own back. Rendered into a buffer first because
+        // an id is client-supplied and need not be writable — a string carrying an unpaired
+        // `\uD800` escape parses but throws on the way back out — and this method sits on the
+        // path that reports failures. Failing here would either kill the loop or leave a
+        // half-written envelope on the wire, so an id that cannot be echoed becomes null.
+        try
+        {
+            using var buffer = new MemoryStream();
+            using (var scratch = new Utf8JsonWriter(buffer, WriterOptions))
+            {
+                value.WriteTo(scratch);
+            }
+
+            writer.WriteRawValue(buffer.ToArray());
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JsonException)
         {
             writer.WriteNullValue();
         }

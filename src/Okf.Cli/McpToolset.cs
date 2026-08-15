@@ -667,6 +667,7 @@ internal sealed class McpToolset
         }
 
         if (trimmed.Contains('\\', StringComparison.Ordinal)
+            || trimmed.Contains('\0', StringComparison.Ordinal)
             || trimmed.StartsWith('/')
             || trimmed.StartsWith('~')
             || Path.IsPathRooted(trimmed))

@@ -444,4 +444,27 @@ public class McpToolTests
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(1));
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(2));
     }
+
+    [Fact]
+    public void APathCarryingANulIsInvalidParamsAndTheServerKeepsGoing()
+    {
+        using var vault = McpProtocolTests.Vault();
+
+        // `Path.GetFullPath` throws on a NUL rather than answering. It reaches the server as
+        // an ordinary JSON escape, so it is a path the client got wrong (-32602), not a
+        // reason for every request queued behind it to be lost.
+        var run = Mcp.Session(
+            McpProtocolTests.Environment(vault),
+            vault.Root,
+            Mcp.Call(1, "okf_read", """{"path":"wid\u0000gets.md"}"""),
+            Mcp.Call(2, "okf_list", """{"bundle":"searchable","path":"no\u0000tes"}"""),
+            Mcp.Request(3, "ping"));
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(McpServer.InvalidParams, run.ErrorCode(0));
+        Assert.Equal(McpServer.InvalidParams, run.ErrorCode(1));
+
+        using var pong = run.Response(2);
+        Assert.Equal(3, pong.RootElement.GetProperty("id").GetInt32());
+    }
 }

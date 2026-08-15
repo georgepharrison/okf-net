@@ -153,6 +153,35 @@ public class McpProtocolTests
         Assert.Equal(6, pong.RootElement.GetProperty("id").GetInt32());
     }
 
+    [Theory]
+
+    // `\uD800` is a high surrogate with no low surrogate after it. System.Text.Json parses
+    // such a line happily and then throws `InvalidOperationException` the moment the string
+    // is read or written — from every field, including the id the answer has to echo. A
+    // client truncating a message mid-emoji produces one, so it must be answered rather
+    // than fatal: an unhandled throw here loses every request queued behind it.
+    [InlineData("""{"jsonrpc":"2.0","id":"\uD800","method":"ping"}""")]
+    [InlineData("""{"jsonrpc":"\uD800","id":1,"method":"ping"}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"\uD800"}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"\uD800"}}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"\uD800"}}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"okf_read","arguments":{"path":"\uD800"}}}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"okf_search","arguments":{"query":"x","tag":["\uD800"]}}}""")]
+    public void AStringThatCannotBeReadBackIsAnsweredRatherThanFatal(string message)
+    {
+        using var vault = Vault();
+
+        var run = Mcp.Session(Environment(vault), vault.Root, message, Mcp.Request(7, "ping"));
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(2, run.Responses.Length);
+        Assert.All(run.Responses, response => JsonDocument.Parse(response).Dispose());
+
+        // The point of the test: whatever the first message did, the second is still served.
+        using var pong = run.Response(1);
+        Assert.Equal(7, pong.RootElement.GetProperty("id").GetInt32());
+    }
+
     [Fact]
     public void EveryResponseIsExactlyOneLine()
     {
