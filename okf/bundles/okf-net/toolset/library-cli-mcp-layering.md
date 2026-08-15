@@ -3,7 +3,7 @@ type: Concept
 title: Library, CLI, and MCP Layering
 description: All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
 tags: [okf-net, architecture, cli, mcp, layering]
-generated: { by: claude-fable/5, at: 2026-08-14T21:42:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -23,17 +23,20 @@ of the same binary. Neither adapter is the core, and neither may hold
 behaviour the other lacks.[^decisions]
 
 ```text
-Okf.Core   parse · validate · trust · staleness · index · search · discovery
+Okf.Core   parse · validate · trust · staleness · index · search
+           discovery · bundle · site
    │
-   ├── Okf.Cli    okf lint | index | search | mcp   (built)
-   │              okf inbox | verify | register | unregister | init
-   └── okf mcp    okf_list · okf_search · okf_read, over stdio (built)
+   ├── Okf.Cli    okf init | lint | index | search | inbox | verify   (built)
+   │              okf bundle | site | help | version                  (built)
+   │              okf register | unregister                       (not built)
+   └── okf mcp    okf_list · okf_search · okf_read, over stdio        (built)
 ```
 
-The diagram is the designed surface, not an inventory. `lint`, `index`,
-`search`, and `mcp` exist today; the rest of the verb list and the skills are
-later milestones, in the build order Core → index → search → MCP → skills.
-Everything below describes the contract each one is being built against.
+Every verb above is built except `register` and `unregister`, which wait on
+the registry itself — nothing reads or writes a registry file, so search is
+project-scoped full stop and no scope flag ships (see [vaults, registry, and
+config](vault-registry-and-config.md)). The build order that got here was
+Core → index → search → MCP → skills, then the post-MVP additions.
 
 # Why the library is the core
 
@@ -63,11 +66,17 @@ resolution](vault-registry-and-config.md).
 - **Machine-readable output.** Every diagnostic carries a stable rule id,
   severity, path, and line, and `--json` emits it as the contract for CI
   annotations.
-- **A single self-contained binary.** NativeAOT, linux-x64, roughly four
-  megabytes, no .NET SDK required to run it — so the implementation language
-  never leaks to a consumer. The `PublishAot` flag is set on the CLI project
-  so the analysers run on *every* build: an AOT-hostile dependency fails the
-  build rather than the release.
+- **A single self-contained binary, on three platforms.** `okf-linux-x64` is
+  NativeAOT at about 6 MB. `okf-osx-arm64` and `okf-win-x64.exe` are trim-safe
+  self-contained single files at about 15 MB each — the IL trimmed, then
+  bundled with a .NET runtime — because NativeAOT compiles through the
+  **host's** native toolchain and the only runner here is Linux. None of the
+  three needs a .NET SDK to run, which is the property that matters: the
+  implementation language never leaks to a consumer. The `PublishAot` flag is
+  set on the CLI project so the analysers run on *every* build, and the trim
+  analyser runs on the other two, so an AOT- or trim-hostile dependency fails
+  the build rather than the release. See [release and
+  versioning](../practices/release-and-versioning.md).
 
 # What MCP deliberately does not do
 

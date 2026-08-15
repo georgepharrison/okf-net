@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-15T19:02:42Z }
+generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -140,6 +140,13 @@ reimplementing anything:[^prd]
 - **`okf-custodian`** maintains the bundle: ingest a `raw/` item into an
   ordinary `references/` concept, enrich prose, regenerate indexes, clear
   lint, and append to `log.md`.
+
+Three skills ship, not two: `okf-vault` is the consumer-side sibling, and it
+is deliberately not part of the custodian. It reads — question to concepts to
+a citation carrying the trust tier — and hands back to the two producers at
+its write boundary, so a reading session that turns up something worth
+keeping arrives at the right skill rather than writing from the wrong one.
+`skills/README.md` says which of the three fires when.
 
 Both state the same doctrine — orient by disclosure, retrieve by search, open
 what you pick; `raw/` is evidence and the bundle is knowledge — which is also

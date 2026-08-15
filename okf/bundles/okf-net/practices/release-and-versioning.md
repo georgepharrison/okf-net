@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing three-platform release the installers can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T19:41:13Z }
+generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,7 +67,8 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces six artifacts under one package version.
+The `publish` job produces seven artifacts under one package version, and the
+release gains an asset link per artifact.
 
 Three are binaries, of the kind described in [library, CLI, MCP
 layering](../toolset/library-cli-mcp-layering.md), and they are not built the
@@ -85,10 +86,9 @@ The fourth is `okf-net-knowledge.tar.gz`: **this bundle**, packaged by the
 binary the same job just built, so every release ships the toolset's own
 knowledge as an installable OKF bundle. How it is packaged — and why the
 archive is byte-reproducible from the tag — is [bundling and
-distribution](../toolset/bundling-and-distribution.md). The release gains an
-asset link per artifact.
+distribution](../toolset/bundling-and-distribution.md).
 
-The last two make a release **self-describing**. `latest.json` names the
+The last three make a release **self-describing**. `latest.json` names the
 version and, per asset, a relative path, a size and a `sha256` computed in the
 job from the exact bytes it uploaded; it has been a map keyed by asset name
 from the start, so three platforms were more entries rather than a new shape.
@@ -167,8 +167,12 @@ cross-compiled on a Linux runner and cannot be executed by it, so their first
 execution anywhere is a tester's. `install.ps1` has no acceptance suite at all,
 because this pipeline has no Windows runner; it is static-analysed with
 PSScriptAnalyzer and reviewed, which catches an unapproved verb and nothing
-about Gatekeeper. `install.sh` is covered by 73 assertions per shell, run under
-both `sh` and `dash`.
+about Gatekeeper. `install.sh` is covered by 82 assertions per shell, run
+under `sh` and — **only where it is installed** — under `dash`. That
+distinction is not pedantry: a workstation without `dash` runs half the matrix
+and still prints a green, so the `test-install` CI job fails outright when
+`dash` is missing rather than skipping the lane, and the harness announces
+`shells under test:` before its first case.
 
 The version is the tag without its leading `v`, so a downloaded binary answers
 `okf version` with the package version it came from, plus the short commit sha
