@@ -12,10 +12,12 @@ public class OkfStampTests
     public void TheStampIsUtcToTheSecondWithAZ()
     {
         // Two stamps from two machines must be comparable; a local offset makes them look
-        // ordered when they are not.
+        // ordered when they are not. The rendering itself is OkfTimestamp's, pinned by its
+        // own tests; what is pinned here is that a stamp written from a local-offset clock
+        // reaches the file in the canonical form and not in the clock's.
         Assert.Equal(
-            "2026-08-15T19:30:00Z",
-            OkfStamp.FormatTimestamp(new DateTimeOffset(2026, 8, 15, 14, 30, 0, TimeSpan.FromHours(-5))));
+            """{ by: "human:ringo", at: 2026-08-15T19:30:00Z }""",
+            OkfStamp.VerifiedEntry("human:ringo", new DateTimeOffset(2026, 8, 15, 14, 30, 0, TimeSpan.FromHours(-5))));
     }
 
     [Fact]

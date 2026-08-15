@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 
 namespace Okf.Core;
@@ -30,25 +29,15 @@ public static class OkfStamp
     public const string GeneratedKey = "generated";
 
     /// <summary>
-    /// Renders an instant the way okf-net writes one: UTC, to the second, with the
-    /// <c>Z</c> designator. A stamp is a fact about when something happened, and a local
-    /// offset makes two stamps from two machines look ordered when they are not.
-    /// </summary>
-    /// <param name="at">The instant.</param>
-    /// <returns>The ISO-8601 text.</returns>
-    public static string FormatTimestamp(DateTimeOffset at) =>
-        at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
-
-    /// <summary>
     /// Renders one verification event as the flow mapping okf-net writes: the actor
     /// quoted, because every <c>human:</c> and <c>process:</c> actor carries a colon and a
     /// plain scalar holding one is ambiguous in flow context.
     /// </summary>
     /// <param name="actor">The verifying actor.</param>
-    /// <param name="at">When the verification happened.</param>
+    /// <param name="at">When the verification happened, in the canonical form (<see cref="OkfTimestamp" />).</param>
     /// <returns>The YAML text of the event.</returns>
     public static string VerifiedEntry(string actor, DateTimeOffset at) =>
-        $"{{ by: \"{actor}\", at: {FormatTimestamp(at)} }}";
+        $"{{ by: \"{actor}\", at: {OkfTimestamp.ToCanonical(at)} }}";
 
     /// <summary>
     /// Appends a verification event to a concept's text (§5.2), normalizing a pre-existing
@@ -129,7 +118,7 @@ public static class OkfStamp
 
         var entry = new OkfMapping { Style = OkfCollectionStyle.Flow };
         entry.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
-        entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(FormatTimestamp(at)));
+        entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfTimestamp.ToCanonical(at)));
         events.Add(entry);
     }
 

@@ -312,7 +312,7 @@ public static class OkfInboxScanner
         var generated = Nested(frontmatter, "generated");
         var generatedBy = generated is null ? null : Text(generated, "by");
         var generatedAtText = generated is null ? null : Text(generated, "at");
-        var generatedAt = OkfTimestamp.Parse(generatedAtText);
+        var generatedAt = OkfLifecycleInstant.Parse(generatedAtText);
 
         var (verifiedBy, verifiedAtText, verifiedAt) = LatestVerification(frontmatter);
         var status = Text(frontmatter, "status");
@@ -350,7 +350,7 @@ public static class OkfInboxScanner
             staleAfter,
             status,
             generatedAt?.DaysUntil(today),
-            concept.Stale ? OkfTimestamp.Parse(staleAfter)?.DaysUntil(today) : null,
+            concept.Stale ? OkfLifecycleInstant.Parse(staleAfter)?.DaysUntil(today) : null,
             drifted);
     }
 
@@ -375,8 +375,8 @@ public static class OkfInboxScanner
         OkfConcept concept,
         OkfMapping? generated,
         string? generatedBy,
-        OkfTimestamp? generatedAt,
-        OkfTimestamp? verifiedAt,
+        OkfLifecycleInstant? generatedAt,
+        OkfLifecycleInstant? verifiedAt,
         string? status)
     {
         if (string.Equals(status, DraftStatus, StringComparison.OrdinalIgnoreCase))
@@ -386,7 +386,7 @@ public static class OkfInboxScanner
 
         if (verifiedAt is { } acknowledged)
         {
-            return OkfTimestamp.IsAfter(generatedAt, acknowledged);
+            return OkfLifecycleInstant.IsAfter(generatedAt, acknowledged);
         }
 
         // Verified, but by an event carrying no readable `at`. Someone stood behind this;
@@ -405,21 +405,21 @@ public static class OkfInboxScanner
     /// the parsed value. Events with no readable <c>at</c> never win, so a malformed one
     /// cannot mask a good one.
     /// </summary>
-    private static (string? By, string? At, OkfTimestamp? Parsed) LatestVerification(OkfMapping frontmatter)
+    private static (string? By, string? At, OkfLifecycleInstant? Parsed) LatestVerification(OkfMapping frontmatter)
     {
         string? by = null;
         string? at = null;
-        OkfTimestamp? latest = null;
+        OkfLifecycleInstant? latest = null;
 
         foreach (var verification in OkfDocument.NormalizeVerified(frontmatter))
         {
             var text = Text(verification, "at");
-            if (OkfTimestamp.Parse(text) is not { } parsed)
+            if (OkfLifecycleInstant.Parse(text) is not { } parsed)
             {
                 continue;
             }
 
-            if (latest is null || OkfTimestamp.IsAfter(parsed, latest.Value))
+            if (latest is null || OkfLifecycleInstant.IsAfter(parsed, latest.Value))
             {
                 latest = parsed;
                 at = text;
@@ -440,7 +440,7 @@ public static class OkfInboxScanner
     /// drift than <c>OKF0203</c>, which compares the written dates alone, or a concept lint
     /// reports would be missing from the list of what needs a person.
     /// </remarks>
-    private static IReadOnlyList<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfTimestamp? generatedAt)
+    private static IReadOnlyList<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfLifecycleInstant? generatedAt)
     {
         if (generatedAt is not { } generated
             || !frontmatter.TryGetValue("sources", out var value)
@@ -453,8 +453,8 @@ public static class OkfInboxScanner
         foreach (var source in sources.OfType<OkfMapping>())
         {
             var lastModified = Text(source, "last_modified");
-            if (OkfTimestamp.Parse(lastModified) is { } modified
-                && OkfTimestamp.IsAfterAtEitherPrecision(modified, generated))
+            if (OkfLifecycleInstant.Parse(lastModified) is { } modified
+                && OkfLifecycleInstant.IsAfterAtEitherPrecision(modified, generated))
             {
                 drifted.Add(new OkfDriftedSource(Text(source, "id"), Text(source, "resource"), lastModified!));
             }

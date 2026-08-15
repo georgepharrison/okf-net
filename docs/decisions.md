@@ -1207,7 +1207,8 @@ could be argued with while they were still cheap to change (work items #19 and #
   sitting, which is not information the format asked for. Second precision because a
   knowledge concept is not a high-frequency event and subsecond digits are noise in a
   reviewed diff. `OkfTimestamp` is the one place that renders it; `okf init` writes
-  `generated.at` through it, and CORE-14 stamping will.
+  `generated.at` through it, and CORE-14 stamping does too — `okf verify` renders every
+  `verified[].at` through the same helper rather than through a second formatter.
   - **Reading stays tolerant, and nothing is rewritten.** No rule rejects another
     spelling, and the stamps already in the bundle are left alone: restamping nineteen
     concepts is a migration to review on its own evidence, not a rider on the change that
@@ -1347,8 +1348,9 @@ that a non-goal, and it stays one.
     invented would be worse than saying nothing. A malformed `at` never wins the
     latest-verification comparison either, so it cannot mask a good one.
 - **Timestamps compare at the coarser of their two precisions, and the drift test takes
-  the union of that ordering and the linter's.** `OkfTimestamp` carries both the date as
-  written and the instant, and `Compare` uses instants only when both sides have a time.
+  the union of that ordering and the linter's.** `OkfLifecycleInstant` carries both the
+  date as written and the instant, and `Compare` uses instants only when both sides have a
+  time.
   That is what lets two writes on the same day be ordered at all — the case the linter's
   `text[..10]` truncation cannot see. It deliberately does *not* order a bare date against
   a same-day instant: `last_modified: 2026-08-15` against a concept generated
@@ -1438,3 +1440,15 @@ that a non-goal, and it stays one.
   `okf verify`, not a separate command — the refusals it needs (a §7 actor, never the
   generating one) are the ones `okf verify` already performs, and a second command would
   be the same code behind a different name.
+- **Reading a timestamp and writing one are two types, and only one of them is named for
+  a form.** #4 and #7 each landed a `Okf.Core.OkfTimestamp` in the same namespace,
+  independently and both correct: #4's is the canonical write form (`ToCanonical`,
+  `IsCanonical`), #7's is the comparison this section describes. Reconciling them kept
+  `OkfTimestamp` for the write form — it is the merged, public, referenced-from-the-skills
+  one — and renamed the comparison to **`OkfLifecycleInstant`**. The name is not cosmetic:
+  the write form has exactly one spelling by choice, while what this type reads may be a
+  bare date, an offset instant, or a `Z` one, so naming it for a *form* would have been a
+  claim it cannot make. `OkfStamp.FormatTimestamp` went with the reconciliation — it
+  rendered the same string as `OkfTimestamp.ToCanonical` (verified byte-for-byte across
+  offsets, subseconds, and both ends of the range before it was deleted), and one
+  canonical form with two renderers is one renderer too many.
