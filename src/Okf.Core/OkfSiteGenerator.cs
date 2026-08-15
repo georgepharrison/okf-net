@@ -106,7 +106,8 @@ public static class OkfSiteGenerator
                 model,
                 OkfSiteBuilder.IndexHref,
                 model.Name,
-                $"{model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles, "
+                $"{model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} across "
+                + $"{OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}, "
                 + "browsable from each bundle's index.",
                 "home",
                 OkfSiteHtml.Landing(model, string.Empty, page => page.Href),
@@ -118,7 +119,8 @@ public static class OkfSiteGenerator
                 model,
                 OkfSiteBuilder.DashboardHref,
                 $"Dashboard — {model.Name}",
-                $"Trust dashboard for {model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles.",
+                $"Trust dashboard for {model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} "
+                + $"across {OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}.",
                 "dashboard",
                 OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Dashboard")
                 + OkfSiteHtml.Dashboard(model, page => page.Href, "#t="),
@@ -130,7 +132,8 @@ public static class OkfSiteGenerator
                 model,
                 OkfSiteBuilder.GraphHref,
                 $"Graph — {model.Name}",
-                $"Force-directed graph of {model.Counts.Concepts} concepts and {model.Edges.Count} cross-links.",
+                $"Force-directed graph of {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} "
+                + $"and {OkfSiteHtml.Plural(model.Edges.Count, "cross-link")}.",
                 "graph",
                 OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Graph") + OkfSiteHtml.Graph(model),
                 withData: true)));
@@ -235,7 +238,8 @@ public static class OkfSiteGenerator
                 OkfSiteBuilder.IndexHref,
                 OkfSiteHtml.Document(
                     model.Name,
-                    $"{model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles, "
+                    $"{model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} across "
+                    + $"{OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}, "
                     + "browsable from each bundle's index.",
                     head,
                     body,
