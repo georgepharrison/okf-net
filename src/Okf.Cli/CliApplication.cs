@@ -78,6 +78,12 @@ internal static class CliApplication
             case "search":
                 return SearchCommand.Run(args[1..], environment, output, error);
 
+            case "inbox":
+                return InboxCommand.Run(args[1..], environment, output, error);
+
+            case "verify":
+                return VerifyCommand.Run(args[1..], environment, output, error);
+
             case "mcp":
                 return McpCommand.Run(args[1..], environment, input ?? TextReader.Null, output, error);
 
@@ -135,6 +141,8 @@ internal static class CliApplication
               okf lint [path] [options]   Validate §11 conformance plus the configured warning set
               okf index [path] [options]  Generate the index.md files for a bundle (--check to verify)
               okf search <query> [path]   Search the resolved bundles, ranked and links-first
+              okf inbox [path]            List the concepts waiting on a person
+              okf verify <concept>...     Stamp human verification on one or more concepts
               okf mcp [path]              Run the read-only MCP server over stdio
               okf help                    Show this help
               okf version                 Show the version

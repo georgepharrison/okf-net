@@ -1,0 +1,280 @@
+namespace Okf.Core.Tests;
+
+/// <summary>
+/// Verification stamping (PRD CORE-14): what it appends, what it normalizes, and — the
+/// half that matters most — everything it leaves exactly as it found it.
+/// </summary>
+public class OkfStampTests
+{
+    private static readonly DateTimeOffset At = new(2026, 8, 15, 14, 30, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void TheStampIsUtcToTheSecondWithAZ()
+    {
+        // Two stamps from two machines must be comparable; a local offset makes them look
+        // ordered when they are not.
+        Assert.Equal(
+            "2026-08-15T19:30:00Z",
+            OkfStamp.FormatTimestamp(new DateTimeOffset(2026, 8, 15, 14, 30, 0, TimeSpan.FromHours(-5))));
+    }
+
+    [Fact]
+    public void TheEventIsAFlowMappingWithTheActorQuoted()
+    {
+        // A `human:`/`process:` actor carries a colon, which is an indicator in flow
+        // context; the timestamp does not need quoting and does not get it.
+        Assert.Equal(
+            """{ by: "human:ringo", at: 2026-08-15T14:30:00Z }""",
+            OkfStamp.VerifiedEntry("human:ringo", At));
+    }
+
+    [Fact]
+    public void AConceptWithNoVerifiedKeyGainsOneAtTheEndOfTheFrontmatter()
+    {
+        var stamped = OkfStamp.VerifyText("---\ntype: Concept\ntitle: Widgets\n---\n\nBody.\n", "human:ringo", At);
+
+        Assert.Equal(
+            """
+            ---
+            type: Concept
+            title: Widgets
+            verified:
+              - { by: "human:ringo", at: 2026-08-15T14:30:00Z }
+            ---
+
+            Body.
+
+            """.ReplaceLineEndings("\n"),
+            stamped);
+    }
+
+    [Fact]
+    public void EveryOtherLineOfTheFileIsByteIdentical()
+    {
+        // The point of stamping the text rather than re-emitting the document: an
+        // acknowledgment must not arrive as a diff touching every line of frontmatter.
+        var source = """
+            ---
+            type: Concept
+            title: Widgets
+            okf_version: "0.2"
+            producer_only_key: kept
+            generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+            sources:
+              - id: spec
+                resource: https://example.org/spec
+                last_modified: 2026-07-24
+            ---
+
+            The body, with a [link](other.md) and a `[^spec]`.
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        var added = stamped.Split('\n').Except(source.Split('\n'), StringComparer.Ordinal).ToArray();
+        Assert.Equal(["verified:", """  - { by: "human:ringo", at: 2026-08-15T14:30:00Z }"""], added);
+        Assert.Empty(source.Split('\n').Except(stamped.Split('\n'), StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void AnExistingBlockSequenceIsAppendedToAtItsOwnIndentation()
+    {
+        var source = """
+            ---
+            type: Concept
+            verified:
+                - { by: "process:schema-check", at: 2026-08-01T00:00:00Z }
+            title: Widgets
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        Assert.Contains(
+            """
+                - { by: "process:schema-check", at: 2026-08-01T00:00:00Z }
+                - { by: "human:ringo", at: 2026-08-15T14:30:00Z }
+            title: Widgets
+            """.ReplaceLineEndings("\n"),
+            stamped,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AMultiLineSequenceItemIsNotSplitByTheInsertion()
+    {
+        var source = """
+            ---
+            type: Concept
+            verified:
+              - by: "process:schema-check"
+                at: 2026-08-01T00:00:00Z
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var events = OkfDocument.NormalizeVerified(
+            OkfDocument.Parse(OkfStamp.VerifyText(source, "human:ringo", At)).Frontmatter);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal("process:schema-check", Text(events[0], "by"));
+        Assert.Equal("2026-08-01T00:00:00Z", Text(events[0], "at"));
+        Assert.Equal("human:ringo", Text(events[1], "by"));
+    }
+
+    [Fact]
+    public void ABareInlineMappingBecomesTheListsFirstElement()
+    {
+        // §5.2: a single verifier MAY be written as one mapping without the list dash.
+        // Appending to it in place would silently drop the first verifier.
+        var source = """
+            ---
+            type: Concept
+            verified: { by: "process:schema-check", at: 2026-08-01T00:00:00Z }
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        Assert.Contains(
+            """
+            verified:
+              - { by: "process:schema-check", at: 2026-08-01T00:00:00Z }
+              - { by: "human:ringo", at: 2026-08-15T14:30:00Z }
+            """.ReplaceLineEndings("\n"),
+            stamped,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnEmptyVerifiedKeyKeepsItsPositionAndGainsTheEvent()
+    {
+        var stamped = OkfStamp.VerifyText("---\ntype: Concept\nverified:\ntitle: T\n---\n\nBody.\n", "human:ringo", At);
+
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\ntitle: T\n---\n\nBody.\n",
+            stamped);
+    }
+
+    [Fact]
+    public void AShapeAnInsertionCannotReachFallsBackToTheEmitterAndStillStampsCorrectly()
+    {
+        // A block-style bare mapping: turning it into a list would mean re-indenting
+        // somebody else's frontmatter, so the emitter takes it. The formatting changes; the
+        // content does not.
+        var source = """
+            ---
+            type: Concept
+            verified:
+              by: "process:schema-check"
+              at: 2026-08-01T00:00:00Z
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var reparsed = OkfDocument.Parse(OkfStamp.VerifyText(source, "human:ringo", At));
+        var events = OkfDocument.NormalizeVerified(reparsed.Frontmatter);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal("process:schema-check", Text(events[0], "by"));
+        Assert.Equal("human:ringo", Text(events[1], "by"));
+        Assert.Equal("Body.", reparsed.Body.TrimEnd('\n'));
+    }
+
+    [Theory]
+    [InlineData("---\ntype: Concept\n---\n\nBody.\n")]
+    [InlineData("---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01 }\n---\n\nBody.\n")]
+    [InlineData("---\ntype: Concept\nverified: { by: \"process:x\", at: 2026-08-01 }\n---\n\nBody.\n")]
+    public void EveryStampedShapeParsesBackWithTheNewEventLast(string source)
+    {
+        var frontmatter = OkfDocument.Parse(OkfStamp.VerifyText(source, "human:ringo", At)).Frontmatter;
+        var events = OkfDocument.NormalizeVerified(frontmatter);
+
+        Assert.Equal("human:ringo", Text(events[^1], "by"));
+        Assert.Equal("2026-08-15T14:30:00Z", Text(events[^1], "at"));
+        Assert.Equal(OkfTrustTier.HumanReviewed, OkfDocument.TrustTier(frontmatter));
+    }
+
+    [Fact]
+    public void GeneratedIsNeverReadAndNeverWritten()
+    {
+        var source = """
+            ---
+            type: Concept
+            generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+            ---
+
+            Body.
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        Assert.Contains(
+            "generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }",
+            stamped,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CrlfLineEndingsSurviveTheStamp()
+    {
+        var stamped = OkfStamp.VerifyText("---\r\ntype: Concept\r\n---\r\n\r\nBody.\r\n", "human:ringo", At);
+
+        Assert.Equal(
+            "---\r\ntype: Concept\r\nverified:\r\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\r\n---\r\n\r\nBody.\r\n",
+            stamped);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("ringo")]
+    [InlineData("human:")]
+    [InlineData("process:")]
+    [InlineData(" human:ringo")]
+    [InlineData("human:ringo\", at: 2026-01-01 }\nowned: yes\nx: \"")]
+    public void AnActorThatIsNotWrittenInASpecFormIsRefused(string actor)
+    {
+        var source = "---\ntype: Concept\n---\n\nBody.\n";
+
+        Assert.Throws<ArgumentException>(() => OkfStamp.VerifyText(source, actor, At));
+        Assert.Throws<ArgumentException>(() => OkfStamp.Verify(OkfDocument.Parse(source), actor, At));
+    }
+
+    [Theory]
+    [InlineData("human:ringo")]
+    [InlineData("human:ringo.harrison@gmail.com")]
+    [InlineData("process:nightly-schema-check")]
+    [InlineData("claude-fable/5")]
+    public void EverySpecActorFormIsAccepted(string actor)
+    {
+        var events = OkfDocument.NormalizeVerified(
+            OkfDocument.Parse(OkfStamp.VerifyText("---\ntype: Concept\n---\n\nBody.\n", actor, At)).Frontmatter);
+
+        Assert.Equal(actor, Text(Assert.Single(events), "by"));
+    }
+
+    [Fact]
+    public void VerifyFileWritesTheStampBackWithNoByteOrderMark()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("widgets.md", "---\ntype: Concept\ntitle: Widgets\n---\n\nBody.\n");
+        var path = Path.Combine(bundle.Root, "widgets.md");
+
+        OkfStamp.VerifyFile(path, "human:ringo", At);
+
+        Assert.Equal(
+            "---\ntype: Concept\ntitle: Widgets\nverified:\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n---\n\nBody.\n",
+            File.ReadAllText(path));
+        Assert.NotEqual(0xEF, File.ReadAllBytes(path)[0]);
+    }
+
+    private static string? Text(OkfMapping mapping, string key) =>
+        mapping.TryGetValue(key, out var value) && value is OkfScalar scalar ? scalar.Value : null;
+}

@@ -132,3 +132,124 @@ public class OkfTimestampTests
         Claims.[^moved]
         """;
 }
+
+/// <summary>
+/// <see cref="OkfTimestamp" />: what parses, and what "later" means when one side of a
+/// comparison is a bare date and the other is an instant.
+/// </summary>
+public class OkfTimestampTests
+{
+    [Theory]
+    [InlineData("2026-08-14")]
+    [InlineData("  2026-08-14  ")]
+    [InlineData("2026-08-14T20:41:50-05:00")]
+    [InlineData("2026-08-14T20:41:50Z")]
+    [InlineData("2026-08-14 20:41:50")]
+    public void AnIsoValueParses(string text)
+    {
+        Assert.True(OkfTimestamp.TryParse(text, out var timestamp));
+        Assert.Equal(new DateOnly(2026, 8, 14), timestamp.Date);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("yesterday")]
+    [InlineData("2026-8-14")]
+    [InlineData("14/08/2026")]
+    [InlineData("2026-13-01")]
+    public void AValueThatIsNotAnIsoDateDoesNotParse(string? text)
+    {
+        Assert.False(OkfTimestamp.TryParse(text, out _));
+        Assert.Null(OkfTimestamp.Parse(text));
+    }
+
+    [Fact]
+    public void TheDateIsTheOneWritten_NotTheUtcOne()
+    {
+        // 2026-08-14T20:41:50-05:00 is 2026-08-15T01:41:50Z. The author's day is the one
+        // the document means, and it is the one `okf lint` reads (its first ten chars).
+        var timestamp = OkfTimestamp.Parse("2026-08-14T20:41:50-05:00")!.Value;
+
+        Assert.Equal(new DateOnly(2026, 8, 14), timestamp.Date);
+        Assert.Equal(new DateTimeOffset(2026, 8, 15, 1, 41, 50, TimeSpan.Zero), timestamp.Instant);
+    }
+
+    [Fact]
+    public void AValueWithNoOffsetIsReadAsUtc()
+    {
+        // Reading it as local time would make okf output depend on the reader's timezone.
+        var timestamp = OkfTimestamp.Parse("2026-08-14T20:41:50")!.Value;
+
+        Assert.Equal(new DateTimeOffset(2026, 8, 14, 20, 41, 50, TimeSpan.Zero), timestamp.Instant);
+        Assert.True(timestamp.HasTime);
+    }
+
+    [Fact]
+    public void ATrailerThatIsNotATimeDegradesToDatePrecision()
+    {
+        // `okf lint` reads the first ten characters and ignores the rest; refusing the
+        // whole value here would make the inbox blind to a concept lint still reports on.
+        var timestamp = OkfTimestamp.Parse("2026-08-14-ish")!.Value;
+
+        Assert.Equal(new DateOnly(2026, 8, 14), timestamp.Date);
+        Assert.False(timestamp.HasTime);
+    }
+
+    [Fact]
+    public void TwoInstantsOnTheSameDayCompareAsInstants()
+    {
+        var earlier = OkfTimestamp.Parse("2026-08-14T08:00:00Z")!.Value;
+        var later = OkfTimestamp.Parse("2026-08-14T12:00:00Z")!.Value;
+
+        Assert.True(OkfTimestamp.IsAfter(later, earlier));
+        Assert.False(OkfTimestamp.IsAfter(earlier, later));
+    }
+
+    [Fact]
+    public void ABareDateAgainstAnInstantComparesByDate()
+    {
+        // The trap this type exists for. `2026-08-15` coerced to midnight UTC would sort
+        // BEFORE an instant written later that same day, so a source that moved after the
+        // concept was written would read as not having moved.
+        var sourceMoved = OkfTimestamp.Parse("2026-08-15")!.Value;
+        var generated = OkfTimestamp.Parse("2026-08-15T01:41:50Z")!.Value;
+
+        Assert.False(OkfTimestamp.IsAfter(sourceMoved, generated));
+        Assert.False(OkfTimestamp.IsAfter(generated, sourceMoved));
+        Assert.True(OkfTimestamp.IsAfter(OkfTimestamp.Parse("2026-08-16")!.Value, generated));
+    }
+
+    [Fact]
+    public void EqualTimestampsAreNotAfterEachOther()
+    {
+        var stamp = OkfTimestamp.Parse("2026-08-14T20:41:50-05:00")!.Value;
+        var same = OkfTimestamp.Parse("2026-08-15T01:41:50Z")!.Value;
+
+        // Same instant, two spellings: equal, and therefore neither is after the other.
+        Assert.Equal(0, OkfTimestamp.Compare(stamp, same));
+        Assert.False(OkfTimestamp.IsAfter(stamp, same));
+        Assert.False(OkfTimestamp.IsAfter(same, stamp));
+    }
+
+    [Fact]
+    public void ANullOperandIsNeverAfterAnything()
+    {
+        var stamp = OkfTimestamp.Parse("2026-08-14")!.Value;
+
+        Assert.False(OkfTimestamp.IsAfter(null, stamp));
+        Assert.False(OkfTimestamp.IsAfter(stamp, null));
+        Assert.False(OkfTimestamp.IsAfter(null, null));
+    }
+
+    [Theory]
+    [InlineData("2026-08-14", 1)]
+    [InlineData("2026-08-15", 0)]
+    [InlineData("2026-08-20", -5)]
+    public void DaysUntilCountsWholeDaysFromTheWrittenDate(string text, int expected)
+    {
+        var timestamp = OkfTimestamp.Parse(text)!.Value;
+
+        Assert.Equal(expected, timestamp.DaysUntil(new DateOnly(2026, 8, 15)));
+    }
+}

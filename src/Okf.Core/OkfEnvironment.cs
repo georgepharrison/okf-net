@@ -66,7 +66,15 @@ public sealed class OkfEnvironment
     public static OkfEnvironment FromProcess()
     {
         var variables = new List<KeyValuePair<string, string>>();
-        foreach (var name in (string[])["HOME", "XDG_CONFIG_HOME", HomeVariable, "USERPROFILE"])
+        // The GIT_CONFIG_* variables are captured for the one read that shells out to git
+        // (`okf verify`'s identity fallback, decisions.md Q6). A child process would
+        // inherit them anyway; carrying them here is what lets a caller *override* them,
+        // which is how that read is made hermetic in a test.
+        foreach (var name in (string[])
+                 [
+                     "HOME", "XDG_CONFIG_HOME", HomeVariable, "USERPROFILE",
+                     "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
+                 ])
         {
             if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
             {
