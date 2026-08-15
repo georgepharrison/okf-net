@@ -110,7 +110,7 @@ Process note: BMAD judged overkill for MVP (SPEC.md is the PRD; these sessions w
 
 ## Open items (tracked in session task list, mirrored here)
 
-- ~~**Bundler** — strip custodian machinery for distribution; SPIKE: how to package cross-bundle concept references (inline? vendor? dangling-link?).~~ **Both resolved (2026-08-15, work item #5)** — see [the bundler milestone](#proposed-decisions-pending-review-the-bundler-work-item-5-2026-08-15). The spike's answer is *leave the link dangling and record it*; the alternatives and why they lose are recorded there.
+- ~~**Bundler** — strip custodian machinery for distribution; SPIKE: how to package cross-bundle concept references (inline? vendor? dangling-link?).~~ **Both resolved (2026-08-15, work item #5)** — see [the bundler milestone](#proposed-decisions-decided-2026-08-15-review-9-the-bundler-work-item-5-2026-08-15). The spike's answer is *leave the link dangling and record it*; the alternatives and why they lose are recorded there.
 - **Static site generator** — replace Obsidian dependency; GitLab Pages/file-handoff targets; prior art: `reference_agent visualize` self-contained viz.html. **Ringo has more to add on displaying OKF v0.2 fields (trust tiers, stale_after, verified-by-agent-vs-human) on the site.**
 - **Custodian staleness-refresh loop** — on `stale_after` expiry for version-pinned sources: fetch release notes current→latest, update/draft concept incl. derived impact analysis; surfaces via draft status + inbox + CI PR.
 - **Vectorization spike** — optional sqlite-vec (or similar) semantic index; strictly opt-in; fallback only when progressive disclosure fails; generated artifact, never authoritative.
@@ -125,6 +125,22 @@ Process note: BMAD judged overkill for MVP (SPEC.md is the PRD; these sessions w
 - `toolbox/mdcode/` — library→CLI→MCP layering precedent (`kcmd mcp`); `docs/concept.md` has the `kb` scope / Documents Layout (Google converging on markdown-first)
 - `toolbox/enrichment/` — minimal enrichment harness: prompt + MCP tools dir + skills dir + per-item loop + one write-tool
 - `python -m reference_agent visualize --bundle <path>` — works on any conformant bundle, no GCP creds
+
+## 1.0.0 review (work item #9, 2026-08-15)
+
+Every proposal this log had accumulated — **195 rows across six buckets** (data model and
+YAML; lint and diagnostics; search, MCP, inbox and verify contracts; index, site and
+bundle formats; config, vault and conventions; tooling and process) — was reviewed in one
+pass before the 1.0.0 freeze. Each row was ruled **KEEP** (right as shipped), **CHANGE**
+(say what instead) or **DEFER-POST-1.0** (do not freeze it yet). Every row is KEEP except
+three: `OkfValue.IsTruthy` leaves the public API, and the static timestamp helper is
+renamed `OkfCanonicalTimestamp` — both CHANGE, both implemented in work item **#30** —
+while the bare-array `--json` contract is **deferred post-1.0**, an envelope being a
+versioned change if it ever comes. Three follow-ups were spawned: **#30** (the two API
+changes), **#32** (an `externalBundles` `obtainFrom` hint for dangling cross-bundle
+links) and **#33** (a claude.ai remote-MCP bridge). Each ruling is recorded at its own
+entry below as a `Ruling 2026-08-15:` line. As of this review every entry previously
+marked *proposed* is **decided**, and the public API surface is frozen pending #30.
 
 ## Open-question resolutions (2026-08-14)
 
@@ -170,7 +186,7 @@ question in `prd.md` §6.
   verified at first publish). Serialization-library choice (AOT-compatible YAML) remains
   open — that part of Q10 is left open.
 
-### Proposed decision (pending review): YAML library
+### Proposed decision (decided 2026-08-15, review #9): YAML library
 
 - **YamlDotNet, used through its representation model and event emitter only — never its
   serializer.** Candidates were YamlDotNet (with the `[YamlStaticContext]` source generator
@@ -187,7 +203,7 @@ question in `prd.md` §6.
   **Still to verify:** an actual `PublishAot=true` publish, which needs the CLI (CLI-17)
   and is the only real proof for Q10.
 
-### Proposed decisions (pending review): reviewer flags from the Okf.Core port review (2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): reviewer flags from the Okf.Core port review (2026-08-14)
 
 - **`type: 0` — §11 vs ACC-2 (decides lint behavior).** Spec §11 says "non-empty
   `type`"; the reference implementation applies Python truthiness, so `type: 0`,
@@ -200,11 +216,16 @@ question in `prd.md` §6.
   would silently edit the other. No reference bundle uses anchors. Proposal: before
   CORE-14 ships, deep-copy shared nodes at parse time (or reject anchors with a
   diagnostic). Do not ship stamping without one of the two.
+  - **Ruling 2026-08-15: keep — hazard ruled unreachable.** Stamping edits the file's
+    *text* (`OkfStamp.VerifyText`) and the parser models no anchors at all, so no write
+    path can reach a shared node. Re-read this entry if node-level stamping ever ships.
 - **YAML tags are silently dropped** (`!!str 5` re-emits as `5`) — a retype under a
   strict CORE-2 reading. No bundle uses tags. Proposal: accept as a documented
   limitation until a real producer emits tags.
 - **`OkfValue.IsTruthy` is public** and named for a Python concept. Proposal: narrow
   to internal (or rename to a §11-shaped name) before v1 freezes the API.
+  - **Ruling 2026-08-15: changed → #30.** `OkfValue.IsTruthy` is hidden from the public
+    API; implemented in work item #30.
   **Resolved 2026-08-15 (work item #30): narrowed to `internal`.** No public caller
   wanted the concept — every call site is inside `Okf.Core`, deciding whether a key
   counts as present under §11, and no test named it either. So there was nothing to
@@ -217,7 +238,7 @@ question in `prd.md` §6.
   last-wins — pinned as a deliberate sixth deviation by test; rejecting is the
   stricter, better §11 behavior.
 
-### Proposed decisions (pending review): the `okf lint` milestone (2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): the `okf lint` milestone (2026-08-14)
 
 - **Project config file: `<project>/okf/okf.json`** — the vault root, sibling of
   `bundles/`, `custodian/`, and `raw/`. Q4 fixed the *global* file
@@ -286,7 +307,7 @@ question in `prd.md` §6.
   bundle-internal and is not reported at all. **(d) superseded by the lint/search
   friction milestone below: it is now reported as `OKF0309` at info.**
 
-### Proposed decisions (pending review): lint review flags (2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): lint review flags (2026-08-14)
 
 - **Q1/Q8 reconciliation needed:** OKF0303's filename-collision arm fires on every
   pair of `<subdir>/about.md` files, but Q1 makes `about.md` the designated
@@ -305,6 +326,10 @@ question in `prd.md` §6.
   `[Title](link)` bullets; a foreign bundle with prose bullets would hard-error.
   Proposal: keep for our own generated indexes, but demote non-entry bullets to
   info for consumed bundles if a real foreign bundle ever trips it.
+  - **Ruling 2026-08-15: keep the hard error.** §8 mandates the
+    `[Title](link) - description` entry form, so the error stands as written; the
+    residual risk of prose bullets in a foreign bundle is accepted, with ACC-1 as the
+    guard.
 - **Scanner false positives (low):** footnote refs/links inside inline code spans or
   4-space-indented code blocks are still scanned; only fenced blocks are skipped.
   Accepted for now (info/warning severities only).
@@ -316,7 +341,7 @@ question in `prd.md` §6.
 - **`okf version` prints the assembly default (1.0.0)** until CLI-17 release
   plumbing stamps the real version at publish time.
 
-### Proposed decisions (pending review): the `okf index` milestone (2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): the `okf index` milestone (2026-08-14)
 
 - **Generated files are marked with an HTML comment,
   `<!-- generated by okf -->`, on its own line** — after the frontmatter on the
@@ -525,7 +550,7 @@ filters.
   artifact is the vectorization spike's, and the bundle must stay complete
   without it.
 
-### Proposed decisions (pending review): the `okf mcp` milestone (2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): the `okf mcp` milestone (2026-08-14)
 
 - **Build vs buy: the protocol is hand-rolled, not taken from the official
   ModelContextProtocol C# SDK — and the SDK passed both mandated gates.** The
@@ -571,6 +596,9 @@ filters.
   - **The SDK is still an oracle.** Its transcripts (from the evaluation) supply
     the expected wire shapes the protocol tests assert against, so the handshake is
     checked against an independent implementation rather than against ourselves.
+  - **Ruling 2026-08-15: keep the hand-rolled MCP.** The build-vs-buy call stands as
+    measured. A claude.ai remote-MCP bridge is tracked as work item #33 (post-1.0) and
+    does not change this one.
 - **Synchronous loop, one message at a time.** A line is read, handled, written,
   and flushed before the next is read. Nothing is ever in flight at EOF, which is
   the defect the SDK exhibits, and it makes the response order the request order.
@@ -651,7 +679,7 @@ filters.
   millisecond-scale filesystem read. (e) Registry scope, for the same reason
   `okf search` defers it: `okf register` does not exist yet.
 
-### Proposed decisions (pending review): the lint/search friction milestone (work item #21, 2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): the lint/search friction milestone (work item #21, 2026-08-14)
 
 Five fixes taken straight from the dogfood friction log (work item #19, note_168).
 Each is a place the tools fought the first real author working under them.
@@ -727,6 +755,8 @@ Each is a place the tools fought the first real author working under them.
     explicitly not part of the machine-readable contract. Revisit only if a consumer
     needs the metadata *without* a terminal, and then as a separate `--format` value
     rather than as a change to this one.
+    - **Ruling 2026-08-15: deferred post-1.0.** `--json` stays a bare array for 1.0; a
+      metadata envelope is deferred and will land, if it lands, as a versioned change.
 - **Search snippets flatten link syntax the way they already flatten emphasis.** A
   window landing inside a link target rendered `[The **custodian** model](**custodian**-model.md)`
   — half a link, with the match marked inside a URL (friction #12). Link text is prose
@@ -746,7 +776,7 @@ Each is a place the tools fought the first real author working under them.
   in it, so a match could then have no window to show — and it belongs with the
   scoring revisit, not with a markdown-flattening fix.
 
-### Proposed decisions (pending review): the capture and custodian skills milestone (work item #3, 2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): the capture and custodian skills milestone (work item #3, 2026-08-14)
 
 - **The skills ship as `skills/okf-capture/SKILL.md` and
   `skills/okf-custodian/SKILL.md`** — one directory per skill, frontmatter of `name`
@@ -858,7 +888,7 @@ Each is a place the tools fought the first real author working under them.
   that repairs the immutability record is how the record is lost, and neither skill had
   said so.
 
-### Proposed decisions (pending review): version stamping and tag pipelines (work item #10, 2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): version stamping and tag pipelines (work item #10, 2026-08-14)
 
 Work item #10 has two halves. This is the half that could be built now; the other —
 flipping `main` to a release branch, adding `dev` as the prerelease channel and deleting
@@ -952,7 +982,7 @@ the `stable` placeholder — waits for an actual 1.0.0 and stays open.
   `PRIVATE-TOKEN` header in that one-liner is there only because the project is private
   today.
 
-### Proposed decisions (pending review): custodian activation on this repo (work item #20, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): custodian activation on this repo (work item #20, 2026-08-15)
 
 Dogfood v2. The topic-1 custodian model stops being a paragraph and becomes a directory
 that exists, on the only bundle we own. Everything below was taken while walking
@@ -1054,7 +1084,7 @@ that exists, on the only bundle we own. Everything below was taken while walking
   day. `okf lint` checks the date ordering (`OKF0004`), which is the only thing about the
   log that is mechanically checkable.
 
-### Proposed decisions (pending review): mutation testing (work item #11, 2026-08-14)
+### Proposed decisions (decided 2026-08-15, review #9): mutation testing (work item #11, 2026-08-14)
 
 Work item #11 asked for the systematic control behind AGENTS.md's "tests must be shown
 to constrain the code" — the rule a reviewer had to enforce by hand after finding two
@@ -1197,7 +1227,7 @@ is why the follow-up is a survivor-reading habit rather than a campaign.
 **Not adopted:** the Stryker dashboard and `--with-baseline` (both want hosted storage;
 the artifact is enough), and any per-push gate.
 
-### Proposed decisions (pending review): `okf init` (work item #4, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): `okf init` (work item #4, 2026-08-15)
 
 CLI-8 and the half of CLI-9 that was waiting for it. Everything below was decided
 against the vault this repository built by hand first, deliberately, so the conventions
@@ -1222,6 +1252,10 @@ could be argued with while they were still cheap to change (work items #19 and #
     concepts is a migration to review on its own evidence, not a rider on the change that
     first named the form. Three concepts this milestone edited anyway were restamped into
     it, which is the ratchet, not the migration.
+  - **Ruling 2026-08-15: changed → #30.** The form is kept; the *static helper* is
+    renamed `OkfTimestamp` → `OkfCanonicalTimestamp`, per the .NET convention that a
+    static helper class says what it does while the value type keeps the plain noun.
+    Implemented in work item #30.
 - **`okf.json` is JSONC, and that is now written down in three places.** Friction #19-10
   and #20-13: the file is named `.json`, is parsed with comments and trailing commas
   allowed, and nothing said so outside `OkfConfig.cs`. The convention is kept rather than
@@ -1320,7 +1354,7 @@ could be argued with while they were still cheap to change (work items #19 and #
   cannot have. The config comparison is one-directional for the same reason — every rule
   init promotes must be promoted *at least as far* in `okf/`, not identically.
 
-### Proposed decisions (pending review): the staleness-refresh and acknowledgment loop (work item #7, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): the staleness-refresh and acknowledgment loop (work item #7, 2026-08-15)
 
 The last of the five steps of "surface, don't land" that was still prose. `okf inbox`
 and `okf verify` ship, the custodian skill gains the branch friction #20 named as
@@ -1470,7 +1504,7 @@ that a non-goal, and it stays one.
     reads helper-versus-value the way a .NET caller expects it to. `OkfLifecycleInstant`
     stays as it is.
 
-### Proposed decisions (pending review): the bundler (work item #5, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): the bundler (work item #5, 2026-08-15)
 
 The first post-MVP item, and the one PRD §1.3 named as a non-goal *for MVP* rather than
 forever. `okf bundle` packages a vault's bundles for **consume-only** distribution: it
@@ -1492,6 +1526,9 @@ an excluded one has nothing to point at. Three answers were available.
   and the run prints one warning line per link on stderr. The consumer learns what they
   did not receive, from the distribution itself, without the bundler having invented
   anything.
+  - **Ruling 2026-08-15: keep dangling-and-record.** The spike answer stands. Work item
+    #32 adds an `externalBundles` entry carrying an `obtainFrom` hint, so a consumer
+    learns where the missing bundle can be had — post-1.0, and additive to the manifest.
 - **(b) Vendor the linked concepts into the shipped bundle. Rejected.** It violates the
   bundle boundary the whole model rests on, and it duplicates *trust state*: a vendored
   copy carries its own `generated`, its own `verified`, its own `stale_after`, and its own
@@ -1775,7 +1812,7 @@ Prepend` before a sort, `separator <= 0` where the value cannot be 0, and the `I
 magic-byte conjunction, which no input distinguishes because a file that starts `P` but
 not `PK` is not a zip either way.
 
-### Proposed decisions (pending review): the static site milestone (work item #6, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): the static site milestone (work item #6, 2026-08-15)
 
 `okf site [path] --out <dir>` renders a resolved vault as a static website. Ringo's
 design input on the work item is the specification: a trust dashboard of rounded stat
@@ -2036,7 +2073,7 @@ makes. No dogfood concept was added for the tag registry's sake: a concept about
 wants a `site` tag, `okf/okf.json` holds the closed registry, and that file is off-limits on
 this branch (three work items are in flight at once). It is a one-line follow-up.
 
-### Proposed decisions (pending review): self-hosted install (work item #25, 2026-08-15)
+### Proposed decisions (decided 2026-08-15, review #9): self-hosted install (work item #25, 2026-08-15)
 
 `curl -fsSL https://get.tychostation.dev/install.sh | sh` now exists, and with it the two
 things the version-stamping milestone deferred: a release that describes itself, and a host
