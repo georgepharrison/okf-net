@@ -324,6 +324,34 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void ASnippetNeverCutsThroughASurrogatePair()
+    {
+        using var bundle = new TempBundle();
+
+        // U+20BB7 is astral — two UTF-16 code units per character — and an unspaced script
+        // gives the window no word boundary to cut back to, so the cut lands wherever the
+        // 160-character limit falls. The leading `a` offsets the run so that limit sits
+        // between the two halves of one character.
+        var run = string.Concat(Enumerable.Repeat("\U00020BB7", 200));
+        bundle.Add("head.md", "---\ntype: Astral\ntitle: Head\n---\n\na" + run + "\n")
+            .Add("hit.md", "---\ntype: Astral\ntitle: Hit\n---\n\nlead " + run + " tail\n");
+
+        // Two ways to reach the cut: `head.md` matches on frontmatter only, so its snippet
+        // is the head of the body; `hit.md` matches on a token longer than the whole
+        // window, so the window has no token end inside it to trim back to.
+        var head = Search(bundle, "astral").Results.Single(result => result.Path == "head.md").Snippet;
+        var hit = Assert.Single(Search(bundle, run).Results).Snippet;
+
+        // The oracle is the UTF-16 well-formedness rule itself (Unicode §3.9, D91): every
+        // high surrogate is followed by a low one and no low surrogate stands alone. A
+        // snippet that breaks it is not text — it round-trips to U+FFFD through JSON and to
+        // mojibake through a terminal.
+        Assert.True(IsWellFormedUtf16(head), head);
+        Assert.True(IsWellFormedUtf16(hit), hit);
+        Assert.Contains("\U00020BB7", hit, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ResultsCarryTheTrustTierAndStalenessOfTheConcept()
     {
         using var bundle = new TempBundle();
@@ -397,4 +425,33 @@ public class OkfSearchTests
         $"---\ntype: {type}\ntitle: {title}\ndescription: {description}\n---\n\n# {title}\n";
 
     private static string Filler() => string.Join(' ', Enumerable.Repeat("filler", 20)) + "\n";
+
+    /// <summary>
+    /// Whether a string is well-formed UTF-16: every high surrogate paired with a following
+    /// low one, and no low surrogate standing alone (Unicode §3.9, D91).
+    /// </summary>
+    private static bool IsWellFormedUtf16(string text)
+    {
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (char.IsLowSurrogate(text[index]))
+            {
+                return false;
+            }
+
+            if (!char.IsHighSurrogate(text[index]))
+            {
+                continue;
+            }
+
+            if (index + 1 >= text.Length || !char.IsLowSurrogate(text[index + 1]))
+            {
+                return false;
+            }
+
+            index++;
+        }
+
+        return true;
+    }
 }

@@ -379,7 +379,10 @@ public static class OkfSearchEngine
         {
             var last = tokens.LastOrDefault(token => token.Start + token.Length <= end);
             var trimmed = last.Length > 0 ? last.Start + last.Length : end;
-            end = trimmed > hits[anchor].Start ? trimmed : end;
+
+            // A token end is already a character boundary; the raw limit is not, so it is
+            // snapped back off the tail of a surrogate pair.
+            end = trimmed > hits[anchor].Start ? trimmed : SnapToCharacter(flat, end);
         }
 
         var builder = new StringBuilder();
@@ -443,14 +446,31 @@ public static class OkfSearchEngine
 
     private static string TrimToWord(string flat)
     {
-        var cut = SnippetLength;
+        var limit = SnapToCharacter(flat, SnippetLength);
+        var cut = limit;
         while (cut > 0 && !char.IsWhiteSpace(flat[cut]))
         {
             cut--;
         }
 
-        return (cut == 0 ? flat[..SnippetLength] : flat[..cut]).TrimEnd();
+        // A word longer than the whole window — an unspaced script, a long URL — leaves no
+        // boundary to cut back to, so the window is cut at its own limit instead.
+        return (cut == 0 ? flat[..limit] : flat[..cut]).TrimEnd();
     }
+
+    /// <summary>
+    /// Moves a cut offset back off the tail of a surrogate pair, so a window never ends
+    /// between the two halves of one character. Tokenization is by <see cref="Rune" />
+    /// (decisions.md Q7), so every token boundary already satisfies this; only the raw
+    /// <see cref="SnippetLength" /> limit can land inside a character.
+    /// </summary>
+    /// <param name="text">The text being cut.</param>
+    /// <param name="offset">The proposed cut offset.</param>
+    /// <returns>The offset, moved back by one when it splits a surrogate pair.</returns>
+    private static int SnapToCharacter(string text, int offset) =>
+        offset > 0 && offset < text.Length && char.IsLowSurrogate(text[offset]) && char.IsHighSurrogate(text[offset - 1])
+            ? offset - 1
+            : offset;
 
     /// <summary>
     /// Reduces markdown to the one line a snippet is made of: heading markers, one leading
