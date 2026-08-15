@@ -6,7 +6,7 @@ tags: [okf, format, spec, domain]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: okf-spec
-    resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+    resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/3fcbb9f828c2f23d109c855ee403c3a4c81f3a96/okf/SPEC.md
     title: Open Knowledge Format (OKF), version 0.2
     author: "team:google-knowledge-catalog"
     last_modified: 2026-07-24
