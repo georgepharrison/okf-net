@@ -90,6 +90,27 @@ test:
     - git clone --depth 1 https://github.com/GoogleCloudPlatform/knowledge-catalog.git .reference/knowledge-catalog
     - dotnet test Okf.sln --configuration Release
 
+# The dogfood gate (PRD ACC-5, ACC-6). Runs the CLI built from THIS pipeline's
+# source against this repo's own bundle, so a regression in Okf.Core breaks
+# okf-net's own build rather than being discovered by a consumer. `dotnet run`
+# rather than a published binary deliberately: it is the same source the build
+# and test jobs compile, with no artifact hand-off to go stale between stages.
+#
+# Two commands, two contracts:
+#   - `lint okf/` picks up okf/okf.json, which promotes OKF0306 and OKF0301 to
+#     error for this vault, so exit 1 covers drift and missing descriptions as
+#     well as §11 conformance (CLI-14).
+#   - `index --check` is the mechanical drift gate; its exit code is fixed at 1
+#     on drift and deliberately does NOT consult severity, so it still fails
+#     even if someone demotes OKF0306 in config.
+# No network access is needed by either (CLI-16).
+dogfood:
+  extends: .dotnet
+  stage: validate
+  script:
+    - dotnet run --project src/Okf.Cli -- lint okf/
+    - dotnet run --project src/Okf.Cli -- index --check okf/bundles/okf-net
+
 # Enforces AGENTS.md's "dependencies must be Apache-2.0-compatible" rule, which
 # GitLab CE cannot enforce for us (SBOM license scanning and license approval
 # policies are Ultimate features). Same three steps as `mise run licenses`.
