@@ -18,6 +18,14 @@ namespace Okf.Core;
 /// <para><b>Colour is a status channel.</b> The five trust and lifecycle tiles carry the
 /// reserved status palette; every one of them also carries a glyph and a word, so nothing on
 /// the dashboard is legible only to a reader who can separate the hues.</para>
+/// <para><b>Shape says whether a thing is clickable.</b> The site shows a reader two
+/// families that used to look alike: tags, which are filter links, and classification —
+/// type, trust tier, staleness, lifecycle — which is a reading of frontmatter and does
+/// nothing when clicked. Tags render as chips (<see cref="TagChips" />): pill, <c>#</c>,
+/// hover, pointer, always an <c>&lt;a&gt;</c>. Classification renders as facts
+/// (<see cref="Facts" />): a real <c>&lt;dl&gt;</c> of key and value, no fill, no border,
+/// no hover, no element that takes focus. Nothing carries the distinction in colour alone.
+/// </para>
 /// </remarks>
 internal static class OkfSiteHtml
 {
@@ -81,7 +89,7 @@ internal static class OkfSiteHtml
                root + OkfSiteBuilder.GraphHref);
 
     /// <summary>
-    /// The prefix a tag badge's href is built from: appending an escaped tag to it lands on
+    /// The prefix a tag chip's href is built from: appending an escaped tag to it lands on
     /// the dashboard with that tag filter applied.
     /// </summary>
     /// <param name="model">The site model.</param>
@@ -247,7 +255,7 @@ internal static class OkfSiteHtml
     /// <summary>Renders the trust dashboard: the tiles, the filter bar and the concept list.</summary>
     /// <param name="model">The site model.</param>
     /// <param name="hrefFor">Where a concept's page lives, from the dashboard.</param>
-    /// <param name="tagBase">The prefix a tag badge's href is built from.</param>
+    /// <param name="tagBase">The prefix a tag chip's href is built from.</param>
     /// <returns>The markup.</returns>
     public static string Dashboard(OkfSiteModel model, Func<OkfSitePage, string> hrefFor, string tagBase)
     {
@@ -337,12 +345,12 @@ internal static class OkfSiteHtml
             .Append("</section>\n")
             .ToString();
 
-    /// <summary>Renders one concept's article: breadcrumbs, badges, body, metadata and backlinks.</summary>
+    /// <summary>Renders one concept's article: breadcrumbs, facts, body, panels and backlinks.</summary>
     /// <param name="page">The page to render.</param>
     /// <param name="model">The site model.</param>
     /// <param name="hrefFor">Where another page lives, as seen from this one.</param>
     /// <param name="homeHref">Where the site's landing page lives, as seen from this one.</param>
-    /// <param name="tagBase">The prefix a tag badge's href is built from.</param>
+    /// <param name="tagBase">The prefix a tag chip's href is built from.</param>
     /// <returns>The markup.</returns>
     public static string Article(
         OkfSitePage page,
@@ -379,16 +387,17 @@ internal static class OkfSiteHtml
             builder.Append("<p class=\"lede\">").Append(Escape(description)).Append("</p>\n");
         }
 
-        // Tags live in the metadata panel, not here as well: they are one list, and a
-        // concept that repeated it under its own title would make the reader check whether
-        // the two agree.
-        builder.Append("<div class=\"badge-row\">").Append(Badges(page)).Append("</div>\n</div>\n");
+        // Tags live in their own panel, not here as well: they are one list, and a concept
+        // that repeated it under its own title would make the reader check whether the two
+        // agree. What sits here is classification — stated, never clicked.
+        builder.Append("<dl class=\"facts\">").Append(Facts(page)).Append("</dl>\n</div>\n");
 
         builder.Append("<div class=\"concept-layout\">\n<article class=\"prose\">\n")
             .Append(page.BodyHtml)
             .Append("</article>\n<aside class=\"meta-panel\">\n");
 
-        builder.Append(MetadataPanel(page, tagBase));
+        builder.Append(AboutPanel(page));
+        builder.Append(TagsPanel(page, tagBase));
         builder.Append(SourcesPanel(page));
         builder.Append(BacklinksPanel(page, model, hrefFor));
 
@@ -507,24 +516,29 @@ internal static class OkfSiteHtml
         $"{count.ToString(CultureInfo.InvariantCulture)} {(count == 1 ? singular : singular + "s")}";
 
     /// <summary>
-    /// Renders a tag as a badge that is also a filter link: the same destination the
+    /// Renders each tag as a chip that is also a filter link: the same destination the
     /// dashboard's tiles use, with a tag filter in the fragment.
     /// </summary>
     /// <remarks>
-    /// A tag is data okf-net did not write (PRD ACC-1), so it goes into the href through
+    /// <para>A chip is the site's shape for "you can press this", shared with the dashboard's
+    /// bundle drill-down; the <c>#</c> in front of a tag is drawn by the stylesheet, so the
+    /// element's text stays the tag and nothing but the tag.</para>
+    /// <para>A tag is data okf-net did not write (PRD ACC-1), so it goes into the href through
     /// <see cref="Uri.EscapeDataString(string)" /> — which leaves no <c>&lt;</c>, <c>&amp;</c>
     /// or quote behind to break out of the attribute or the fragment grammar — and into text
     /// and <c>data-tag</c> through the HTML escaper. The client reads <c>data-tag</c> as an
-    /// attribute value and writes it back with <c>textContent</c>, never as markup.
+    /// attribute value and writes it back with <c>textContent</c>, never as markup.</para>
     /// </remarks>
-    private static string TagBadges(OkfSitePage page, string tagBase)
+    /// <param name="page">The page whose tags to render.</param>
+    /// <param name="tagBase">The prefix a tag chip's href is built from.</param>
+    /// <returns>The markup.</returns>
+    private static string TagChips(OkfSitePage page, string tagBase)
     {
         var builder = new StringBuilder();
         foreach (var tag in page.Tags)
         {
-            builder.Append("<a class=\"badge badge-tag\" data-tag=\"").Append(Escape(tag))
+            builder.Append("<a class=\"chip chip-tag\" data-tag=\"").Append(Escape(tag))
                 .Append("\" href=\"").Append(tagBase).Append(Uri.EscapeDataString(tag)).Append("\">")
-                .Append("<span class=\"dot\" aria-hidden=\"true\"></span>")
                 .Append(Escape(tag)).Append("</a>");
         }
 
@@ -570,58 +584,100 @@ internal static class OkfSiteHtml
             builder.Append("<p>").Append(Escape(description)).Append("</p>");
         }
 
-        builder.Append("<div class=\"card-meta\">").Append(Badges(page)).Append(TagBadges(page, tagBase))
-            .Append("<span class=\"path\">").Append(Escape($"{page.BundleName}/{page.Path}")).Append("</span>")
-            .Append("</div></li>\n");
+        // Two rows, because they are two different offers: what the concept *is*, which is
+        // read-only, then the tags, every one of which is a filter the reader can press.
+        builder.Append("<div class=\"card-meta\"><dl class=\"facts facts-tight\">").Append(Facts(page))
+            .Append("</dl><span class=\"path\">").Append(Escape($"{page.BundleName}/{page.Path}")).Append("</span>")
+            .Append("</div>");
 
-        return builder.ToString();
+        if (page.Tags.Count > 0)
+        {
+            builder.Append("<div class=\"card-tags\"><span class=\"facts-key\">Tags</span>")
+                .Append(TagChips(page, tagBase)).Append("</div>");
+        }
+
+        return builder.Append("</li>\n").ToString();
     }
 
-    private static string Badges(OkfSitePage page)
+    /// <summary>
+    /// Renders a concept's classification — type, trust tier, staleness, lifecycle — as
+    /// key-and-value pairs for a <c>&lt;dl class="facts"&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// These are readings of frontmatter, not controls: no anchor, no button, no
+    /// <c>tabindex</c> and no <c>role</c>, so nothing here can be reached by the keyboard or
+    /// announced as interactive. The status hues stay — trust and staleness are the reserved
+    /// palette's whole job — but each one still arrives with its own key, glyph and word.
+    /// </remarks>
+    /// <param name="page">The page to describe.</param>
+    /// <returns>The markup.</returns>
+    private static string Facts(OkfSitePage page)
     {
         var builder = new StringBuilder();
 
         if (page.Type is { Length: > 0 } type)
         {
-            builder.Append(Badge("type", type, glyph: null));
+            Fact(builder, "Type", tone: null, glyph: null, type);
         }
 
-        var tier = page.TrustTier.ToSpecString();
-        builder.Append(Badge(Tone(page.TrustTier), tier, Glyph(page.TrustTier)));
+        Fact(builder, "Trust", Tone(page.TrustTier), Glyph(page.TrustTier), page.TrustTier.ToSpecString());
 
         if (page.Stale)
         {
-            builder.Append(Badge(
-                "critical",
-                page.StaleAfter is { Length: > 0 } after ? $"stale since {after}" : "stale",
-                "△"));
+            Fact(builder, "Stale", "critical", "△", page.StaleAfter is { Length: > 0 } after ? $"since {after}" : "yes");
         }
         else if (page.StaleAfter is { Length: > 0 } staleAfter)
         {
-            builder.Append(Badge("neutral", $"fresh until {staleAfter}", "△"));
+            Fact(builder, "Fresh until", "neutral", "△", staleAfter);
         }
 
         if (string.Equals(page.Status, "draft", StringComparison.Ordinal))
         {
-            builder.Append(Badge("serious", "draft", "✎"));
+            Fact(builder, "Status", "serious", "✎", "draft");
         }
         else if (string.Equals(page.Status, "deprecated", StringComparison.Ordinal))
         {
-            builder.Append(Badge("neutral", "deprecated", "✖"));
+            Fact(builder, "Status", "neutral", "✖", "deprecated");
         }
 
         return builder.ToString();
     }
 
-    private static string Badge(string tone, string text, string? glyph)
+    private static void Fact(StringBuilder builder, string key, string? tone, string? glyph, string value)
     {
-        var builder = new StringBuilder()
-            .Append("<span class=\"badge badge-").Append(tone).Append("\">")
-            .Append("<span class=\"dot\" aria-hidden=\"true\"></span>");
+        builder.Append("<div class=\"fact");
+        if (tone is { Length: > 0 })
+        {
+            builder.Append(" tone-").Append(tone);
+        }
+
+        builder.Append("\"><dt>").Append(Escape(key)).Append("</dt><dd>")
+            .Append(Signal(tone, glyph, value)).Append("</dd></div>");
+    }
+
+    /// <summary>Renders a value that carries a status hue: a dot, a glyph and the word.</summary>
+    /// <param name="tone">The status tone, or <see langword="null" /> for plain ink.</param>
+    /// <param name="glyph">The glyph that repeats the tone without colour.</param>
+    /// <param name="text">The value itself.</param>
+    /// <returns>The markup.</returns>
+    private static string Signal(string? tone, string? glyph, string text)
+    {
+        if (tone is not { Length: > 0 } && glyph is not { Length: > 0 })
+        {
+            return Escape(text);
+        }
+
+        var builder = new StringBuilder().Append("<span class=\"signal");
+        if (tone is { Length: > 0 })
+        {
+            builder.Append(" tone-").Append(tone);
+        }
+
+        builder.Append("\"><span class=\"dot\" aria-hidden=\"true\"></span>");
 
         if (glyph is { Length: > 0 })
         {
-            builder.Append("<span aria-hidden=\"true\">").Append(Escape(glyph)).Append("</span>");
+            builder.Append("<span class=\"glyph\" aria-hidden=\"true\">").Append(Escape(glyph)).Append("</span>");
         }
 
         return builder.Append(Escape(text)).Append("</span>").ToString();
@@ -641,18 +697,30 @@ internal static class OkfSiteHtml
         _ => "○",
     };
 
-    private static string MetadataPanel(OkfSitePage page, string tagBase)
+    /// <summary>Renders the panel that states what the page is, in full.</summary>
+    /// <remarks>
+    /// Tags used to be a row inside this list, which is how they came to look like the
+    /// classification around them; they now have their own panel with its own heading, so a
+    /// narrow layout — where this whole column stacks under the body — says out loud where
+    /// the readings stop and the filters start.
+    /// </remarks>
+    /// <param name="page">The page to describe.</param>
+    /// <returns>The markup.</returns>
+    private static string AboutPanel(OkfSitePage page)
     {
         var builder = new StringBuilder()
-            .Append("<section class=\"panel\"><h2>Metadata</h2><dl>\n");
+            .Append("<section class=\"panel\"><h2>About this page</h2><dl>\n");
 
         Row(builder, "Type", page.Type is { Length: > 0 } type ? Escape(type) : Missing());
-        Row(builder, "Status", Escape(page.Status));
-        Row(builder, "Trust", Escape(page.TrustTier.ToSpecString()));
+        Row(builder, "Status", Signal(StatusTone(page.Status), StatusGlyph(page.Status), page.Status));
+        Row(builder, "Trust", Signal(Tone(page.TrustTier), Glyph(page.TrustTier), page.TrustTier.ToSpecString()));
 
         if (page.StaleAfter is { Length: > 0 } staleAfter)
         {
-            Row(builder, "Stale after", Escape(staleAfter));
+            Row(
+                builder,
+                page.Stale ? "Stale since" : "Fresh until",
+                Signal(page.Stale ? "critical" : "neutral", "△", staleAfter));
         }
 
         Row(builder, "Generated", Actor(page.Generated));
@@ -661,16 +729,25 @@ internal static class OkfSiteHtml
             "Verified",
             page.Verified.Count == 0 ? Missing() : string.Join("<br />", page.Verified.Select(Actor)));
 
-        if (page.Tags.Count > 0)
-        {
-            Row(builder, "Tags", $"<div class=\"badge-row\">{TagBadges(page, tagBase)}</div>");
-        }
-
         Row(builder, "Bundle", Escape(page.BundleName));
         Row(builder, "Path", $"<span class=\"path mono\">{Escape(page.Path)}</span>");
 
         return builder.Append("</dl></section>\n").ToString();
     }
+
+    /// <summary>Renders the tag panel: the page's cross-cutting axis (§4.1), every one a filter.</summary>
+    /// <param name="page">The page whose tags to render.</param>
+    /// <param name="tagBase">The prefix a tag chip's href is built from.</param>
+    /// <returns>The markup, empty when the page carries no tags.</returns>
+    private static string TagsPanel(OkfSitePage page, string tagBase) =>
+        page.Tags.Count == 0
+            ? string.Empty
+            : new StringBuilder()
+                .Append("<section class=\"panel\"><h2>Tags</h2><div class=\"chip-row\">")
+                .Append(TagChips(page, tagBase))
+                .Append("</div><p class=\"panel-note\">Each one opens the dashboard filtered to it.</p>")
+                .Append("</section>\n")
+                .ToString();
 
     private static string Actor(OkfSiteEvent? actor)
     {
@@ -682,8 +759,25 @@ internal static class OkfSiteHtml
         var tone = actor.IsHuman ? "good" : "neutral";
         var glyph = actor.IsHuman ? "✔" : "◎";
         var text = actor.At is { Length: > 0 } at ? $"{actor.By} · {at}" : actor.By;
-        return Badge(tone, text, glyph);
+        return Signal(tone, glyph, text);
     }
+
+    // `stable` is the default every concept without a `status` key already has (§5.4), so it
+    // gets plain ink: spending a status hue on "nothing was said here" would leave the reader
+    // with a green tick that means less than the one beside the trust tier.
+    private static string? StatusTone(string status) => status switch
+    {
+        "draft" => "serious",
+        "deprecated" => "neutral",
+        _ => null,
+    };
+
+    private static string? StatusGlyph(string status) => status switch
+    {
+        "draft" => "✎",
+        "deprecated" => "✖",
+        _ => null,
+    };
 
     private static string SourcesPanel(OkfSitePage page)
     {
@@ -728,20 +822,20 @@ internal static class OkfSiteHtml
 
             if (source.Author is { Length: > 0 } author)
             {
-                builder.Append(Badge(
+                builder.Append(Signal(
                     source.IsHumanAuthored ? "good" : "neutral",
-                    author,
-                    source.IsHumanAuthored ? "✔" : "◎"));
+                    source.IsHumanAuthored ? "✔" : "◎",
+                    author));
             }
 
             if (source.LastModified is { Length: > 0 } lastModified)
             {
-                builder.Append(Badge("neutral", $"modified {lastModified}", "↻"));
+                builder.Append(Signal("neutral", "↻", $"modified {lastModified}"));
             }
 
             if (source.UsageCount is { Length: > 0 } usageCount)
             {
-                builder.Append(Badge("neutral", $"used {usageCount}", "∑"));
+                builder.Append(Signal("neutral", "∑", $"used {usageCount}"));
             }
 
             // §5.1: the footnote label is the join key into `sources`. When the body cites
@@ -756,7 +850,7 @@ internal static class OkfSiteHtml
             }
             else if (source.Id.Length > 0)
             {
-                builder.Append(Badge("neutral", "not cited in the body", null));
+                builder.Append(Signal("neutral", null, "not cited in the body"));
             }
 
             builder.Append("</div></li>\n");

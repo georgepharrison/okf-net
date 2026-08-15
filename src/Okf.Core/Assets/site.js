@@ -219,7 +219,7 @@
       return bits.length ? " — " + bits.join(", ") : "";
     }
 
-    /* A tag badge is a real link — it works with JavaScript off, and from every
+    /* A tag chip is a real link — it works with JavaScript off, and from every
        other page in the site. On the dashboard itself the click is intercepted so
        the tag composes with whatever is already filtered instead of replacing the
        whole fragment. The value is read from the attribute, never parsed out of
@@ -232,7 +232,7 @@
       if (!target || target === document || !target.getAttribute) return;
       var tag = target.getAttribute("data-tag");
       if (!tag) return;
-      // Off the dashboard — a concept article in single-file mode — the badge is a
+      // Off the dashboard — a concept article in single-file mode — the chip is a
       // plain link and has to be allowed to navigate to the dashboard itself.
       if (SITE.singleFile && viewOf(readHash()) !== "dashboard") return;
       event.preventDefault();

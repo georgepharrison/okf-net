@@ -415,7 +415,7 @@ public class OkfSiteBuilderTests
         Assert.False(hub.GetProperty("stale").GetBoolean());
         Assert.Equal("kb/hub.html", hub.GetProperty("href").GetString());
         // The tag filter runs off this array, so it is the one field whose absence would
-        // make a clicked tag badge silently match nothing.
+        // make a clicked tag chip silently match nothing.
         Assert.Equal(["a", "b"], hub.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()));
         Assert.All(
             concepts,

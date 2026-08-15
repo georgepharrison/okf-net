@@ -204,11 +204,20 @@ public class OkfSiteGeneratorTests
     public void AConceptPageShowsItsMetadataSourcesAndBacklinks()
     {
         using var fixture = new SiteFixture();
-        var hub = fixture.Plan().Files.Single(file => file.Path == "kb/hub.html").Content;
+        var plan = fixture.Plan();
+        var hub = plan.Files.Single(file => file.Path == "kb/hub.html").Content;
 
-        Assert.Contains("<h2>Metadata</h2>", hub, StringComparison.Ordinal);
+        // Classification and tags are two panels under two headings, not one list: on a
+        // narrow layout this column stacks under the body, and the heading is what tells a
+        // reader which of the two things below it can be clicked.
+        Assert.Contains("<h2>About this page</h2>", hub, StringComparison.Ordinal);
+        Assert.Contains("<h2>Tags</h2>", hub, StringComparison.Ordinal);
         Assert.Contains("<h2>Sources</h2>", hub, StringComparison.Ordinal);
         Assert.Contains("<h2>Cited by</h2>", hub, StringComparison.Ordinal);
+
+        // A concept with no tags gets no tag panel rather than an empty one.
+        var fresh = plan.Files.Single(file => file.Path == "kb/fresh.html").Content;
+        Assert.DoesNotContain("<h2>Tags</h2>", fresh, StringComparison.Ordinal);
 
         // The source panel points at the footnote it is joined to (§5.1).
         Assert.Contains("id=\"src-spec\"", hub, StringComparison.Ordinal);
@@ -268,7 +277,7 @@ public class OkfSiteGeneratorTests
         using var fixture = new SiteFixture();
         var plan = fixture.Plan();
 
-        // On a concept page: the dashboard is one directory up, and the badge says which
+        // On a concept page: the dashboard is one directory up, and the chip says which
         // tag it carries in an attribute the client reads rather than in the href it parses.
         var hub = plan.Files.Single(file => file.Path == "kb/hub.html").Content;
         Assert.Contains("href=\"../dashboard.html#t=a\"", hub, StringComparison.Ordinal);
@@ -281,7 +290,7 @@ public class OkfSiteGeneratorTests
         Assert.Contains("href=\"#t=a\"", dashboard, StringComparison.Ordinal);
         Assert.Contains("href=\"#t=b\"", dashboard, StringComparison.Ordinal);
 
-        // A concept with no tags contributes no badges — the absence is part of the shape.
+        // A concept with no tags contributes no chips — the absence is part of the shape.
         var fresh = plan.Files.Single(file => file.Path == "kb/fresh.html").Content;
         Assert.DoesNotContain("data-tag=", fresh, StringComparison.Ordinal);
 
@@ -290,6 +299,76 @@ public class OkfSiteGeneratorTests
         // stops being well-formed XML.
         var single = Assert.Single(fixture.Plan(singleFile: true).Files).Content;
         Assert.Contains("href=\"#v=dashboard&amp;t=a\"", single, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OnlyTagsAreShapedAndWiredLikeSomethingToClick()
+    {
+        // A tag filters; a classification is a reading of frontmatter and does nothing when
+        // clicked. They used to render as the same pill, which on a narrow layout — where
+        // the metadata column stacks under the body — put them side by side and got the
+        // classification clicked. The distinction is now structural, so it is asserted
+        // structurally: tags are anchors wearing the site's one pressable shape, and no
+        // part of a `.facts` list is reachable by a pointer, a tap or the keyboard.
+        using var fixture = new SiteFixture();
+
+        foreach (var singleFile in (bool[])[false, true])
+        {
+            var plan = fixture.Plan(singleFile);
+            var chips = 0;
+            var facts = 0;
+
+            void Check(XDocument document)
+            {
+                foreach (var element in document.Descendants())
+                {
+                    var classes = (element.Attribute("class")?.Value ?? string.Empty)
+                        .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                    if (element.Attribute("data-tag") is not null)
+                    {
+                        chips++;
+                        Assert.Equal("a", element.Name.LocalName);
+                        Assert.Contains("chip", classes);
+                        Assert.NotNull(element.Attribute("href"));
+                    }
+
+                    if (!classes.Contains("facts", StringComparer.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    facts++;
+                    Assert.Equal("dl", element.Name.LocalName);
+
+                    foreach (var part in element.DescendantsAndSelf())
+                    {
+                        Assert.DoesNotContain(
+                            part.Name.LocalName,
+                            (string[])["a", "button", "input", "select", "summary", "textarea"]);
+                        foreach (var attribute in (string[])["href", "tabindex", "role", "data-tag", "data-filter", "data-bundle", "aria-pressed"])
+                        {
+                            Assert.Null(part.Attribute(attribute));
+                        }
+                    }
+                }
+            }
+
+            foreach (var file in plan.Files.Where(file => file.Path.EndsWith(".html", StringComparison.Ordinal)))
+            {
+                Check(XDocument.Load(Reader(file.Content)));
+            }
+
+            foreach (var article in Articles(plan))
+            {
+                Check(XDocument.Parse($"<root>{article}</root>"));
+            }
+
+            // The loops above are only assertions if they ran: in either mode a concept
+            // page carries its own fact list and the dashboard carries one per card.
+            Assert.True(chips >= 2, $"{(singleFile ? "single-file" : "multi-page")}: {chips} tag chips rendered");
+            Assert.True(facts >= 2, $"{(singleFile ? "single-file" : "multi-page")}: {facts} fact lists rendered");
+        }
     }
 
     [Theory]
@@ -324,18 +403,18 @@ public class OkfSiteGeneratorTests
 
             void Check(XDocument document)
             {
-                foreach (var badge in document.Descendants().Where(element => element.Attribute("data-tag") is not null))
+                foreach (var chip in document.Descendants().Where(element => element.Attribute("data-tag") is not null))
                 {
                     seen++;
 
                     // The attribute the client reads and the text the reader sees are both
                     // the tag itself, not markup built out of it.
-                    Assert.Equal(tag, badge.Attribute("data-tag")!.Value);
-                    Assert.Equal(tag, badge.Value.Trim());
+                    Assert.Equal(tag, chip.Attribute("data-tag")!.Value);
+                    Assert.Equal(tag, chip.Value.Trim());
 
                     // The href carries the tag percent-escaped, so it can neither leave the
                     // attribute nor add a key to the fragment; unescaped it is the tag again.
-                    var href = badge.Attribute("href")!.Value;
+                    var href = chip.Attribute("href")!.Value;
                     var start = href.LastIndexOf("t=", StringComparison.Ordinal) + 2;
                     Assert.Equal(tag, Uri.UnescapeDataString(href[start..]));
                     Assert.DoesNotContain("#", href[start..], StringComparison.Ordinal);
@@ -351,7 +430,7 @@ public class OkfSiteGeneratorTests
             }
 
             // A single-file site keeps every concept's article in an embedded JSON payload
-            // rather than in the document tree, so the badges there are reachable only
+            // rather than in the document tree, so the chips there are reachable only
             // through the payload — and that is exactly the copy the router writes into the
             // page with innerHTML.
             foreach (var article in Articles(plan))
@@ -360,8 +439,8 @@ public class OkfSiteGeneratorTests
             }
 
             // The loop above is only an assertion if it ran: the concept page and the
-            // dashboard card both carry the badge in either mode.
-            Assert.True(seen >= 2, $"{(singleFile ? "single-file" : "multi-page")}: {seen} tag badges rendered");
+            // dashboard card both carry the chip in either mode.
+            Assert.True(seen >= 2, $"{(singleFile ? "single-file" : "multi-page")}: {seen} tag chips rendered");
         }
     }
 

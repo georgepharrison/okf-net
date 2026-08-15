@@ -1909,12 +1909,12 @@ free. Consequences, taken deliberately:
 
 **Every tag is a filter link** (same review). Tags are §4.1's cross-cutting axis, and a
 badge that did nothing when clicked was the one genuinely broken affordance on the page.
-Every tag badge — in a concept's metadata panel, on every card in the dashboard's list — is
+Every tag — in a concept's own panel, on every card in the dashboard's list — is
 an anchor to `dashboard.html#t=<tag>`, composable with the tier, bundle and query filters
 already in the fragment. Three things are true of it at once, deliberately:
 
 - **It is a real link, not a script hook.** With JavaScript off it still navigates to a
-  dashboard that lists everything; with JavaScript on, a badge clicked *on the dashboard*
+  dashboard that lists everything; with JavaScript on, a tag clicked *on the dashboard*
   is intercepted so the tag composes with the filters already applied instead of replacing
   the whole fragment. The client reads the tag from a `data-tag` attribute rather than
   parsing it back out of the href.
@@ -1924,13 +1924,41 @@ already in the fragment. Three things are true of it at once, deliberately:
   the label and `data-tag` with the HTML escaper. Read back, it is `decodeURIComponent` and
   `textContent`, never `innerHTML`. A theory tests `<b>`, `]]>`, `"…"`, `'…'`, `a&b`,
   `"><script>…`, `f=stale&b=kb`, `x#y` and `a space` through both emitters, parses every
-  page as XML, and asserts each badge's attribute, label and round-tripped href — the same
+  page as XML, and asserts each chip's attribute, label and round-tripped href — the same
   shape as the hostile-destination theory above it.
 - **The dashboard says which tag it is holding.** A tag filter can arrive from any page in
   the site, including one the reader has since left, so it renders as a removable chip
   beside the filter bar; `Clear filters` drops it with the rest. The embedded filter payload
   already carried each concept's `tags` array, so nothing had to be added to it — a test now
   pins that, because the array's absence would have made every clicked tag match nothing.
+
+**Shape says what can be clicked; only tags can** (Ringo's second review). Making every tag
+a link left the site with two families wearing one pill: a tag, which filters, and a
+concept's classification — type, trust tier, staleness, lifecycle — which is a reading of
+frontmatter and does nothing when clicked. Desktop hid the problem, because the metadata
+column floats to the right of the body; below 900px it stacks underneath, the two families
+end up adjacent, and Ringo clicked Type and Trust expecting a filter. So the pill is now
+spent on one meaning only. `.chip` — tags, the bundle drill-down, the removable active
+filters — is a bordered pill with a pointer, a hover and a focus ring, and a tag adds a
+mono face and a `#`. Everything informational is `.facts` / `.signal`: a real `<dl>` with a
+small uppercase key, the status dot, its glyph and the word, and no fill, border, hover or
+pointer at all. The status hues are untouched — trust and staleness are what the reserved
+palette is for — but they now sit beside a key rather than inside a shape that promises a
+click. Three consequences worth naming:
+
+- **The `#` is drawn by the stylesheet, not written into the document.** A `::before` keeps
+  the element's text equal to the tag itself, which is what the client reads back and what a
+  screen reader announces; the hostile-tag theory's `Assert.Equal(tag, element.Value)` still
+  holds unchanged.
+- **Grouping does the explaining on narrow layouts.** A concept's panel column split into
+  *About this page* (the classification, plus provenance actors) and *Tags* (the chips, under
+  their own heading, with one line saying what pressing one does). Dashboard cards got the
+  same two rows. A concept with no tags renders no tag panel rather than an empty one.
+- **The distinction is asserted structurally, not eyeballed.** A test walks every page in
+  both emitters and requires that anything carrying `data-tag` is an `<a class="chip">` with
+  an `href`, and that no descendant of a `.facts` list is an interactive element or carries
+  `href`, `tabindex`, `role` or `aria-pressed`. It was shown to fail against both halves of
+  the old markup.
 
 **Generation is deterministic.** The graph's layout uses a seeded PRNG and a fixed iteration
 count, nothing reads a clock beyond today's date (injected, per CORE-7), and page order is

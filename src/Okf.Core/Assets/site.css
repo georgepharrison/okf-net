@@ -9,6 +9,15 @@
  *
  * Both themes are selected, not flipped: the dark block re-steps the surfaces and
  * inks against the dark plane and keeps the status hexes, which clear 3:1 there.
+ *
+ * Shape is the affordance channel, and it is spent on one distinction only: a PILL
+ * is something you can press (`.chip` — tag filters, the bundle drill-down, the
+ * removable active filters), and everything else is a reading you cannot. Type,
+ * trust tier, staleness, lifecycle, provenance actors and source signals are all
+ * `.facts` / `.signal`: a muted key, the status dot, its glyph and the word, with
+ * no fill, no border, no hover and no pointer. That is what stops the two families
+ * reading as one on a narrow layout, where the metadata column stacks under the
+ * body and the reader has only the shapes to go on.
  */
 
 :root {
@@ -262,12 +271,16 @@ h3 { font-size: 1.05rem; margin: 24px 0 8px; }
   font: inherit;
 }
 
+/* The pill: the site's one shape for "press me". Worn by the bundle drill-down, the
+   removable active filters and every tag, and by nothing that only states a fact. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid var(--hairline);
+  /* --rule, not --hairline: the outline is the whole affordance now that nothing
+     informational is pill-shaped, so it has to be visible in both themes. */
+  border: 1px solid var(--rule);
   border-radius: 999px;
   background: var(--surface-1);
   color: var(--ink-2);
@@ -276,8 +289,19 @@ h3 { font-size: 1.05rem; margin: 24px 0 8px; }
   cursor: pointer;
 }
 
+a.chip { text-decoration: none; }
+.chip:hover { border-color: var(--accent); color: var(--ink); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: color-mix(in oklab, var(--accent) 14%, var(--surface-1)); }
 .chip .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* A tag chip carries a `#` drawn here rather than written into the document, so the
+   element's text stays the tag itself — what the client reads back and what a screen
+   reader announces — while the reader still sees a tag and not a status. */
+.chip-tag { gap: 1px; padding: 3px 10px; font-family: var(--mono); font-size: 0.74rem; }
+.chip-tag::before { content: "#"; color: var(--muted); }
+.chip-tag:hover::before { color: var(--accent); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .chip-removable { border-color: var(--accent); color: var(--ink); background: color-mix(in oklab, var(--accent) 14%, var(--surface-1)); }
 .chip-removable .chip-x { color: var(--muted); font-size: 0.9em; }
@@ -306,41 +330,41 @@ h3 { font-size: 1.05rem; margin: 24px 0 8px; }
 .card a.card-title { font-weight: 620; text-decoration: none; color: var(--ink); }
 .card a.card-title:hover { text-decoration: underline; }
 .card p { margin: 3px 0 0; color: var(--ink-2); font-size: 0.9rem; }
-.card .card-meta { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Two rows, deliberately: what the concept is, then what it is filed under. On the
+   card as on the concept page, the second row is the only one that can be clicked. */
+.card .card-meta { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; }
+.card .card-tags { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .card .path { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
 
 .tier-human-reviewed { --tier-color: var(--good); }
 .tier-machine-confirmed { --tier-color: var(--warning); }
 .tier-unverified { --tier-color: var(--neutral); }
 
-/* ---------- badges ---------- */
+/* ---------- facts and signals: stated, never clicked ---------- */
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--badge-color, var(--rule));
-  background: color-mix(in oklab, var(--badge-color, var(--rule)) 13%, var(--surface-1));
-  color: var(--ink-2);
-  font-size: 0.75rem;
+/* A real definition list, laid out in a row: the key is what tells the reader this is
+   a reading of frontmatter and not a control, and it is the half that survives when
+   the colour does not. Nothing in here takes focus or changes under the cursor. */
+.facts { display: flex; flex-wrap: wrap; gap: 1px 18px; margin: 12px 0 0; }
+.facts > div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.facts dd { margin: 0; font-size: 0.85rem; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.facts-tight { gap: 0 14px; margin: 0; }
+.facts-tight dd { font-size: 0.8rem; }
+
+.facts dt, .facts-key {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
   white-space: nowrap;
 }
 
-.badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--badge-color, var(--rule)); flex: none; }
-.badge-good { --badge-color: var(--good); }
-.badge-warning { --badge-color: var(--warning); }
-.badge-serious { --badge-color: var(--serious); }
-.badge-critical { --badge-color: var(--critical); }
-.badge-neutral { --badge-color: var(--neutral); }
-.badge-type { --badge-color: var(--accent); }
-/* Every tag is a filter link, so it has to read as one: no underline at rest, the
-   accent on hover, and the same pill shape as the badges it sits beside. */
-a.badge-tag, .badge-tag { --badge-color: var(--rule); font-family: var(--mono); font-size: 0.72rem; }
-a.badge-tag { text-decoration: none; cursor: pointer; }
-a.badge-tag:hover { --badge-color: var(--accent); color: var(--ink); }
-a.badge-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A value that carries a status hue. The hue never travels alone: the dot brings a
+   glyph and a word with it, here and on the tiles alike. */
+.signal { display: inline-flex; align-items: baseline; gap: 5px; overflow-wrap: anywhere; }
+.signal .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tile-color, var(--rule)); flex: none; align-self: center; }
+.signal .glyph { color: var(--ink-2); font-size: 0.9em; }
 
 /* ---------- landing page ---------- */
 
@@ -397,10 +421,12 @@ a.badge-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .panel dt { color: var(--muted); }
 .panel dd { margin: 0; overflow-wrap: anywhere; }
 
-/* A metadata value can be a long actor string or an ISO timestamp; inside the
-   narrow panel a badge wraps rather than running off the edge. */
-.panel .badge { white-space: normal; overflow-wrap: anywhere; }
-.badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A metadata value can be a long actor string or an ISO timestamp; inside the narrow
+   panel it wraps rather than running off the edge. */
+.panel .signal { display: inline; overflow-wrap: anywhere; }
+.panel .signal .dot { display: inline-block; vertical-align: 1px; margin-right: 4px; }
+.panel .signal .glyph { margin-right: 3px; }
+.panel-note { margin: 8px 0 0; font-size: 0.74rem; color: var(--muted); }
 
 .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
 
@@ -413,7 +439,7 @@ a.badge-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 
 .source:target { border-left-color: var(--accent); background: color-mix(in oklab, var(--accent) 10%, transparent); }
 .source .source-title { font-weight: 600; }
-.source .signals { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.source .signals { display: flex; flex-wrap: wrap; gap: 2px 13px; margin-top: 4px; color: var(--ink-2); font-size: 0.8rem; }
 .source .cite { font-family: var(--mono); font-size: 0.74rem; }
 
 .footnotes { font-size: 0.88rem; color: var(--ink-2); border-top: 1px solid var(--hairline); margin-top: 30px; padding-top: 6px; }
