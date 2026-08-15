@@ -258,9 +258,18 @@ publish:
 
     - |
       # Proves the stamp survived the native compile before anything is
-      # published under a version number that claims it.
-      echo "==> the published binary reports:"
-      ./artifacts/aot/okf version
+      # published under a version number that claims it. Printing it is not the
+      # proof: a binary that lost the stamp answers `0.0.0-dev`, which prints
+      # into a green log and gets uploaded as `okf/<tag>/` regardless. The
+      # reported version is compared against the one the package will claim,
+      # and a mismatch fails the job before anything leaves it.
+      okf_reported="$(./artifacts/aot/okf version)"
+      okf_expected="${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
+      echo "==> the published binary reports: ${okf_reported}"
+      if [ "${okf_reported}" != "${okf_expected}" ]; then
+        echo "    expected ${okf_expected} — refusing to publish a mis-stamped binary" >&2
+        exit 1
+      fi
 
     - |
       echo "==> uploading ${OKF_PACKAGE_FILE} to the generic package registry"
