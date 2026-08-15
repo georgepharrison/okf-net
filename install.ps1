@@ -306,14 +306,23 @@ Write-Note '==> installed'
 # No `2>&1` on the call: on Windows PowerShell 5.1 that turns a native command's stderr
 # into ErrorRecords, which under $ErrorActionPreference = 'Stop' can terminate the script
 # over a binary that merely wrote a diagnostic line.
+#
+# $LASTEXITCODE is read INSIDE the try, immediately after the call, and never in the catch.
+# It is an automatic variable that does not exist until a native command has run in this
+# session, and `Set-StrictMode -Version Latest` makes reading one that has not been set a
+# TERMINATING error. The throwing branch is exactly the branch where no native command
+# ran, so reading it afterwards would turn the case this block exists to survive into a
+# crash - after the bytes landed, and before the PATH below is written.
 $reported = $null
+$exitCode = $null
 try {
     $reported = & $destination version
+    $exitCode = $LASTEXITCODE
 } catch {
     $reported = $null
 }
 
-if ($LASTEXITCODE -eq 0 -and $reported) {
+if ($exitCode -eq 0 -and $reported) {
     Write-Note "    okf.exe $reported"
 } else {
     Write-Warning "install.ps1: $destination was installed but did not answer ``okf version``"
