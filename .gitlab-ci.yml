@@ -3,6 +3,7 @@
 
 stages:
   - validate
+  - deploy
   - release
 
 variables:
@@ -489,40 +490,121 @@ custodian-inbox:
       - artifacts/custodian/inbox.json
 
 # ---------------------------------------------------------------------------
-# GitLab Pages for the generated knowledge site (issue #6) — NOT ENABLED YET.
+# GitLab Pages for the generated knowledge site (issue #6).
 #
-# `okf site` renders the dogfood vault as a self-contained static site (a trust
-# dashboard whose tiles are filters, a force-directed graph, one page per
-# concept). Nothing about it needs a server: every link is relative and no page
-# makes a network request, so the same directory is hostable here and openable
-# from a `file://` path.
+# `okf site` renders the dogfood vault as a self-contained static site: a landing
+# page carrying the bundle's index hierarchy, a trust dashboard whose tiles and
+# tags are filters, a force-directed graph, one page per concept. Nothing about
+# it needs a server — every link is relative and no page makes a network request
+# — so the same directory is hostable here and openable from a `file://` path.
 #
-# Left commented deliberately. Ringo iterates on the site locally first
-# (`mise run site`, then open artifacts/site/index.html); publishing it is a
-# separate decision, and a `pages` job that ships an unreviewed design to a
-# public URL is not a side effect anyone asked for. Uncomment when the design
-# has settled.
+# `pages` is a reserved job name: a job called `pages` is a Pages deployment job
+# with no further declaration, and the directory it publishes is `public` from
+# its own artifacts. `--name` sets the site's title; without it the vault's
+# directory name ("okf") is used, which is not what a reader wants to see.
 #
-# Notes for whoever enables it:
-#   - `pages` is a reserved job name; the artifact path must be `public`.
-#   - `--name` sets the site's title; without it the vault's directory name
-#     ("okf") is used, which is not what a reader wants to see.
-#   - It belongs in `validate` or a stage of its own, and should run only on
-#     the default branch — a Pages deploy from a feature branch overwrites the
-#     published site.
+# Two deployments, one shared script:
+#   - `pages` publishes the default branch at the site root. Merging is the
+#     deploy; nothing else writes there. (This replaces the temporary
+#     branch-scoped rule that published the 6-static-site branch to the root
+#     while the design was being reviewed.)
+#   - `pages_review` publishes every other branch under its own path prefix, as
+#     a GitLab review environment that stops itself. See the block above it for
+#     what that costs and what it needs.
 #
-# TEMPORARY (Ringo, 2026-08-15): enabled on the 6-static-site branch ONLY so the
-# design can be reviewed from a browser away from the workstation. Before this
-# branch merges, retarget the rule to the default branch (or a tag pipeline) —
-# a Pages deploy from a feature branch overwrites the published site, which is
-# acceptable only while nothing else is published.
+# The stage is `deploy`, after `validate`: a site whose generator failed its own
+# test suite should never reach a URL. Neither job runs on a tag — a release
+# publishes a binary, not a website.
 pages:
   extends: .dotnet
-  stage: validate
+  stage: deploy
   rules:
-    - if: $CI_COMMIT_BRANCH == "6-static-site"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment:
+    name: pages
+    url: $CI_PAGES_URL
   script:
     - dotnet run --project src/Okf.Cli -c Release -- site okf/ --out public --name "okf-net"
+    - echo "==> published to ${CI_PAGES_URL}"
   artifacts:
     paths:
       - public
+
+# Branch review environments (Ringo, 2026-08-15). Each non-default branch
+# publishes to its own path under the project's Pages domain, so a design can be
+# reviewed from a browser away from the workstation without any branch
+# overwriting the published site.
+#
+# `pages.path_prefix` is the parallel-deployments feature: the prefix is
+# lower-cased and anything outside `[0-9a-z.]` becomes `-`, so
+# `$CI_COMMIT_REF_SLUG` is already in the right shape. `$CI_PAGES_URL` includes
+# the prefix from GitLab 17.9 on, which is what makes the environment's `url`
+# the address a reviewer actually opens rather than the site root.
+#
+# THE SELF-CLEANING IS `pages.expire_in`, NOT THE STOP JOB. GitLab documents no
+# way for a stopping environment to delete a Pages deployment: the automatic
+# clean-up it does document is tied to a merge request being merged or closed,
+# and this project never creates merge-request pipelines (see `workflow:` at the
+# top — every rule keys off `$CI_COMMIT_BRANCH`). Per-deployment deletion exists
+# only as an Experiment-status GraphQL mutation needing a token this job does
+# not have, and shipping that would be inventing an API contract. So the
+# deployment expires on its own after a week — expired deployments are stopped
+# and then deleted by cron — and `on_stop`/`auto_stop_in` keep the *environment*
+# list honest alongside it. A branch that is still being worked on redeploys and
+# resets both clocks; one that is abandoned disappears from both without anyone
+# doing anything, which is the "no orphans" property that was asked for.
+pages_review:
+  extends: .dotnet
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_COMMIT_BRANCH
+  pages:
+    path_prefix: "$CI_COMMIT_REF_SLUG"
+    expire_in: 1 week
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    url: $CI_PAGES_URL
+    on_stop: stop_pages_review
+    auto_stop_in: 1 week
+  script:
+    - dotnet run --project src/Okf.Cli -c Release -- site okf/ --out public --name "okf-net ($CI_COMMIT_REF_NAME)"
+    - echo "==> review site published to ${CI_PAGES_URL}"
+  artifacts:
+    paths:
+      - public
+
+# The stop half of the review environment. GitLab requires a stop job to carry
+# the same rules as the job it stops, plus a `when`, an `environment:name` and an
+# `environment:action`; `allow_failure: true` goes with `when: manual` in rules
+# so a manual job cannot block the pipeline it sits in.
+#
+# `GIT_STRATEGY: none` because the runner has no branch to check out by the time
+# this runs — deleting the branch is one of the things that triggers it. It uses
+# neither dotnet nor mise, so it takes a small image and an empty `before_script`
+# rather than extending `.dotnet`.
+#
+# The script is an echo, and deliberately so: see the note above. Marking the
+# environment stopped is the whole contract this job can honestly keep, and a
+# script that pretended to delete the deployment would be worse than one that
+# says which mechanism actually does.
+stop_pages_review:
+  stage: deploy
+  image: alpine:3.21
+  before_script: []
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+      allow_failure: true
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    action: stop
+  script:
+    - echo "==> stopping review environment review/${CI_COMMIT_REF_SLUG}"
+    - echo "    the Pages deployment under path_prefix '${CI_COMMIT_REF_SLUG}' expires on its"
+    - 'echo "    own (pages.expire_in is 1 week) and is then removed by GitLab own cron."'
