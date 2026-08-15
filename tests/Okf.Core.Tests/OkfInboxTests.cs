@@ -204,7 +204,7 @@ public class OkfInboxTests
         // A bare date says "that day" and nothing finer, so it is neither before nor after
         // an instant written the same day. Reporting drift would mean deciding `2026-08-15`
         // means the end of the 15th; reporting none means deciding it means the start.
-        // Neither is written down, and `OKF0203` reads it the same way — so the two compare
+        // Neither is written down, and `OKF0103` reads it the same way — so the two compare
         // as the same day and the signal stays quiet rather than guessing.
         Assert.Null(Classify("""
             type: Concept
@@ -219,7 +219,7 @@ public class OkfInboxTests
     [Fact]
     public void DriftIsReportedWhenEitherThePrecisionOrTheWrittenDateSaysTheSourceMoved()
     {
-        // The inbox must never be quieter about drift than `OKF0203`, which compares the
+        // The inbox must never be quieter about drift than `OKF0103`, which compares the
         // written dates alone. Here the source's instant is EARLIER (2026-08-14T20:00Z)
         // and its written date LATER, because the two sides carry different offsets — so
         // the linter reports it, and an instants-only comparison would hide it.

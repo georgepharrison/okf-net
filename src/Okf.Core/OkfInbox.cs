@@ -242,7 +242,7 @@ public sealed class OkfInboxResult
 /// </summary>
 /// <remarks>
 /// Nothing here is a diagnostic. <c>okf lint</c> already reports staleness (<c>OKF0202</c>)
-/// and drift (<c>OKF0203</c>) as configurable severities against a bundle's conformance;
+/// and drift (<c>OKF0103</c>) as configurable severities against a bundle's conformance;
 /// the inbox answers a different question — what is waiting for a person — and answers it
 /// per concept rather than per finding, so one concept that is draft, expired, and citing
 /// a moved source is one row with three reasons.
@@ -437,7 +437,7 @@ public static class OkfInboxScanner
     /// </summary>
     /// <remarks>
     /// The comparison is deliberately the wider one: the inbox must never be quieter about
-    /// drift than <c>OKF0203</c>, which compares the written dates alone, or a concept lint
+    /// drift than <c>OKF0103</c>, which compares the written dates alone, or a concept lint
     /// reports would be missing from the list of what needs a person.
     /// </remarks>
     private static IReadOnlyList<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfLifecycleInstant? generatedAt)

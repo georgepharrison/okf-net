@@ -175,6 +175,8 @@ from source, deliberately not yet stable.
 
 ## Documentation
 
+- [Architecture spine](docs/architecture.md) — the invariants everything else
+  is built from: numbered `AD` rules, the conventions, and the diagrams
 - [Architecture decisions](docs/decisions.md) — the running decision log
   (the "why" behind everything above)
 - [Product requirements](docs/prd.md) — the requirement-shaped "what",
