@@ -159,6 +159,13 @@ public sealed class OkfSitePage
     /// <summary>Whether the page is a concept — the only kind the dashboard and graph see.</summary>
     public bool IsConcept => Kind == OkfSitePageKind.Concept;
 
+    /// <summary>
+    /// Whether the page is a bundle's own root <c>index.md</c> — the hierarchy the landing
+    /// page opens on.
+    /// </summary>
+    public bool IsBundleIndex =>
+        Kind == OkfSitePageKind.Index && !Path.Contains('/', StringComparison.Ordinal);
+
     /// <summary>The parsed concept behind the page.</summary>
     public OkfConcept Concept { get; }
 
@@ -194,6 +201,12 @@ public sealed class OkfSitePage
 
     /// <summary>The rendered body, with internal links already pointed at site pages.</summary>
     public string BodyHtml { get; internal set; } = string.Empty;
+
+    /// <summary>
+    /// The same body with its links resolved from the site root, for the copy the landing page
+    /// carries inline. Empty for every page but a bundle's root index.
+    /// </summary>
+    public string RootBodyHtml { get; internal set; } = string.Empty;
 
     /// <summary>The site ids this page links to, deduplicated, in first-appearance order.</summary>
     public IReadOnlyList<string> LinksTo { get; internal set; } = [];

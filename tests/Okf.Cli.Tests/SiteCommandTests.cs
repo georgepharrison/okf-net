@@ -64,9 +64,17 @@ public class SiteCommandTests
 
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.True(File.Exists(Path.Combine(output, "index.html")));
+        Assert.True(File.Exists(Path.Combine(output, "dashboard.html")));
         Assert.True(File.Exists(Path.Combine(output, "graph.html")));
         Assert.True(File.Exists(Path.Combine(output, "assets", "site.css")));
         Assert.True(File.Exists(Path.Combine(output, "assets", "site.js")));
+
+        // The landing page is the bundle's index, not the dashboard: the front door is
+        // progressive disclosure, and the dashboard is where a tile takes you.
+        var landing = File.ReadAllText(Path.Combine(output, "index.html"));
+        Assert.Contains("class=\"bundle-index\"", landing, StringComparison.Ordinal);
+        Assert.Contains("href=\"dashboard.html#f=stale\"", landing, StringComparison.Ordinal);
+        Assert.DoesNotContain("id=\"concept-list\"", landing, StringComparison.Ordinal);
 
         // Every concept in the fixture got a page, and the pages mirror the bundle tree.
         var concepts = Directory.EnumerateFiles(bundle, "*.md", SearchOption.AllDirectories)

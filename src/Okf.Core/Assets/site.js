@@ -2,13 +2,14 @@
  * okf site — the whole client. No third-party JavaScript, no network requests.
  *
  * Three independent features, each initialised only if its markup is on the page:
- *   1. the trust dashboard  (#concept-list) — tiles are filters over OKF_SITE.concepts
+ *   1. the trust dashboard  (#concept-list) — tiles and tags are filters over OKF_SITE.concepts
  *   2. the graph            (#graph-canvas) — a hand-rolled force-directed layout
  *   3. single-file routing  (#article-host) — swaps pre-rendered articles on hashchange
  *
  * The dashboard degrades: the concept list is rendered into the HTML by the
  * generator, so a reader with JavaScript off still sees every concept, every tile
- * count and every link. This file only adds filtering on top.
+ * count and every link. This file only adds filtering on top. The landing page needs
+ * none of it — its tiles and tags are ordinary links to a pre-filtered dashboard.
  */
 (function () {
   "use strict";
@@ -32,21 +33,29 @@
    * a single-file concept view are both linkable and both survive reload
    * from a file:// URL, where there is no server to hold state.
    *   #c=<concept id>       single-file: show this concept
-   *   #f=<tile>&b=<bundle>&q=<text>   dashboard filter
+   *   #v=dashboard|graph    single-file: which standing view is on screen
+   *   #f=<tile>&b=<bundle>&t=<tag>&q=<text>   dashboard filters, composable
+   *
+   * Every value is written with encodeURIComponent and read back with
+   * decodeURIComponent; a tag is data okf-net did not write, so it never
+   * reaches the DOM as anything but textContent or an attribute value.
    * ------------------------------------------------------------------ */
+
+  var HASH_KEYS = ["c", "v", "f", "b", "t", "q"];
 
   function readHash() {
     var raw = window.location.hash.replace(/^#/, "");
-    var state = { c: "", f: "", b: "", q: "" };
+    var state = { c: "", v: "", f: "", b: "", t: "", q: "" };
     if (!raw) return state;
     raw.split("&").forEach(function (part) {
       var eq = part.indexOf("=");
       if (eq < 0) return;
       var key = part.slice(0, eq);
-      if (key in state) {
+      if (Object.prototype.hasOwnProperty.call(state, key)) {
         try {
           state[key] = decodeURIComponent(part.slice(eq + 1).replace(/\+/g, " "));
         } catch (e) {
+          // A hand-mangled percent-escape is a filter nobody asked for, not a crash.
           state[key] = "";
         }
       }
@@ -56,7 +65,7 @@
 
   function writeHash(state, replace) {
     var parts = [];
-    ["c", "f", "b", "q"].forEach(function (key) {
+    HASH_KEYS.forEach(function (key) {
       if (state[key]) parts.push(key + "=" + encodeURIComponent(state[key]));
     });
     var hash = parts.length ? "#" + parts.join("&") : "#";
@@ -65,6 +74,15 @@
     } else {
       window.location.hash = hash;
     }
+  }
+
+  /* Which of the single-file views a hash names. Any filter key on its own
+     means the dashboard: that is what a tile or a tag link arrives with. */
+  function viewOf(state) {
+    if (state.c) return "concept";
+    if (state.v === "graph") return "graph";
+    if (state.v === "dashboard" || state.f || state.b || state.t || state.q) return "dashboard";
+    return "home";
   }
 
   /* ------------------------------------------------------------------ *
@@ -94,6 +112,8 @@
     var byId = {};
     SITE.concepts.forEach(function (c) { byId[c.id] = c; });
 
+    var active = document.getElementById("active-filters");
+
     var state = readHash();
     if (!state.f) state.f = "all";
     if (search) search.value = state.q;
@@ -102,10 +122,46 @@
       var predicate = PREDICATES[state.f] || PREDICATES.all;
       if (!predicate(concept)) return false;
       if (state.b && concept.bundle !== state.b) return false;
+      // §4.1 makes tags the cross-cutting axis, so a tag composes with the tier,
+      // bundle and text filters rather than replacing any of them.
+      if (state.t && (concept.tags || []).indexOf(state.t) < 0) return false;
       if (!text) return true;
       var hay = (concept.title + " " + concept.id + " " + (concept.type || "") + " " +
         (concept.description || "") + " " + (concept.tags || []).join(" ")).toLowerCase();
       return hay.indexOf(text) >= 0;
+    }
+
+    /* One removable chip per cross-cutting filter that is not already a pressed
+       tile. A tag can arrive from any page in the site, so the dashboard has to
+       name the one it is holding — and the value is written with textContent,
+       never as markup, because a tag is data okf-net did not write. */
+    function renderActive() {
+      if (!active) return;
+      active.innerHTML = "";
+      if (!state.t) {
+        active.hidden = true;
+        return;
+      }
+      active.hidden = false;
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip chip-removable";
+      chip.setAttribute("aria-pressed", "true");
+      var label = document.createElement("span");
+      label.textContent = "tag: " + state.t;
+      chip.appendChild(label);
+      var cross = document.createElement("span");
+      cross.className = "chip-x";
+      cross.setAttribute("aria-hidden", "true");
+      cross.textContent = "✕";
+      chip.appendChild(cross);
+      chip.title = "Remove this tag filter";
+      chip.setAttribute("aria-label", "Remove the tag filter " + state.t);
+      chip.addEventListener("click", function () {
+        state.t = "";
+        apply(true);
+      });
+      active.appendChild(chip);
     }
 
     function apply(push) {
@@ -127,6 +183,7 @@
       if (drill) {
         drill.classList.toggle("open", state.f === "bundles" || !!state.b);
       }
+      renderActive();
       if (readout) {
         readout.innerHTML = "";
         var b = document.createElement("b");
@@ -137,20 +194,67 @@
       }
       var empty = document.getElementById("concept-empty");
       if (empty) empty.hidden = shown !== 0;
-      // Never clobber a single-file concept route with the dashboard's own filter
-      // state: `#c=<id>` is the only hash key that decides which view is on screen.
-      if (!readHash().c) {
-        writeHash({ c: "", f: state.f === "all" ? "" : state.f, b: state.b, q: state.q }, !push);
-      }
+
+      // Never clobber another view's route with the dashboard's own filter state:
+      // in single-file mode the hash decides which view is on screen, and the
+      // dashboard is only one of four.
+      var route = readHash();
+      if (SITE.singleFile && viewOf(route) !== "dashboard") return;
+      writeHash({
+        c: "",
+        v: SITE.singleFile ? "dashboard" : "",
+        f: state.f === "all" ? "" : state.f,
+        b: state.b,
+        t: state.t,
+        q: state.q
+      }, !push);
     }
 
     function describe() {
       var bits = [];
       if (state.f && state.f !== "all" && state.f !== "bundles") bits.push(state.f.replace(/-/g, " "));
       if (state.b) bits.push("in " + state.b);
+      if (state.t) bits.push("tagged " + state.t);
       if ((state.q || "").trim()) bits.push('matching "' + state.q.trim() + '"');
       return bits.length ? " — " + bits.join(", ") : "";
     }
+
+    /* A tag badge is a real link — it works with JavaScript off, and from every
+       other page in the site. On the dashboard itself the click is intercepted so
+       the tag composes with whatever is already filtered instead of replacing the
+       whole fragment. The value is read from the attribute, never parsed out of
+       the href. */
+    document.addEventListener("click", function (event) {
+      var target = event.target;
+      while (target && target !== document && !(target.getAttribute && target.getAttribute("data-tag"))) {
+        target = target.parentNode;
+      }
+      if (!target || target === document || !target.getAttribute) return;
+      var tag = target.getAttribute("data-tag");
+      if (!tag) return;
+      // Off the dashboard — a concept article in single-file mode — the badge is a
+      // plain link and has to be allowed to navigate to the dashboard itself.
+      if (SITE.singleFile && viewOf(readHash()) !== "dashboard") return;
+      event.preventDefault();
+      state.t = state.t === tag ? "" : tag;
+      apply(true);
+    });
+
+    /* Back, forward, and a tag link followed from a concept in single-file mode
+       all arrive as a hash change; the filters have to follow the URL, not the
+       other way round. */
+    window.addEventListener("hashchange", function () {
+      var next = readHash();
+      if (SITE.singleFile && viewOf(next) !== "dashboard") return;
+      var wanted = next.f || "all";
+      if (wanted === state.f && next.b === state.b && next.t === state.t && next.q === state.q) return;
+      state.f = wanted;
+      state.b = next.b;
+      state.t = next.t;
+      state.q = next.q;
+      if (search) search.value = state.q;
+      apply(false);
+    });
 
     tiles.forEach(function (tile) {
       tile.addEventListener("click", function () {
@@ -181,6 +285,7 @@
       reset.addEventListener("click", function () {
         state.f = "all";
         state.b = "";
+        state.t = "";
         state.q = "";
         if (search) search.value = "";
         apply(true);
@@ -613,13 +718,20 @@
 
     function route() {
       var state = readHash();
-      if (state.c && Object.prototype.hasOwnProperty.call(articles, state.c)) {
+      var view = viewOf(state);
+      if (view === "concept" && !Object.prototype.hasOwnProperty.call(articles, state.c)) {
+        // A concept id that no longer names anything is a stale link, not a blank page.
+        view = "home";
+      }
+      if (view === "concept") {
+        // The articles come from the generator, not from the URL: the id is only ever a
+        // key looked up in a payload this document shipped with.
         host.innerHTML = articles[state.c];
-        show("concept");
         window.scrollTo(0, 0);
-      } else {
-        show("dashboard");
-        // The graph canvas may have been sized while hidden; let it re-fit.
+      }
+      show(view);
+      if (view === "graph") {
+        // The graph canvas was sized while hidden; let it re-fit now it has a box.
         window.dispatchEvent(new Event("resize"));
       }
     }

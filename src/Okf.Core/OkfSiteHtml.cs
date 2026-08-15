@@ -64,6 +64,34 @@ internal static class OkfSiteHtml
         return builder.ToString();
     }
 
+    /// <summary>Where the site's three standing views live, as seen from one page.</summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="root">The relative prefix back to the site root.</param>
+    /// <returns>The home, dashboard and graph hrefs, ready to put in an attribute.</returns>
+    /// <remarks>
+    /// Single-file mode routes on the fragment rather than on a path, so the same three
+    /// destinations exist there under <c>#v=</c>. An <c>&amp;</c> in an attribute value has
+    /// to arrive as an entity, or the page stops being well-formed XML.
+    /// </remarks>
+    public static (string Home, string Dashboard, string Graph) Views(OkfSiteModel model, string root) =>
+        model.SingleFile
+            ? ("#", "#v=dashboard", "#v=graph")
+            : (root + OkfSiteBuilder.IndexHref,
+               root + OkfSiteBuilder.DashboardHref,
+               root + OkfSiteBuilder.GraphHref);
+
+    /// <summary>
+    /// The prefix a tag badge's href is built from: appending an escaped tag to it lands on
+    /// the dashboard with that tag filter applied.
+    /// </summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="root">The relative prefix back to the site root.</param>
+    /// <returns>The prefix, already safe to put in an attribute.</returns>
+    public static string TagBase(OkfSiteModel model, string root) =>
+        model.SingleFile
+            ? "#v=dashboard&amp;t="
+            : root + OkfSiteBuilder.DashboardHref + "#t=";
+
     /// <summary>Renders the sticky top bar.</summary>
     /// <param name="model">The site model.</param>
     /// <param name="root">The relative prefix back to the site root.</param>
@@ -71,20 +99,139 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     public static string TopBar(OkfSiteModel model, string root, string? current)
     {
-        var dashboard = model.SingleFile ? "#" : root + OkfSiteBuilder.IndexHref;
-        var graph = model.SingleFile ? "#graph" : root + OkfSiteBuilder.GraphHref;
+        var (home, dashboard, graph) = Views(model, root);
 
         return new StringBuilder()
             .Append("<header class=\"topbar\"><div class=\"topbar-inner\">\n")
-            .Append("<a class=\"brand\" href=\"").Append(dashboard).Append("\">").Append(Escape(model.Name)).Append("</a>\n")
+            .Append("<a class=\"brand\" href=\"").Append(home).Append("\">").Append(Escape(model.Name)).Append("</a>\n")
             .Append("<span class=\"brand-sub\">OKF v0.2 knowledge site</span>\n")
             .Append("<nav class=\"topnav\" aria-label=\"Site\">")
+            .Append("<a href=\"").Append(home).Append('"')
+            .Append(current == "home" ? " aria-current=\"page\"" : string.Empty).Append(">Home</a>")
             .Append("<a href=\"").Append(dashboard).Append('"')
             .Append(current == "dashboard" ? " aria-current=\"page\"" : string.Empty).Append(">Dashboard</a>")
             .Append("<a href=\"").Append(graph).Append('"')
             .Append(current == "graph" ? " aria-current=\"page\"" : string.Empty).Append(">Graph</a>")
             .Append("</nav>\n</div></header>\n")
             .ToString();
+    }
+
+    /// <summary>Renders a two-step breadcrumb whose root is the landing page.</summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="homeHref">Where the landing page lives, as seen from this page.</param>
+    /// <param name="label">The current page's crumb.</param>
+    /// <returns>The markup.</returns>
+    public static string HomeCrumbs(OkfSiteModel model, string homeHref, string label) =>
+        new StringBuilder()
+            .Append("<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><ol>\n")
+            .Append("<li><a href=\"").Append(homeHref).Append("\">").Append(Escape(model.Name)).Append("</a></li>\n")
+            .Append("<li>").Append(Escape(label)).Append("</li>\n")
+            .Append("</ol></nav>\n")
+            .ToString();
+
+    /// <summary>
+    /// Renders the landing page: a compact strip of trust tiles over each bundle's rendered
+    /// root index.
+    /// </summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="root">The relative prefix back to the site root (empty; the landing page is the root).</param>
+    /// <param name="hrefFor">Where a page lives, as seen from the landing page.</param>
+    /// <returns>The markup.</returns>
+    /// <remarks>
+    /// The front door is the index hierarchy, not the dashboard: OKF's own doctrine is that a
+    /// reader arrives at a vault through progressive disclosure, and the dashboard answers a
+    /// different question ("what in here can I trust?"). Every tile is still one click away,
+    /// and each one arrives at the dashboard with its own filter already applied.
+    /// </remarks>
+    public static string Landing(OkfSiteModel model, string root, Func<OkfSitePage, string> hrefFor)
+    {
+        var counts = model.Counts;
+        var (_, dashboard, graph) = Views(model, root);
+        var builder = new StringBuilder();
+
+        builder.Append("<div class=\"page-head\"><h1>").Append(Escape(model.Name)).Append("</h1>\n")
+            .Append("<p class=\"lede\">")
+            .Append(Plural(counts.Concepts, "concept")).Append(" across ")
+            .Append(Plural(counts.Bundles, "bundle"))
+            .Append(". Start where the vault starts — the index below. ")
+            .Append("Each tile opens the dashboard with that filter already applied.")
+            .Append("</p></div>\n");
+
+        builder.Append("<section aria-labelledby=\"strip-heading\">\n")
+            .Append("<h2 id=\"strip-heading\" class=\"sr-only\">Trust at a glance</h2>\n")
+            .Append("<div class=\"tiles tiles-strip\">\n")
+            .Append(TileLink(dashboard, "bundles", "accent", "▦", "Bundles", counts.Bundles))
+            .Append(TileLink(dashboard, "all", "accent", "◆", "Concepts", counts.Concepts))
+            .Append(TileLink(dashboard, "human-reviewed", "good", "✔", "Human-reviewed", counts.HumanReviewed))
+            .Append(TileLink(dashboard, "machine-confirmed", "warning", "◎", "Machine-confirmed", counts.MachineConfirmed))
+            .Append(TileLink(dashboard, "unverified", "neutral", "○", "Unverified", counts.Unverified))
+            .Append(TileLink(dashboard, "stale", "critical", "△", "Stale", counts.Stale))
+            .Append(TileLink(dashboard, "draft", "serious", "✎", "Draft", counts.Draft))
+            .Append("</div>\n</section>\n");
+
+        var indexes = model.Pages.Where(page => page.IsBundleIndex)
+            .ToDictionary(page => page.BundleSlug, StringComparer.Ordinal);
+
+        builder.Append(model.Bundles.Count > 1
+            ? "<div class=\"bundle-picker\">\n"
+            : "<div class=\"bundle-picker single\">\n");
+
+        foreach (var bundle in model.Bundles)
+        {
+            var index = indexes.TryGetValue(bundle.Slug, out var found) ? found : null;
+
+            builder.Append("<section class=\"bundle-index\">\n").Append("<h2>");
+
+            // A bundle whose root index.md is missing (§8 reserves the name; it does not
+            // require the file) has no page to link its own heading at.
+            if (index is not null)
+            {
+                builder.Append("<a href=\"").Append(hrefFor(index)).Append("\">")
+                    .Append(Escape(bundle.Name)).Append("</a>");
+            }
+            else
+            {
+                builder.Append(Escape(bundle.Name));
+            }
+
+            builder.Append(" <span class=\"count\">")
+                .Append(Plural(bundle.Concepts, "concept")).Append("</span></h2>\n")
+                .Append("<div class=\"prose landing-index\">\n");
+
+            if (index is not null && index.RootBodyHtml.Length > 0)
+            {
+                builder.Append(index.RootBodyHtml);
+            }
+            else
+            {
+                // A bundle with no root index.md still has to be openable from the front door;
+                // §8 makes index.md reserved, not mandatory.
+                builder.Append("<ul>\n");
+                foreach (var page in model.Concepts.Where(page => page.BundleSlug == bundle.Slug))
+                {
+                    builder.Append("<li><a href=\"").Append(hrefFor(page)).Append("\">")
+                        .Append(Escape(page.Title)).Append("</a></li>\n");
+                }
+
+                builder.Append("</ul>\n");
+            }
+
+            builder.Append("</div>\n</section>\n");
+        }
+
+        if (model.Bundles.Count == 0)
+        {
+            builder.Append("<p class=\"empty\">This site covers no bundles.</p>\n");
+        }
+
+        builder.Append("</div>\n");
+
+        builder.Append("<p class=\"landing-more\">")
+            .Append("<a href=\"").Append(dashboard).Append("\">Browse and filter every concept</a> · ")
+            .Append("<a href=\"").Append(graph).Append("\">See the graph</a>")
+            .Append("</p>\n");
+
+        return builder.ToString();
     }
 
     /// <summary>Renders the footer.</summary>
@@ -100,8 +247,9 @@ internal static class OkfSiteHtml
     /// <summary>Renders the trust dashboard: the tiles, the filter bar and the concept list.</summary>
     /// <param name="model">The site model.</param>
     /// <param name="hrefFor">Where a concept's page lives, from the dashboard.</param>
+    /// <param name="tagBase">The prefix a tag badge's href is built from.</param>
     /// <returns>The markup.</returns>
-    public static string Dashboard(OkfSiteModel model, Func<OkfSitePage, string> hrefFor)
+    public static string Dashboard(OkfSiteModel model, Func<OkfSitePage, string> hrefFor, string tagBase)
     {
         var counts = model.Counts;
         var builder = new StringBuilder();
@@ -110,7 +258,8 @@ internal static class OkfSiteHtml
             .Append("<p class=\"lede\">")
             .Append(Plural(counts.Concepts, "concept")).Append(" across ")
             .Append(Plural(counts.Bundles, "bundle"))
-            .Append(". Every tile below is a filter — click one to narrow the list, click it again to clear it.")
+            .Append(". Every tile below is a filter — click one to narrow the list, click it again to clear it. ")
+            .Append("Tags filter too, wherever they appear.")
             .Append("</p></div>\n");
 
         builder.Append("<section aria-labelledby=\"tiles-heading\">\n")
@@ -142,6 +291,10 @@ internal static class OkfSiteHtml
             .Append("<input id=\"concept-search\" type=\"search\" placeholder=\"Search title, type, tag or description\" aria-label=\"Search concepts\" />\n")
             .Append("<button type=\"button\" class=\"btn\" id=\"filter-reset\">Clear filters</button>\n")
             .Append("</div>\n")
+            // Filled by the client with one removable chip per active cross-cutting filter.
+            // A tag filter can arrive from any page in the site, so the dashboard has to say
+            // out loud which one it is holding and offer a way out of it.
+            .Append("<div class=\"active-filters\" id=\"active-filters\" hidden=\"hidden\"></div>\n")
             .Append("<p class=\"filter-state\" id=\"filter-state\"><b>")
             .Append(counts.Concepts.ToString(CultureInfo.InvariantCulture))
             .Append("</b> of ").Append(counts.Concepts.ToString(CultureInfo.InvariantCulture))
@@ -150,7 +303,7 @@ internal static class OkfSiteHtml
         builder.Append("<ul class=\"card-list\" id=\"concept-list\">\n");
         foreach (var page in model.Concepts)
         {
-            builder.Append(Card(page, hrefFor(page)));
+            builder.Append(Card(page, hrefFor(page), tagBase));
         }
 
         builder.Append("</ul>\n")
@@ -188,18 +341,20 @@ internal static class OkfSiteHtml
     /// <param name="page">The page to render.</param>
     /// <param name="model">The site model.</param>
     /// <param name="hrefFor">Where another page lives, as seen from this one.</param>
-    /// <param name="dashboardHref">Where the site's landing page lives, as seen from this one.</param>
+    /// <param name="homeHref">Where the site's landing page lives, as seen from this one.</param>
+    /// <param name="tagBase">The prefix a tag badge's href is built from.</param>
     /// <returns>The markup.</returns>
     public static string Article(
         OkfSitePage page,
         OkfSiteModel model,
         Func<OkfSitePage, string> hrefFor,
-        string dashboardHref)
+        string homeHref,
+        string tagBase)
     {
         var builder = new StringBuilder();
 
         builder.Append("<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><ol>\n")
-            .Append("<li><a href=\"").Append(dashboardHref).Append("\">").Append(Escape(model.Name)).Append("</a></li>\n");
+            .Append("<li><a href=\"").Append(homeHref).Append("\">").Append(Escape(model.Name)).Append("</a></li>\n");
 
         foreach (var crumb in page.Crumbs)
         {
@@ -224,13 +379,16 @@ internal static class OkfSiteHtml
             builder.Append("<p class=\"lede\">").Append(Escape(description)).Append("</p>\n");
         }
 
+        // Tags live in the metadata panel, not here as well: they are one list, and a
+        // concept that repeated it under its own title would make the reader check whether
+        // the two agree.
         builder.Append("<div class=\"badge-row\">").Append(Badges(page)).Append("</div>\n</div>\n");
 
         builder.Append("<div class=\"concept-layout\">\n<article class=\"prose\">\n")
             .Append(page.BodyHtml)
             .Append("</article>\n<aside class=\"meta-panel\">\n");
 
-        builder.Append(MetadataPanel(page));
+        builder.Append(MetadataPanel(page, tagBase));
         builder.Append(SourcesPanel(page));
         builder.Append(BacklinksPanel(page, model, hrefFor));
 
@@ -348,6 +506,44 @@ internal static class OkfSiteHtml
     public static string Plural(int count, string singular) =>
         $"{count.ToString(CultureInfo.InvariantCulture)} {(count == 1 ? singular : singular + "s")}";
 
+    /// <summary>
+    /// Renders a tag as a badge that is also a filter link: the same destination the
+    /// dashboard's tiles use, with a tag filter in the fragment.
+    /// </summary>
+    /// <remarks>
+    /// A tag is data okf-net did not write (PRD ACC-1), so it goes into the href through
+    /// <see cref="Uri.EscapeDataString(string)" /> — which leaves no <c>&lt;</c>, <c>&amp;</c>
+    /// or quote behind to break out of the attribute or the fragment grammar — and into text
+    /// and <c>data-tag</c> through the HTML escaper. The client reads <c>data-tag</c> as an
+    /// attribute value and writes it back with <c>textContent</c>, never as markup.
+    /// </remarks>
+    private static string TagBadges(OkfSitePage page, string tagBase)
+    {
+        var builder = new StringBuilder();
+        foreach (var tag in page.Tags)
+        {
+            builder.Append("<a class=\"badge badge-tag\" data-tag=\"").Append(Escape(tag))
+                .Append("\" href=\"").Append(tagBase).Append(Uri.EscapeDataString(tag)).Append("\">")
+                .Append("<span class=\"dot\" aria-hidden=\"true\"></span>")
+                .Append(Escape(tag)).Append("</a>");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string TileLink(string dashboardHref, string filter, string tone, string glyph, string label, int value) =>
+        new StringBuilder()
+            .Append("<a class=\"tile tile-compact tone-").Append(tone)
+            .Append("\" data-tone=\"").Append(tone)
+            .Append("\" href=\"").Append(dashboardHref)
+            .Append(dashboardHref.StartsWith('#') ? "&amp;f=" : "#f=").Append(filter).Append("\">")
+            .Append("<span class=\"tile-value\">").Append(value.ToString(CultureInfo.InvariantCulture)).Append("</span>")
+            .Append("<span class=\"tile-label\"><span class=\"dot\" aria-hidden=\"true\"></span>")
+            .Append("<span class=\"glyph\" aria-hidden=\"true\">").Append(Escape(glyph)).Append("</span>")
+            .Append("<span class=\"tile-name\">").Append(Escape(label)).Append("</span></span>")
+            .Append("</a>\n")
+            .ToString();
+
     private static string Tile(string filter, string tone, string glyph, string label, int value, string note) =>
         new StringBuilder()
             .Append("<button type=\"button\" class=\"tile tone-").Append(tone)
@@ -361,7 +557,7 @@ internal static class OkfSiteHtml
             .Append("</button>\n")
             .ToString();
 
-    private static string Card(OkfSitePage page, string href)
+    private static string Card(OkfSitePage page, string href, string tagBase)
     {
         var builder = new StringBuilder();
         builder.Append("<li class=\"card tier-").Append(page.TrustTier.ToSpecString())
@@ -374,7 +570,7 @@ internal static class OkfSiteHtml
             builder.Append("<p>").Append(Escape(description)).Append("</p>");
         }
 
-        builder.Append("<div class=\"card-meta\">").Append(Badges(page))
+        builder.Append("<div class=\"card-meta\">").Append(Badges(page)).Append(TagBadges(page, tagBase))
             .Append("<span class=\"path\">").Append(Escape($"{page.BundleName}/{page.Path}")).Append("</span>")
             .Append("</div></li>\n");
 
@@ -445,7 +641,7 @@ internal static class OkfSiteHtml
         _ => "○",
     };
 
-    private static string MetadataPanel(OkfSitePage page)
+    private static string MetadataPanel(OkfSitePage page, string tagBase)
     {
         var builder = new StringBuilder()
             .Append("<section class=\"panel\"><h2>Metadata</h2><dl>\n");
@@ -467,11 +663,7 @@ internal static class OkfSiteHtml
 
         if (page.Tags.Count > 0)
         {
-            Row(
-                builder,
-                "Tags",
-                string.Concat(page.Tags.Select(tag =>
-                    $"<span class=\"badge badge-tag\">{Escape(tag)}</span> ")));
+            Row(builder, "Tags", $"<div class=\"badge-row\">{TagBadges(page, tagBase)}</div>");
         }
 
         Row(builder, "Bundle", Escape(page.BundleName));

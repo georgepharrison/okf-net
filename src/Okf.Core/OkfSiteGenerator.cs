@@ -97,15 +97,31 @@ public static class OkfSiteGenerator
             new(OkfSiteAssets.DataPath, OkfSiteHtml.SiteData(model, page => page.Href)),
         };
 
+        // The landing page is the vault's index hierarchy, not the dashboard: a reader
+        // arrives through progressive disclosure, and the dashboard answers a different
+        // question. Every tile on the strip links here to `dashboard.html` pre-filtered.
         files.Add(new OkfSiteFile(
             OkfSiteBuilder.IndexHref,
             Page(
                 model,
                 OkfSiteBuilder.IndexHref,
                 model.Name,
+                $"{model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles, "
+                + "browsable from each bundle's index.",
+                "home",
+                OkfSiteHtml.Landing(model, string.Empty, page => page.Href),
+                withData: false)));
+
+        files.Add(new OkfSiteFile(
+            OkfSiteBuilder.DashboardHref,
+            Page(
+                model,
+                OkfSiteBuilder.DashboardHref,
+                $"Dashboard — {model.Name}",
                 $"Trust dashboard for {model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles.",
                 "dashboard",
-                OkfSiteHtml.Dashboard(model, page => page.Href),
+                OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Dashboard")
+                + OkfSiteHtml.Dashboard(model, page => page.Href, "#t="),
                 withData: true)));
 
         files.Add(new OkfSiteFile(
@@ -116,7 +132,7 @@ public static class OkfSiteGenerator
                 $"Graph — {model.Name}",
                 $"Force-directed graph of {model.Counts.Concepts} concepts and {model.Edges.Count} cross-links.",
                 "graph",
-                OkfSiteHtml.Graph(model),
+                OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Graph") + OkfSiteHtml.Graph(model),
                 withData: true)));
 
         foreach (var page in model.Pages)
@@ -126,7 +142,8 @@ public static class OkfSiteGenerator
                 page,
                 model,
                 other => OkfSiteBuilder.RelativeHref(page.Href, other.Href),
-                root + OkfSiteBuilder.IndexHref);
+                root + OkfSiteBuilder.IndexHref,
+                OkfSiteHtml.TagBase(model, root));
 
             files.Add(new OkfSiteFile(
                 page.Href,
@@ -172,21 +189,31 @@ public static class OkfSiteGenerator
 
     private static IReadOnlyList<OkfSiteFile> SingleFile(OkfSiteModel model)
     {
+        var tagBase = OkfSiteHtml.TagBase(model, string.Empty);
         var articles = new List<KeyValuePair<string, string>>();
         foreach (var page in model.Pages)
         {
             articles.Add(new KeyValuePair<string, string>(
                 page.Id,
-                OkfSiteHtml.Article(page, model, other => "#c=" + Uri.EscapeDataString(other.Id), "#")));
+                OkfSiteHtml.Article(page, model, other => "#c=" + Uri.EscapeDataString(other.Id), "#", tagBase)));
         }
 
         var head = "<style>" + OkfSiteHtml.Cdata(OkfSiteAssets.StyleSheet) + "</style>\n";
 
+        // The same four destinations the multi-page site has as files, as fragment routes:
+        // nothing (home), `#v=dashboard`, `#v=graph`, `#c=<id>`.
         var body = new StringBuilder()
             .Append(OkfSiteHtml.TopBar(model, string.Empty, null))
             .Append("<main class=\"shell\">\n")
-            .Append("<div class=\"view active\" data-view=\"dashboard\">\n")
-            .Append(OkfSiteHtml.Dashboard(model, page => "#c=" + Uri.EscapeDataString(page.Id)))
+            .Append("<div class=\"view active\" data-view=\"home\">\n")
+            .Append(OkfSiteHtml.Landing(model, string.Empty, page => "#c=" + Uri.EscapeDataString(page.Id)))
+            .Append("</div>\n")
+            .Append("<div class=\"view\" data-view=\"dashboard\">\n")
+            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Dashboard"))
+            .Append(OkfSiteHtml.Dashboard(model, page => "#c=" + Uri.EscapeDataString(page.Id), tagBase))
+            .Append("</div>\n")
+            .Append("<div class=\"view\" data-view=\"graph\">\n")
+            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Graph"))
             .Append(OkfSiteHtml.Graph(model))
             .Append("</div>\n")
             .Append("<div class=\"view\" data-view=\"concept\"><div id=\"article-host\"></div></div>\n")
@@ -208,7 +235,8 @@ public static class OkfSiteGenerator
                 OkfSiteBuilder.IndexHref,
                 OkfSiteHtml.Document(
                     model.Name,
-                    $"Trust dashboard for {model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles.",
+                    $"{model.Name}: {model.Counts.Concepts} concepts across {model.Counts.Bundles} bundles, "
+                    + "browsable from each bundle's index.",
                     head,
                     body,
                     tail)),

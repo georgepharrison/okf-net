@@ -46,8 +46,15 @@ public static class OkfSiteBuilder
     /// <summary>The lifecycle status a concept has when <c>status</c> is absent (§5.4).</summary>
     public const string DefaultStatus = "stable";
 
-    /// <summary>The site's landing page, and the only page that carries the dashboard.</summary>
+    /// <summary>
+    /// The site's landing page: each bundle's root index, rendered, under a compact strip of
+    /// trust tiles. Progressive disclosure is the front door (§4 search doctrine) — the
+    /// dashboard is where a tile takes you, not what greets you.
+    /// </summary>
     public const string IndexHref = "index.html";
+
+    /// <summary>The trust dashboard: the tiles as filters, the filter bar and the concept list.</summary>
+    public const string DashboardHref = "dashboard.html";
 
     /// <summary>The graph page.</summary>
     public const string GraphHref = "graph.html";
@@ -71,6 +78,7 @@ public static class OkfSiteBuilder
         {
             "assets",
             IndexHref,
+            DashboardHref,
             GraphHref,
         };
         var conceptOptions = new OkfConceptOptions { Today = options.Today, ReadText = options.ReadText };
@@ -106,14 +114,34 @@ public static class OkfSiteBuilder
 
         foreach (var page in pages)
         {
+            var source = Strip(page.Concept.Body, page.Kind);
             var body = OkfSiteMarkdown.Render(
-                Strip(page.Concept.Body, page.Kind),
-                url => Resolve(url, page, byId, options.SingleFile));
+                source,
+                url => Resolve(url, page, byId, options.SingleFile, page.Href));
 
             page.BodyHtml = body.Html;
             page.LinksTo = body.LinksTo;
             page.Sources = Sources(page.Concept.Frontmatter, body.FootnoteOrders);
             page.Crumbs = Crumbs(page, byId, options.SingleFile);
+
+            // The landing page carries each bundle's root index inline, and that copy is read
+            // from the site root rather than from `<slug>/index.html`. Its relative links have
+            // to be resolved from there too, or every entry on the front door points one
+            // directory too high. Rendered a second time rather than rewritten afterwards:
+            // the destinations are resolved on the syntax tree, and text-level surgery on the
+            // output would have to re-implement the parser's idea of what a link is.
+            if (page.IsBundleIndex && !options.SingleFile)
+            {
+                page.RootBodyHtml = OkfSiteMarkdown
+                    .Render(source, url => Resolve(url, page, byId, options.SingleFile, IndexHref))
+                    .Html;
+            }
+            else if (page.IsBundleIndex)
+            {
+                // Single-file links are `#c=<id>`, which does not depend on where the body is
+                // read from; one render serves both copies.
+                page.RootBodyHtml = body.Html;
+            }
 
             foreach (var target in body.LinksTo)
             {
@@ -283,7 +311,8 @@ public static class OkfSiteBuilder
         string url,
         OkfSitePage page,
         IReadOnlyDictionary<string, OkfSitePage> pages,
-        bool singleFile)
+        bool singleFile,
+        string fromHref)
     {
         if (url.StartsWith('#'))
         {
@@ -340,7 +369,7 @@ public static class OkfSiteBuilder
             // A single-file site spends its whole fragment on routing, so a deep link into
             // a concept's own heading cannot survive the trip. The concept does.
             ? "#c=" + Uri.EscapeDataString(destination.Id)
-            : RelativeHref(page.Href, destination.Href) + fragment;
+            : RelativeHref(fromHref, destination.Href) + fragment;
 
         return new OkfSiteLink(href, destination.Id, null, false);
     }

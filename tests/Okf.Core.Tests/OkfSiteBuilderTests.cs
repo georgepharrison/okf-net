@@ -310,6 +310,27 @@ public class OkfSiteBuilderTests
         Assert.Equal(expected, OkfSiteBuilder.RelativeHref(from, to));
 
     [Fact]
+    public void ABundleRootIndexAlsoRendersWithItsLinksResolvedFromTheSiteRoot()
+    {
+        using var fixture = new SiteFixture();
+        var model = fixture.Build();
+
+        // The landing page carries this body inline at the site root, so its links have to
+        // be resolved from there — `kb/hub.html`, not the `hub.html` the index page itself
+        // links to one directory down.
+        var index = model.Pages.Single(page => page.Href == "kb/index.html");
+        Assert.True(index.IsBundleIndex);
+        Assert.Contains("href=\"hub.html\"", index.BodyHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"kb/hub.html\"", index.RootBodyHtml, StringComparison.Ordinal);
+
+        // Only a bundle's own root index gets one: nothing else is inlined at the root.
+        var nestedIndex = model.Pages.Single(page => page.Href == "kb/deep/index.html");
+        Assert.False(nestedIndex.IsBundleIndex);
+        Assert.Empty(nestedIndex.RootBodyHtml);
+        Assert.Empty(model.Pages.Single(page => page.Href == "kb/hub.html").RootBodyHtml);
+    }
+
+    [Fact]
     public void SingleFileLinksRouteOnTheFragmentInsteadOfAPath()
     {
         using var fixture = new SiteFixture();
@@ -393,7 +414,12 @@ public class OkfSiteBuilderTests
         Assert.Equal("stable", hub.GetProperty("status").GetString());
         Assert.False(hub.GetProperty("stale").GetBoolean());
         Assert.Equal("kb/hub.html", hub.GetProperty("href").GetString());
+        // The tag filter runs off this array, so it is the one field whose absence would
+        // make a clicked tag badge silently match nothing.
         Assert.Equal(["a", "b"], hub.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()));
+        Assert.All(
+            concepts,
+            concept => Assert.Equal(JsonValueKind.Array, concept.GetProperty("tags").ValueKind));
 
         var expired = concepts.Single(concept => concept.GetProperty("id").GetString() == "kb/expired");
         Assert.True(expired.GetProperty("stale").GetBoolean());
