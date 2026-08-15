@@ -2,7 +2,7 @@
 type: Playbook
 title: Provenance — Capture Versus Cite
 description: The one-question test that decides whether a source is cited in place or captured into the vault first.
-tags: [okf, provenance, sources, capture, playbook]
+tags: [okf, provenance, sources, capture]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: decisions

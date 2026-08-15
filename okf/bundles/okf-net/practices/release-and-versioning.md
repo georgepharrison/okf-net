@@ -2,7 +2,7 @@
 type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
-tags: [okf-net, release, versioning, semantic-release, conventional-commits, playbook]
+tags: [okf-net, release, versioning, semantic-release, conventional-commits]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: releaserc

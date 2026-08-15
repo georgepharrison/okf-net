@@ -3,7 +3,7 @@ type: Reference
 title: OKF v0.2, the Format
 description: A directory of markdown files with YAML frontmatter, whose only hard requirement is a non-empty type.
 resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
-tags: [okf, format, spec, conformance, reference]
+tags: [okf, format, spec, conformance]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: okf-spec

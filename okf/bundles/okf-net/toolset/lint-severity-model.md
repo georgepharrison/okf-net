@@ -2,7 +2,7 @@
 type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
-tags: [okf-net, lint, diagnostics, severity, configuration, reference]
+tags: [okf-net, lint, diagnostics, severity, configuration]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: decisions

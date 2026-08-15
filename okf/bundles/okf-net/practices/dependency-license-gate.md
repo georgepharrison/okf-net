@@ -2,7 +2,7 @@
 type: Playbook
 title: The Dependency License Gate
 description: Every dependency must be Apache-2.0-compatible, checked against an allowlist over a generated SBOM in CI.
-tags: [okf-net, licensing, dependencies, ci, compliance, playbook]
+tags: [okf-net, licensing, dependencies, ci, compliance]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: decisions
