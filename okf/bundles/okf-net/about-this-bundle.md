@@ -3,7 +3,7 @@ type: Guide
 title: About This Bundle
 description: What the okf-net bundle covers, who maintains it, and how to consume it.
 tags: [okf-net, bundle, meta, dogfood]
-generated: { by: claude-fable/5, at: 2026-08-14T23:56:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T02:15:00-05:00 }
 sources:
   - id: prd
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/prd.md
@@ -67,12 +67,14 @@ pipeline's `dogfood` job runs `okf lint`, `okf index --check`, and the capture
 manifest's invariant check on every push. [The custodian
 model](practices/custodian-model.md) states exactly what runs where.
 
-Two things that does *not* mean. Nothing is scheduled and nothing refreshes
-itself: no agent watches `stale_after`, and the staleness-refresh loop is a
-later milestone. And every concept here remains **unverified** — no `verified`
-events at all, so the whole bundle sits at the lowest trust tier by
-construction. That is accuracy rather than modesty: nothing here has been
-independently confirmed against its sources by a second actor.
+Two things that does *not* mean. Nothing refreshes itself: the scheduled
+`custodian-inbox` job runs `okf inbox` and publishes what it finds, and every
+step after that — fetching what changed, drafting it, landing it — is a
+person's. And every concept here remains **unverified** — no `verified` events
+at all, so the whole bundle sits at the lowest trust tier by construction and
+every concept in it is on the inbox. That is accuracy rather than modesty:
+nothing here has been independently confirmed against its sources by a second
+actor.
 
 Updates therefore still begin with a person: someone opens a session, loads a
 skill, writes, runs `okf index`, and the `dogfood` job either agrees or fails
