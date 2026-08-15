@@ -222,6 +222,36 @@ public class VerifyCommandTests
         Assert.Contains("okf lint", run.Error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AFileWithNoFrontmatterIsRefusedRatherThanGivenSome()
+    {
+        // `okf verify README.md` is a typo. Stamping it would write the file a frontmatter
+        // block holding `verified` and nothing else — a document `okf lint` rejects for
+        // having no `type`, out of a file that was fine before the command ran.
+        using var tree = new Vault(actor: "ringo");
+        var path = tree.Write("bundles/b/README.md", "# Just a readme\n\nNo frontmatter here.\n");
+        var before = File.ReadAllText(path);
+
+        var run = tree.Run("verify", path);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("has no frontmatter", run.Error, StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void AFileWithNoFrontmatterStopsTheWholeRunBeforeAnythingIsWritten()
+    {
+        using var tree = new Vault(actor: "ringo");
+        var before = tree.Read("bundles/b/widgets.md");
+        var readme = tree.Write("bundles/b/README.md", "# Just a readme\n");
+
+        var run = tree.Run("verify", tree.Path("bundles/b/widgets.md"), readme);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Equal(before, tree.Read("bundles/b/widgets.md"));
+    }
+
     [Theory]
     [InlineData("""rin\"go""")]
     [InlineData(@"ringo\\smith")]

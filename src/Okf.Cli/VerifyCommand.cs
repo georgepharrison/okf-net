@@ -105,16 +105,35 @@ internal static class VerifyCommand
         var documents = new List<string>();
         foreach (var file in files)
         {
+            string text;
             OkfDocument document;
             try
             {
-                document = OkfDocument.Parse(File.ReadAllText(file));
+                text = File.ReadAllText(file);
+                document = OkfDocument.Parse(text);
             }
             catch (OkfDocumentException exception)
             {
                 error.WriteLine(
                     $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has frontmatter " +
                     $"that does not parse ({exception.Message}). Run `okf lint` on the bundle.");
+                return CliApplication.ExitUsage;
+            }
+
+            // `OkfDocument.Parse` hands back the whole text as the body, and nothing else,
+            // exactly when it found no frontmatter block — so this asks the parser rather
+            // than re-deciding what a fence looks like.
+            if (string.Equals(document.Body, text, StringComparison.Ordinal))
+            {
+                // A markdown file with no frontmatter is not a concept, and stamping one
+                // means *writing* it frontmatter: a `verified` block and nothing else,
+                // which is a document `okf lint` rejects for having no `type`, out of a
+                // file that was fine before the command ran. `okf verify README.md` is a
+                // typo, and a typo that rewrites a file is worse than one that stops.
+                error.WriteLine(
+                    $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has no " +
+                    "frontmatter, so it is not a concept. `okf verify` appends to a concept's `verified`; " +
+                    "it does not give a file frontmatter it never had.");
                 return CliApplication.ExitUsage;
             }
 
