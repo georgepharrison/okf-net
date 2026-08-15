@@ -13,5 +13,6 @@
 
 # Reference
 
+* [The Architecture Spine](architecture-spine.md) - A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 * [The Lint Severity Model](lint-severity-model.md) - Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 * [Search Semantics](search-semantics.md) - Deterministic BM25 over field-weighted concept text, links-first results, and filters that never contribute score.
