@@ -77,7 +77,10 @@ decidable today:
    exists to catch.
 4. A `flat` capture is one file named `<id>.<ext>`; a `packet` capture's files
    all live under `<id>/`.
-5. **Nothing sits in `raw/` unrecorded.** A file no entry claims has no
+5. **Nothing sits in `raw/` unrecorded**, beyond the two files that are vault
+   machinery rather than evidence: `manifest.json`, and the `.gitignore` that
+   stops a host repository's own ignore patterns from eating a capture. A file
+   no entry claims has no
    original URL, no hash, and no place in the custodian's work queue. A
    symbolic link is reported for the same reason and never followed: a link is
    not the bytes that were retrieved, and a linked directory is a whole tree

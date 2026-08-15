@@ -24,6 +24,15 @@
       // cited from practices/custodian-model.md), which is too little exposure
       // to justify a promotion the rest of the bundle would never exercise.
       "OKF0307": "error",
+      // OKF0310 raw-item-mutated: an ingested raw/ item no longer matches the
+      // sha256 its capture-manifest entry records. The artifact under raw/ is
+      // the evidence references/agent-skills.md rests on; if it changed, that
+      // concept is citing something that is no longer there. Resolve it by hand
+      // — never by rewriting the manifest, which is how the record is lost.
+      // check-manifest.py has covered this in CI since work item #20 and still
+      // does; the rule brings the same finding into `okf lint`, where the whole
+      // vault's gate already lives.
+      "OKF0310": "error",
 
       // --- Tag governance, live as of Dogfood v2 (work item #20) -----------
       //

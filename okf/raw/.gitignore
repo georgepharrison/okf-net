@@ -1,0 +1,19 @@
+# Nothing in raw/ is ignored, ever.
+#
+# raw/ is the drop zone for captured artifacts and it is COMMITTED: the bundler
+# ships only bundles/, which is exactly what makes these originals a
+# producer-side archive. This repository keeps what was retrieved; a consumer
+# receives the concepts extracted from it plus the original URL. Ignoring any of
+# it would delete the only copy of the evidence the trust model rests on.
+#
+# The danger is not a deliberate rule but an inherited one. An ordinary
+# repository .gitignore carries patterns like `*.log`, `*.tmp`, `*.bak`, `tmp/`
+# or `*.pdf`, all of which are perfectly reasonable for build output and all of
+# which match real captured artifacts. A capture that git silently declines to
+# stage looks exactly like a capture that worked, right up until someone clones
+# the repository and the manifest points at nothing.
+#
+# These two lines re-include everything, directories first, because a file
+# cannot be re-included while a parent directory of it is still excluded.
+!*/
+!*

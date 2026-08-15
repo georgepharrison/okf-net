@@ -42,6 +42,12 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 ENTRY_KEYS = ("id", "form", "files", "capturedAt", "capturedBy", "ingestion")
 
+# Files in `raw/` that are vault machinery rather than captured evidence, and so are
+# never expected to carry a manifest entry. `.gitignore` is `okf init`'s answer to a
+# host repository whose own ignore patterns (`*.log`, `tmp/`) would otherwise silently
+# eat a capture; it re-includes everything under `raw/` and records nothing.
+VAULT_FILES = ("manifest.json", ".gitignore")
+
 
 class Report:
     """Collected violations, each tied to the thing that broke."""
@@ -113,7 +119,7 @@ def raw_entries(raw_dir: str) -> tuple[set[str], set[str]]:
             full = os.path.join(directory, name)
             if os.path.islink(full):
                 links.add(relative(full))
-            elif relative(full) != "manifest.json":
+            elif relative(full) not in VAULT_FILES:
                 files.add(relative(full))
     return files, links
 
