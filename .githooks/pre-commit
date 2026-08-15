@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
-# Lint staged markdown files with markdownlint-cli2, excluding anything under
-# a dot-directory (e.g. .claude/, .github/) and the test fixture bundles, which
-# are deliberately malformed inputs for `okf lint`. Mirrors the exclusions in
-# mise.toml's `lint` task.
+# Pre-commit gate, two steps:
+#
+#   1. Lint staged markdown files with markdownlint-cli2, excluding anything
+#      under a dot-directory (e.g. .claude/, .github/) and the test fixture
+#      bundles, which are deliberately malformed inputs for `okf lint`.
+#      Mirrors the exclusions in mise.toml's `lint` task.
+#   2. Check the vault's capture manifest whenever anything under okf/raw/ is
+#      staged. It is a stdlib-only Python script over a handful of files, so it
+#      costs nothing on the commits that touch it and does not run at all on
+#      the ones that do not. `okf lint` deliberately stays a CI-only gate: it
+#      is a `dotnet run`, and a commit should never wait on a build.
 set -euo pipefail
+
+status=0
 
 mapfile -t staged_md < <(
   git diff --cached --name-only --diff-filter=ACM -- '*.md' |
@@ -11,8 +20,22 @@ mapfile -t staged_md < <(
     grep -vE '^tests/[^/]+/fixtures/'
 )
 
-if [[ ${#staged_md[@]} -eq 0 ]]; then
-  exit 0
+if [[ ${#staged_md[@]} -gt 0 ]]; then
+  mise exec -- markdownlint-cli2 "${staged_md[@]}" || status=1
 fi
 
-mise exec -- markdownlint-cli2 "${staged_md[@]}"
+# No --diff-filter here, deliberately: the markdown arm filters to ACM because
+# there is no point linting a deleted file, but the manifest arm wants ANY
+# staged change touching okf/raw/. A rename is the case that motivates it — git
+# reports `git mv okf/raw/a okf/raw/b` as R, which --diff-filter=ACMD drops,
+# and a renamed capture is precisely what breaks the manifest: the recorded
+# path stops existing and the new one is claimed by nobody.
+if git diff --cached --name-only -- 'okf/raw' | grep -q .; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 okf/custodian/check-manifest.py || status=1
+  else
+    echo "pre-commit: python3 not found; skipping the capture-manifest check (CI still runs it)." >&2
+  fi
+fi
+
+exit "$status"

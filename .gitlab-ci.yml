@@ -96,7 +96,7 @@ test:
 # rather than a published binary deliberately: it is the same source the build
 # and test jobs compile, with no artifact hand-off to go stale between stages.
 #
-# Two commands, two contracts:
+# Three commands, three contracts:
 #   - `lint okf/` picks up okf/okf.json, which promotes OKF0306, OKF0301 and
 #     OKF0307 to error for this vault, so exit 1 covers drift, missing
 #     descriptions and unfollowable provenance as well as §11 conformance
@@ -104,13 +104,31 @@ test:
 #   - `index --check` is the mechanical drift gate; its exit code is fixed at 1
 #     on drift and deliberately does NOT consult severity, so it still fails
 #     even if someone demotes OKF0306 in config.
-# No network access is needed by either (CLI-16).
+#   - `okf/custodian/check-manifest.py` covers what the linter structurally
+#     cannot: OkfLinter walks a BUNDLE ROOT and okf/raw/ sits outside every one
+#     of them, so the capture manifest — the immutability record for everything
+#     captured into this vault — is invisible to `okf lint` by construction
+#     (decisions.md, the capture-and-custodian-skills milestone; CLI-9's raw/
+#     immutability rule stays deferred). It parses the manifest, re-hashes every
+#     captured file against its recorded sha256, and resolves every closed
+#     entry's concept paths. Same exit-code convention as `okf lint`, and it
+#     writes nothing: a script that repairs the immutability record is how the
+#     record is lost.
+# No network access is needed by any of the three (CLI-16).
+#
+# The SDK image ships no python3 (see the `licenses` job's note) and the checker
+# is stdlib-only, so the one apt-get below is the whole dependency story — no
+# pip, no venv. Python rather than bash because decisions §3 puts custodian
+# scripts in the one interpreter arbitrary consumer and CI environments
+# reliably already have.
 dogfood:
   extends: .dotnet
   stage: validate
   script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
     - dotnet run --project src/Okf.Cli -- lint okf/
     - dotnet run --project src/Okf.Cli -- index --check okf/bundles/okf-net
+    - python3 okf/custodian/check-manifest.py
 
 # Enforces AGENTS.md's "dependencies must be Apache-2.0-compatible" rule, which
 # GitLab CE cannot enforce for us (SBOM license scanning and license approval

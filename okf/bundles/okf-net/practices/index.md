@@ -6,9 +6,10 @@
 
 # Guide
 
-* [About the Practices Domain](about.md) - How the okf-net project is run — custodianship, the dependency license gate, and the release scheme.
+* [About the Practices Domain](about.md) - How the okf-net project is run — custodianship, tagging discipline, the dependency license gate, and the release scheme.
 
 # Playbook
 
 * [The Dependency License Gate](dependency-license-gate.md) - Every dependency must be Apache-2.0-compatible, checked against an allowlist over a generated SBOM in CI.
 * [Release and Versioning](release-and-versioning.md) - Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
+* [Tagging Discipline](tagging-discipline.md) - The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.

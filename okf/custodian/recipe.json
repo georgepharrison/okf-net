@@ -1,0 +1,81 @@
+{
+  // okf-net's custodian recipe: what maintains this vault, and the exact
+  // commands that maintenance runs. Read this file to know what the custodian
+  // IS; read okf/okf.json to know what the linter ENFORCES. They are separate
+  // because the second ships as the team contract for anyone linting this
+  // vault, while this one is producer-side machinery the bundler strips.
+  //
+  // The shape follows the reference repo's `okf/samples/*/` recipes — seeds
+  // plus the exact command — with "seeds" being search terms rather than crawl
+  // URLs, because this custodian enriches an existing bundle instead of minting
+  // one from a dataset.
+  //
+  // Parsed as JSONC, like okf.json: comments are the reviewable half of a
+  // configuration file.
+  "recipeVersion": 1,
+  "vault": "okf/",
+  "bundle": "okf/bundles/okf-net",
+
+  // The custodian is two prose skills, REFERENCED by repo path and never
+  // copied here. A vendored copy is a copy that drifts; decisions.md §1 says
+  // the shared toolset is referenced by version, never vendored per project,
+  // and okf-net is its own consumer. In another repo these paths would be a
+  // released version of okf-net; here the toolset and the vault are the same
+  // checkout, so the reference is a path.
+  "skills": [
+    {
+      "name": "okf-capture",
+      "resource": "skills/okf-capture/SKILL.md",
+      "when": "Something was just learned and belongs in the bundle: search first, apply the capture-vs-cite test, drop what cannot defend itself into raw/ with a manifest entry, write the concept."
+    },
+    {
+      "name": "okf-custodian",
+      "resource": "skills/okf-custodian/SKILL.md",
+      "when": "A capture is waiting in raw/, or the bundle needs enrichment, index regeneration, lint clearing, or a log.md line."
+    }
+  ],
+
+  // Search terms an enrichment pass starts from — the bundle's own subject
+  // matter, one per domain plus the cross-cutting lifecycle. `okf search` is
+  // the retrieval step of the doctrine both skills state, so the seeds are
+  // queries rather than URLs.
+  "seeds": [
+    "OKF v0.2 format conformance provenance",
+    "lint severity diagnostics configuration",
+    "index generation drift determinism",
+    "search ranking bm25 field weights",
+    "custodian capture ingestion raw manifest",
+    "release versioning licensing practices"
+  ],
+
+  // The exact commands. `mise run cli --` is the local alias for
+  // `dotnet run --project src/Okf.Cli --`; CI runs the dotnet form directly
+  // (see the `dogfood` job in .gitlab-ci.yml), which is the same source the
+  // build and test jobs compile.
+  "commands": {
+    "search": "mise run cli -- search \"<terms>\" okf/ --limit 10",
+    "index": "mise run cli -- index okf/bundles/okf-net",
+    "indexCheck": "mise run cli -- index --check okf/bundles/okf-net",
+    "lint": "mise run cli -- lint okf/",
+    "checkManifest": "python3 okf/custodian/check-manifest.py"
+  },
+
+  // Where each command runs today. Honest scoping: nothing on this list is an
+  // agent. The gates are mechanical; the enrichment they gate is still invoked
+  // by a person opening a session with the skills above.
+  "triggers": {
+    // Both arms of .githooks/pre-commit. `checkManifest` is conditional: it
+    // runs only when the staged set touches okf/raw/, which is what keeps a
+    // commit that touches nothing else free of it.
+    "pre-commit": [
+      "markdownlint (.githooks/pre-commit)",
+      "checkManifest (only when okf/raw/ is staged)"
+    ],
+    "ci": [
+      "lint",
+      "indexCheck",
+      "checkManifest"
+    ],
+    "scheduled": []
+  }
+}

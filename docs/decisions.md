@@ -943,3 +943,105 @@ the `stable` placeholder — waits for an actual 1.0.0 and stays open.
   section headed "prerelease binaries" that explains `rc` means what it says. The
   `PRIVATE-TOKEN` header in that one-liner is there only because the project is private
   today.
+
+### Proposed decisions (pending review): custodian activation on this repo (work item #20, 2026-08-15)
+
+Dogfood v2. The topic-1 custodian model stops being a paragraph and becomes a directory
+that exists, on the only bundle we own. Everything below was taken while walking
+`skills/okf-capture` and `skills/okf-custodian` literally, as their first real user.
+
+- **`okf/custodian/` holds a recipe, a script, and no skills.** The layout §2 reserves
+  is instantiated as `README.md` (what the custodian is and what runs where),
+  `recipe.json` (the skills by repo path, the search seeds an enrichment pass starts
+  from, the exact commands, the triggers), and `check-manifest.py`. The two skills are
+  **referenced** as `skills/okf-capture/SKILL.md` and `skills/okf-custodian/SKILL.md`,
+  never copied: §1 makes the shared toolset a versioned reference precisely so eight
+  projects do not land on six versions of it, and okf-net is the degenerate case where
+  the toolset and the vault are one checkout, so the reference is a path. `recipe.json`
+  is JSONC like `okf.json` — nothing parses it today, and the comments are the half of a
+  config file a reviewer actually reads.
+- **The capture manifest is checked by a script, not by a rule, and that is the
+  milestone's shape rather than a shortcut.** `OkfLinter` walks a *bundle root*;
+  `okf/raw/` sits outside every one of them; so the manifest's parseability, its recorded
+  hashes, and its ingestion pointers are invisible to every diagnostic the tool has. The
+  capture-and-custodian-skills milestone already deferred CLI-9's `raw/`-immutability rule
+  for three reasons that all still hold. `okf/custodian/check-manifest.py` covers the
+  mechanically decidable part now, in Python 3 stdlib (§3: custodian scripts are Python so
+  they run in arbitrary consumer and CI environments), read-only, offline, with `okf
+  lint`'s exit-code convention. Its invariants: the manifest parses at `manifestVersion`
+  1; every entry carries the six required keys, a unique `<YYYY-MM-DD>-<slug>` id opening
+  on a day that exists, a `flat`/`packet` form, and ISO-8601-with-offset timestamps; every
+  `files[].path` stays inside `raw/`, exists, and hashes to its recorded `sha256`; a `flat`
+  capture is one file named `<id>.<ext>` and a `packet`'s files live under `<id>/`;
+  **nothing sits in `raw/` unclaimed by an entry**, symbolic links included — a link is not
+  the bytes that were retrieved, and a linked directory is a tree the walk cannot see into;
+  and a closed `ingestion` carries `at`, `by`, and `concepts` paths that name files that
+  exist, resolved from the *vault* root. It repairs nothing, on principle.
+  - **What it deliberately does not check**: whether the concept is a good rendering of
+    the artifact (the prose layer, which is the custodian's job and not a script's), and
+    whether the artifact still matches its `originalUrl` (the network, which no gate here
+    may touch — CLI-16).
+  - **The rule this becomes.** When CLI-9 ships, this script is the specification for it:
+    the invariants are the diagnostics, the vault-scoped working set is the new concept,
+    and the `sha256` comparison is the detection the PRD currently describes as git-based.
+- **`okf lint` stays a CI gate; the pre-commit hook gets only what is instant.** The hook
+  runs `check-manifest.py` when something under `okf/raw/` is staged, and nothing
+  otherwise. Putting `okf lint` in a hook would make every commit wait on a `dotnet run`,
+  and ACC-6's requirement is that the path *can* run in a hook, not that it must.
+- **`raw/` is committed, and the `.gitignore` question is settled by Q3 rather than by
+  taste.** The bundler ships only `bundles/`, which is exactly what makes the originals a
+  producer-side archive: this repository keeps what was retrieved, a consumer receives the
+  `references/` concept extracted from it plus the original URL in frontmatter. Ignoring
+  `raw/` would delete the only copy of the evidence the trust model rests on. Confirmed
+  nothing in `.gitignore` matches it.
+- **The first capture is Anthropic's "Equipping agents for the real world with Agent
+  Skills".** It fails the capture-versus-cite test — a living vendor page with no version
+  to pin, already carrying one dated in-place update — so the capture path is exercised
+  honestly rather than by forcing a pinnable source through it. It also earns the slot:
+  this document asserts the skills ship "in the agentskills shape" and cites nothing for
+  what that shape is, and the article's core principle, progressive disclosure, is this
+  project's own *orient by disclosure* pointed at a skill directory instead of a vault.
+  Ingested to `references/agent-skills.md`, cited from `practices/custodian-model.md`.
+- **`sources[].resource` for an in-bundle concept is written bundle-relative, with the
+  leading slash.** `okf-capture` step 6's example writes `resource: references/okapi-bm25.md`
+  from a concept in a sibling directory. §6.2 resolves a relative path *from the concept*,
+  so that form names `<citing-dir>/references/…` and only survives because `LintText`
+  falls back to the bundle root (the #21 leniency, added for Google's own bundles). A
+  consumer implementing §6.2 literally gets a dangling pointer. `/references/agent-skills.md`
+  is unambiguous under the spec's own second form. **The skill's example should be
+  corrected**, since an example is what gets copied.
+- **The bundle's tag vocabulary is closed, and the registry is a ratchet rather than a
+  redesign.** `lint.tagRegistry` in `okf/okf.json` lists 56 tags, derived from what the
+  bundle had already grown, grouped by facet in comments. The audit behind it: 54 distinct
+  tags across 19 concepts, **41 used exactly once**, with visible clusters of one idea
+  wearing three labels (`conformance`/`compatibility`/`interop`/`acceptance`;
+  `conventions`/`layout`; `generation`/`determinism`/`drift`). Consolidation is worth
+  doing and is deliberately not done here — merging tags rewrites frontmatter across every
+  directory, which is a change to review on its own evidence rather than a rider on the
+  one that first made the vocabulary visible.
+  - **OKF0305 (unregistered-tag) → warning, not error.** An error on a one-day-old
+    registry turns the first author reaching for an obviously right new word into a red
+    pipeline. The warning still buys the entire governance benefit — the vocabulary can no
+    longer grow by accident, because CI names any new tag the moment it appears. **The
+    trigger for promoting to error is recorded rather than left to inertia**: after the
+    registry has survived a consolidation pass and a few real additions.
+  - **OKF0304 (missing-tags) → warning, in the same change.** A concept with no `tags` is
+    trivially compliant with any registry; promoting only OKF0305 would make deleting the
+    key the cheapest way to satisfy tag governance. The two rules are one decision.
+  - **The registry's human face is a concept in the bundle**
+    (`practices/tagging-discipline.md`, type `Playbook`): the facets and what each is for,
+    the audit numbers, how a new tag gets added (in the same change as the concept that
+    needs it, with the concept as the argument), and the
+    tag-versus-directory-versus-`type` question that usually dissolves the urge for a new
+    tag. A registry nobody can read is a spell-checker.
+- **Activation is described honestly in the bundle, including what does not run.**
+  `practices/custodian-model.md` and `about-this-bundle.md` now say the custodian is
+  active *and* enumerate the absences: nothing scheduled, no staleness refresh, no
+  verification (every concept remains `unverified` — an actor cannot verify its own work
+  and no second actor has come through), and enrichment still human-initiated. A custodian
+  that overstates itself is worse than none, and the staleness-refresh loop is its own
+  milestone.
+- **The bundle has a `log.md` for the first time.** §9's structure, newest first, opened
+  by this milestone with an `Initialization` entry back-dated to the bundle's creation
+  day. `okf lint` checks the date ordering (`OKF0004`), which is the only thing about the
+  log that is mechanically checkable.

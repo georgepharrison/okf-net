@@ -3,7 +3,7 @@ type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 tags: [okf-net, lint, diagnostics, severity, configuration]
-generated: { by: claude-fable/5, at: 2026-08-14T22:32:01-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T00:12:00-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -100,6 +100,13 @@ This vault's own `okf/okf.json` promotes exactly three rules to error:
 its index and a snippet-less hit in search; and `OKF0307`, because provenance
 is the load-bearing half of the trust model and a source entry with no
 `resource` records something nobody can go and check.
+
+It also lifts the two tag rules off their hidden defaults to **warning**,
+because the bundle now has a registry for them to check against. Warning
+rather than error is a dated choice with a stated trigger for revisiting it;
+the reasoning lives in [tagging
+discipline](../practices/tagging-discipline.md), where a rule that governs
+the vocabulary belongs, rather than here, where the rules are catalogued.
 
 # Deliberate limits
 
