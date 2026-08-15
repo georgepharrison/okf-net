@@ -249,7 +249,7 @@ hook: single process, no daemon, no network, meaningful exit code.
 
   | Warning | Fires when | Default |
   | --- | --- | --- |
-  | Citation integrity | A body footnote label has no matching `sources[].id`, or a `sources[].id` is never cited | warning |
+  | Citation integrity | A body footnote label has no matching `sources[].id`, or a `sources[].id` is never cited by a footnote *reference* (a definition alone is the note, not a claim attributed to the source) | warning |
   | Staleness | `today >= stale_after` | warning, never blocks by default |
   | Source drift | A `sources[].last_modified` is newer than `generated.at` (CORE-8) | warning, never blocks by default |
   | Broken internal link | A bundle-internal markdown link resolves to no file (§6.1: consumers MUST tolerate) | info by default; promotable like any diagnostic (Q5, resolved) |
@@ -259,6 +259,12 @@ hook: single process, no daemon, no network, meaningful exit code.
   | Unregistered tag | A tag is absent from the bundle's tag registry (beyond-spec extension) | off (opt-in) |
   | Self-verification | Any `verified[].by` equals `generated.by` | warning |
   | Human actor on CI commit | `generated.by` is a `human:` actor on a CI-authored commit | warning (see Q9) |
+  | Missing source resource | A `sources[]` entry carries no `resource`, which §5.1 requires within an entry | warning |
+  | Unresolvable source resource | A `sources[].resource` written as a path names nothing inside the bundle (§6.2); absolute URLs and §5.1 scope descriptors are never checked | info |
+  | Link leaves the bundle | A markdown link resolves outside the bundle root (§6.2), which was previously unreported and so indistinguishable from a correct link | info |
+
+  The last three rows were added from the dogfood friction log (work item #21, from
+  #19's note_168); see decisions.md, "the lint/search friction milestone".
 
 - **CLI-8 — `okf init` scaffolding.** `okf init` creates the project layout from
   decisions §2.
