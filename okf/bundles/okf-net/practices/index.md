@@ -11,5 +11,5 @@
 # Playbook
 
 * [The Dependency License Gate](dependency-license-gate.md) - Every dependency must be Apache-2.0-compatible, checked against an allowlist over a generated SBOM in CI.
-* [Release and Versioning](release-and-versioning.md) - Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
+* [Release and Versioning](release-and-versioning.md) - Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing release the installer can verify.
 * [Tagging Discipline](tagging-discipline.md) - The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.

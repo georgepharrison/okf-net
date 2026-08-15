@@ -2,6 +2,8 @@
 
 ## 2026-08-15
 
+* **Update**: `curl -fsSL https://get.tychostation.dev/install.sh | sh` became real, and [release and versioning](practices/release-and-versioning.md) gained the half it had been describing as absent. Every tag now publishes two more assets — `latest.json`, which names each asset's relative path, size and `sha256`, and the `install.sh` that reads it — so a release describes itself. The artifact host pulls from the package registry rather than the runner pushing to it, so nothing needs inbound access to it; the manifest is unsigned for now, on the same reasoning the bundler used about `okf-bundle.json`; and the host resolves only inside Ringo's network until the public-exposure spike says otherwise.
+
 * **Update**: `okf bundle` shipped and the bundler stopped being a paragraph — [bundling and distribution](toolset/bundling-and-distribution.md) is the new concept, `distribution` is the first word added to the closed tag registry since it closed (recorded in [tagging discipline](practices/tagging-discipline.md)), and every release now carries this bundle as a second asset ([release and versioning](practices/release-and-versioning.md)). The cross-bundle reference question the decision log had carried open since the beginning is answered there: the link dangles, and the distribution manifest says so.
 
 * **Update**: `okf init` shipped, and this vault became the thing it reproduces — a test scaffolds a fresh vault and compares its skeleton against this one. The comparison found `okf/raw/.gitignore` missing here, and it was added. Recorded in [bundle self-description conventions](format/bundle-self-description.md) and [vaults, registry, and config](toolset/vault-registry-and-config.md).

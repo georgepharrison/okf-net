@@ -1,9 +1,9 @@
 ---
 type: Playbook
 title: Release and Versioning
-description: Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
+description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing release the installer can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T17:23:14Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,7 +67,7 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces two artifacts under one package version. The first
+The `publish` job produces four artifacts under one package version. The first
 is a self-contained NativeAOT `linux-x64` binary, of the kind described in
 [library, CLI, MCP layering](../toolset/library-cli-mcp-layering.md); it goes
 to the project's generic package registry as `okf/<version>/okf-linux-x64`.
@@ -78,12 +78,52 @@ archive is byte-reproducible from the tag — is [bundling and
 distribution](../toolset/bundling-and-distribution.md). The release gains an
 asset link per artifact.
 
+The other two make a release **self-describing**. `latest.json` names the
+version and, per asset, a relative path, a size and a `sha256` computed in the
+job from the exact bytes it uploaded. `install.sh` is the installer that reads
+it, uploaded from the repository so that the installer a release hands you is
+the one that release was cut with, rather than whatever is on `main` today. The
+installer is itself in the asset map: it cannot use its own digest, but a host
+that republishes a release can, which is the only check the file people pipe
+into `sh` would otherwise have.
+
+# Installing
+
+`curl -fsSL https://get.tychostation.dev/install.sh | sh` fetches
+`latest.json`, verifies the binary against the digest in it, and installs
+atomically to `~/.local/bin/okf`. `--version` pins a release, `--dry-run`
+reports without writing, and re-running is safe. Redirects are followed, but an
+`https` base URL is only ever followed to `https` — a single hop down to
+cleartext would let one party write both the binary and the digest it is
+checked against.
+
+The host it names is an internal nginx that pulls each release from the
+package registry and serves it read-only. **It resolves only inside Ringo's
+network**, and that is a deliberate stopping point rather than an oversight: an
+unauthenticated host serving a script people pipe into `sh` needs auth, rate
+limiting and a signed manifest before it faces the internet, and none of those
+exist yet.
+
+The manifest is **unsigned** for now, which is the same deferral [bundling and
+distribution](../toolset/bundling-and-distribution.md) makes about
+`okf-bundle.json`, made for the same reason. A digest proves the bytes match
+the manifest; it proves nothing about who wrote the manifest. Signing is key
+management, not hashing, and it is tracked with the public-exposure work.
+
+The sync runs on the **host**, pulling from the registry, rather than on the
+runner pushing to the host. A push needs a credential on the shared runner that
+can write to the artifact host's filesystem; a pull needs only a read-only
+registry token held by the host, and nothing needs inbound access to it at all.
+
 **Written, not yet run.** Only a tag pipeline runs the job, and no tag has
-been cut since it was written, so nothing below is observed behaviour — it is
-what the job is built to do. No release published so far carries a binary.
-What the local evidence does cover: the pipeline is valid against the
-instance, the merged YAML confirms the job is tag-only and every other job
-branch-only, and the API endpoints it calls were probed read-only. What it
+been cut since it was written, so nothing above is observed behaviour — it is
+what the job is built to do. No release published so far carries a binary,
+which also means the artifact host has nothing to serve and the install
+one-liner has nothing to install. What the local evidence does cover: the
+pipeline is valid against the instance, the merged YAML confirms the job is
+tag-only and every other job branch-only, the API endpoints it calls were
+probed read-only, and the manifest the job writes was generated locally from
+the same block and shown to round-trip through the installer's reader. What it
 cannot cover is the job end to end. Treat the first tag as the test.
 
 The version is the tag without its leading `v`, so a downloaded binary answers
@@ -91,16 +131,17 @@ The version is the tag without its leading `v`, so a downloaded binary answers
 as build metadata — an rc tag can be rebuilt, so the version alone does not
 identify a binary.
 
-Two properties are worth naming because later work leans on them. The download
-URL is **predictable** from the version alone, which is the load-bearing half
-of a `curl | sh` installer that does not exist yet. And attaching the asset
-link is **idempotent**: link names and URLs must be unique within a release, so
-the job asks whether the link is already there rather than posting blindly and
-swallowing the error — a rerun of a tag pipeline is a normal thing to do.
+Two properties are worth naming because the installer leans on both. The
+download URL is **predictable** from the version alone, which is what lets
+`latest.json` describe a release with a relative path and lets a version be
+pinned by name. And attaching the asset link is **idempotent**: link names and
+URLs must be unique within a release, so the job asks whether the link is
+already there rather than posting blindly and swallowing the error — a rerun of
+a tag pipeline is a normal thing to do, and the two new assets go through the
+same loop as the first two.
 
 Still open from PRD Q10: `Okf.Core` as a NuGet package on the instance's
-built-in registry, builds for platforms other than glibc `linux-x64`, and the
-installer script itself.
+built-in registry, and builds for platforms other than glibc `linux-x64`.
 
 The point of shipping a binary rather than a runtime-dependent package is
 stated in the goals and worth repeating here: **the implementation language

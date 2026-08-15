@@ -2018,3 +2018,160 @@ scoring in JavaScript would be a second implementation of a judgement the librar
 makes. No dogfood concept was added for the tag registry's sake: a concept about the site
 wants a `site` tag, `okf/okf.json` holds the closed registry, and that file is off-limits on
 this branch (three work items are in flight at once). It is a one-line follow-up.
+
+### Proposed decisions (pending review): self-hosted install (work item #25, 2026-08-15)
+
+`curl -fsSL https://get.tychostation.dev/install.sh | sh` now exists, and with it the two
+things the version-stamping milestone deferred: a release that describes itself, and a host
+that serves it. The infrastructure half lives in
+[tychostation/iac!30](https://gitlab.tychostation.dev/tychostation/iac/-/merge_requests/30)
+— nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www`.
+
+**Local-only, and the README says so where a reader will hit it.** `get.tychostation.dev`
+has no public DNS record and no public route. That is not a stepping stone that got
+forgotten: an unauthenticated host serving a script people pipe into `sh` is a different
+security object from an internal one, and the difference is auth, rate limiting, abuse
+handling and a signed manifest, none of which exist. Ringo wanted to stop losing content
+this week, and the local host does that today; #26 owns the rest. The caveat is a block
+quote inside the install section rather than a footnote, because the failure mode for
+everyone else is a name that will not resolve, and a reader deserves to know why before
+they debug their DNS.
+
+**The manifest is unsigned, deliberately, and this is the bundler's deferral again.** The
+bundler shipped `okf-bundle.json` with per-file `sha256` and no signature, on the reasoning
+that a digest inside the artifact proves integrity against corruption and proves nothing
+about origin — and that signing is a key-management problem, not a hashing one. `latest.json`
+lands in exactly the same place for exactly the same reason. What the `sha256` in it buys is
+real and worth naming precisely: it is computed in the `publish` job from the exact bytes
+that job uploaded, so it detects a truncated download, a registry that served something
+else, and a byte flipped in transit. What it does not buy is any evidence that the manifest
+itself is the one okf-net wrote. Over a link that is internal-only, that gap is acceptable;
+the moment #26 opens the host, it is not, and #26 owns both halves.
+
+**`latest.json` is the release contract, and it carries two locations per asset.**
+
+```json
+{
+  "version": "1.0.0-rc.24",
+  "tag": "v1.0.0-rc.24",
+  "generatedAt": "2026-08-15T13:30:00Z",
+  "assets": {
+    "okf-linux-x64": {
+      "path": "v1.0.0-rc.24/okf-linux-x64",
+      "size": 18234880,
+      "sha256": "8ba4dc…",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/7/packages/generic/okf/1.0.0-rc.24/okf-linux-x64"
+    },
+    "okf-net-knowledge.tar.gz": { "path": "…", "size": 0, "sha256": "…", "url": "…" },
+    "install.sh": { "path": "…", "size": 0, "sha256": "…", "url": "…" }
+  }
+}
+```
+
+**The installer is in its own manifest, and that entry is the one that matters most.**
+`install.sh` is the single file in a release that a stranger pipes into `sh`. It cannot use
+its own digest — by the time it runs it has already run — so the entry buys nothing for the
+one-liner itself. What it buys is a check for everyone who republishes a release: the
+artifact host pulls the installer over TLS with a token and then serves it to the network,
+and without a digest it has nothing to compare those bytes against. With one, `sync.sh` can
+verify the installer the same way it already verifies the binary and the bundle, and so can
+any future mirror. It is not a signature and it does not pretend to be; it closes the gap
+between the bytes the `publish` job published and the bytes a host serves, which is a
+different gap from the one #26 owns.
+
+`path` is relative to whatever base URL the installer was handed; `url` is the canonical,
+authenticated package-registry URL. Both, rather than one, because there are two consumers
+with opposite needs. The installer must not know about GitLab at all — the whole point of
+the artifact host is that it holds the read token so a consumer does not have to — so it
+resolves `path` against `OKF_INSTALL_URL`, and the same manifest therefore describes the
+release from the artifact host, from a laptop, or from wherever #26 lands, with no rewrite
+step in between. The host's `sync.sh` needs the opposite: an absolute URL it can pull from
+with a token. A manifest carrying only absolute registry URLs would have forced the sync
+script to rewrite the file it just verified, which is how a manifest stops describing what
+it describes.
+
+`generatedAt` is the commit's timestamp normalised to UTC `Z`, not the job's clock — the
+same rule and the same reason as the bundler's `--generated-at`: it is the only clock
+reading in the path, so pinning it keeps a rerun of a tag pipeline byte-identical. The
+digests are computed in the job from the files it uploaded, never from a rebuild.
+
+**The installer reads JSON with `sed`, and that is a considered choice.** A script piped
+into `sh` on a machine where nothing is installed yet may have neither `jq` nor `python3`,
+and requiring one to read three scalars would trade the entire value of a single-command
+install for a dependency. It is affordable only because okf-net writes this file: every
+value in it is a semver, a relative path, a hex digest or an RFC3339 stamp, none of which
+contain whitespace or quotes, and no asset object nests another. The obligation that buys
+runs the other way and is written down in both places — the `publish` job must keep those
+guarantees, and `tests/install-sh` holds a fixture shaped exactly like the job's output, so
+the two drift apart in a test rather than in a user's terminal.
+
+**Verification happens before anything is written outside the temp directory.** Download to
+`mktemp -d`, hash, compare, and only then stage into the install directory and rename. A
+mismatch is fatal and prints both digests rather than `sh`'s idea of "FAILED": the two
+hashes are what tells a truncated download apart from the wrong file. The final `mv` is
+made from a staging copy created *inside* the install directory, because rename is atomic
+only within a filesystem and `/tmp` is very often a different one — and the file being
+replaced may be the binary currently running.
+
+**Push was rejected; the host pulls.** Work item #25 offered rsync/scp from the CI runner
+over Tailscale as the alternative. It needs an SSH credential on the shared runner that can
+write to tycho's filesystem, which puts every job on that runner — including one from a
+branch nobody reviewed — one `cat` away from a key that writes to the box serving the
+install script. The pull side inverts the trust: the host holds a read-only registry token,
+nothing anywhere needs inbound access to it, and the credential's blast radius is "can read
+packages we publish on purpose". It also survives the runner being down, moved or replaced,
+and needs no Tailscale, which leaves #26 free to decide the network story on its own terms.
+`sync.sh` re-verifies each asset against `latest.json` on the way in, publishes version
+directories by rename so nginx never serves a half-written release, and is idempotent.
+
+**Shell gets a shell test suite, which is a new precedent here.** Everything else in this
+repo is tested by xunit running the CLI in process. `install.sh` cannot be: it is POSIX sh,
+it talks HTTP, and its failure mode is a half-installed binary on a stranger's machine. So
+`tests/install-sh/run.sh` serves a fixture www tree with `python3 -m http.server` and runs
+the real installer against it as a subprocess, asserting exit codes and filesystem effects —
+happy path, idempotent re-run, `--version` pin, `--dry-run` writing nothing, a `sha256`
+mismatch installing nothing, and an unsupported OS and architecture refused by name. The
+platform cases put a fake `uname` earlier on `PATH` rather than adding a test hook to the
+installer, so the shipped detection code is what runs.
+
+Two choices inside it are worth naming. The harness is bash while the script under test is
+run under `sh` **and** under `dash` when dash is present — which it is on Debian, so CI
+always covers both, and a bashism the developer's bash forgave is exactly what would reach a
+user's box. And the CI job runs on `python:3.12-slim` with `before_script: []`: the default
+image would provision the whole dotnet SDK to run a shell script, and the `.dotnet` image
+has no python3. It is now the cheapest job in the pipeline.
+
+Per AGENTS.md, the suite was shown to constrain the code before it was trusted: with the
+`sha256` comparison stubbed out, the mismatch cases fail; with the architecture check
+removed, the platform cases fail; with `--version` ignored, the pin cases fail; with
+`--dry-run`'s early exit removed, the "creates no install dir" cases fail. One assertion was
+rewritten during that pass — it matched the label `manifest:`, which also appears in the
+installer's ordinary output, so it passed against an installer that compared nothing. It now
+asserts the two digests themselves.
+
+**Deliberately not done.** No checksum file beside the binary (`latest.json` is the
+checksum file, and a second one is a second thing to keep in step). No `--prefix` flag —
+`OKF_INSTALL_DIR` is the same capability and composes with `curl … | sh`, where argument
+passing needs `sh -s --`. No uninstall: the installer writes exactly one file, and `rm` is
+the uninstaller. No non-linux-x64 assets, so the manifest's asset map has three entries and
+room for more; that is PRD Q10's problem, not this one's.
+
+**The installer follows redirects, but an `https` base URL is followed only to `https`.**
+Redirects have to work — the artifact host is allowed to move, and #26 may put something in
+front of it — but a `curl | sh` that follows one 302 down to `http://` has thrown away
+everything the rest of this design bought. Both the manifest and the binary would come from
+whoever answered, and a `sha256` compared against a manifest fetched over the same cleartext
+channel proves nothing at all: the attacker writes both numbers. So `--proto '=https'`
+covers the first hop and `--proto-redir '=https'` every hop after it (`--https-only` is
+wget's one flag for both), and only when the caller asked for `https` in the first place —
+an `http` base URL is pinned to no scheme, because that is what the acceptance suite serves
+the fixture over and a silent upgrade would be as much of a surprise as a silent downgrade.
+Certificates are checked against the system trust store; nothing disables that and nothing
+pins a certificate, so the host can rotate its own without reissuing this script.
+
+**Two spellings of one directory.** The PATH hint compares resolved paths, not strings:
+`PATH` entries pick up trailing slashes and `~/.local/bin` is often a symlink into a
+dotfiles checkout, and in both cases a string comparison prints an `export PATH=…` for a
+directory that is already on `PATH`. Wrong advice is worse than none — the reader follows
+it, it does not help, and the rest of the output is now suspect. `cd -P && pwd -P` resolves
+one in POSIX sh; `readlink -f` is GNU.
