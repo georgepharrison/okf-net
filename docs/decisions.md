@@ -261,6 +261,9 @@ question in `prd.md` §6.
   | `OKF0304` | missing-tags | No `tags` | hidden (opt-in) |
   | `OKF0305` | unregistered-tag | Tag absent from `lint.tagRegistry` | hidden (opt-in) |
   | `OKF0306` | generated-index-drift | A generated `index.md` differs from what `okf index` would emit | warning (added in the `okf index` milestone) |
+  | `OKF0307` | missing-source-resource | A `sources[]` entry carries no `resource` (§5.1) | warning (added in the lint/search friction milestone) |
+  | `OKF0308` | unresolvable-source-resource | A `sources[].resource` written as a path names nothing in the bundle (§6.2) | info (same) |
+  | `OKF0309` | link-leaves-bundle | A markdown link resolves outside the bundle root (§6.2) | info (same) |
 
 - **Deferred out of this milestone, deliberately.** (a) CLI-9's two rules —
   generated-file drift and `raw/` ingestion immutability — wait on `okf index` and the
@@ -272,7 +275,8 @@ question in `prd.md` §6.
   `* [Title](link) - description` entry form; `log.md` is checked for ISO `##` date
   headings in newest-first order. Anything stricter risks erroring on a foreign bundle,
   which ACC-1 forbids. (d) A link that resolves *outside* the bundle root is not
-  bundle-internal and is not reported at all.
+  bundle-internal and is not reported at all. **(d) superseded by the lint/search
+  friction milestone below: it is now reported as `OKF0309` at info.**
 
 ### Proposed decisions (pending review): lint review flags (2026-08-14)
 
@@ -298,7 +302,9 @@ question in `prd.md` §6.
   Accepted for now (info/warning severities only).
 - **Footnote definitions count as citations:** a `sources[].id` that appears only in
   a footnote *definition* (never referenced in prose) escapes OKF0102. Accepted;
-  revisit if it masks real drift.
+  revisit if it masks real drift. **Revisit trigger fired; reversed in the
+  lint/search friction milestone below** — it masked real drift on the first
+  bundle authored under the rule.
 - **`okf version` prints the assembly default (1.0.0)** until CLI-17 release
   plumbing stamps the real version at publish time.
 
@@ -636,3 +642,98 @@ filters.
   Progress, cancellation, and logging notifications — every call is a
   millisecond-scale filesystem read. (e) Registry scope, for the same reason
   `okf search` defers it: `okf register` does not exist yet.
+
+### Proposed decisions (pending review): the lint/search friction milestone (work item #21, 2026-08-14)
+
+Five fixes taken straight from the dogfood friction log (work item #19, note_168).
+Each is a place the tools fought the first real author working under them.
+
+- **`OKF0102` now requires a footnote *reference*, not merely a definition — the
+  earlier allowance's revisit trigger fired.** The lint-review flag above accepted
+  definitions-count-as-citations and said "revisit if it masks real drift"; it masked
+  real drift on the very first bundle authored under the rule
+  (`toolset/vault-registry-and-config.md` declared `sources[].id: prd` and never cited
+  it, and markdownlint's MD053 caught what `okf lint` did not — friction #3). A
+  `[^id]: …` line is the note itself; the citation is the `[^id]` in the prose, which
+  is what §5.1's "a stable key used to attribute individual claims" describes. Both
+  occurrence forms still feed `OKF0101`: a definition for a label no source declares is
+  as dangling as a reference to one.
+  - **The scanner's definition test was wrong in a way the rule change exposed.**
+    `MarkdownFootnote.IsDefinition` treated *any* footnote at column 0 as a definition,
+    colon or not. Google's ga4 bundle cites sources with a bare `[^sample_queries]` on
+    its own line under a SQL block, and reading that as a definition would have made
+    seven genuinely-cited sources look uncited the moment OKF0102 tightened. The colon
+    is now what makes a definition. Measured effect on the reference bundles: **two new
+    warnings, both true positives** (`acme_retail`'s `revenue-policy`, declared and
+    footnoted but never referenced, in `metrics/gross-margin.md` and
+    `computations/gross-margin-period.md`); ga4, stackoverflow, and crypto_bitcoin are
+    unchanged. ACC-1 is unaffected — warnings were always expected there.
+- **`sources[].resource` is validated, in two rules, both in the hygiene range.**
+  §5.1 makes `resource` REQUIRED within an entry, but §11 does not, so neither errors
+  by default. `OKF0307` (**warning**) fires when an entry has no `resource` at all: a
+  provenance record nobody can follow. `OKF0308` (**info**) fires when a `resource`
+  written as a *path* names nothing inside the bundle — the same tolerance as broken
+  links, for the same reason. The hygiene range rather than provenance `01xx`: `01xx`
+  is the citation-integrity family (does the body's claim join to a recorded source),
+  while these two ask whether a recorded pointer is usable at all, which is the
+  "degrades usability" test the `03xx` range is defined by. The range is fixed by
+  category and never reused, so this is the call that has to be made once.
+  - **What counts as a path is deliberately narrow.** §5.1 explicitly allows a
+    population or scope descriptor (`all queries in BigQuery project X`) and §6.2 an
+    absolute URL, and neither is checkable offline (CLI-16 forbids the network anyway).
+    A value is only resolved when it is unambiguously a path: no whitespace, no URI
+    scheme, and either explicit path syntax (`/`, `./`, `../`), a `.md` suffix, or a
+    directory segment followed by a name carrying an extension. SPEC §5.1's own
+    `dashboards/exec-revenue` and a dotted `project.dataset.table` therefore read as
+    descriptors. A missed typo costs less than a false info on a foreign bundle.
+  - **Resolution is document-relative first, then bundle-root-relative.** §6.2 says a
+    relative path is relative, and `LintText.TryResolveLink` resolves links that way —
+    but three of Google's four reference bundles write root-relative source paths with
+    no leading slash (`policies/margin-standard.md` cited from `metrics/`), and a
+    pointer that names a real file in the bundle is doing its job whichever base the
+    author had in mind. Reporting those four would have been the rule's entire yield on
+    the reference bundles. A typo, or a path that leaves the root, still fails both
+    bases. Net effect on all four reference bundles and the dogfood bundle: **zero
+    diagnostics**.
+- **`OKF0309` (`link-leaves-bundle`, info) reports a link that resolves outside the
+  bundle root.** It was previously not bundle-internal and therefore silent, which is
+  indistinguishable from correct (friction #4) — while a bundle whose links only work
+  from inside this checkout is exactly what the portability claim in §1 rules out. Info,
+  never error by default: §6.2 grants relative paths and says nothing about staying
+  inside the root. This is a *report*, not a control: the MCP milestone's symlink and
+  `..` containment already refuse to **read** outside a bundle root, and nothing here
+  reads anything.
+- **The lint summary says what ran; `--verbose` says it per rule.** `Checked 21 files
+  in 1 bundle (18 rules: 16 active, 2 hidden): 0 errors, 0 warnings, 0 infos.` A clean
+  run and a disabled one printed the same line before (friction #11), so a
+  misconfiguration that silenced the gate read as a passing gate. `--verbose` now lists
+  **every** rule with its effective severity and the layer that set it, not only the
+  ones a config layer moved: an unexpected default is as surprising as an unexpected
+  override.
+  - **The JSON output does not gain a run-metadata envelope; stderr carries it.** PRD
+    CLI-11/CLI-15 fix `--json` as a bare array, and MCP-3 pins the same shape for
+    `okf_search`; wrapping it in `{ "run": …, "diagnostics": [...] }` would break every
+    consumer that reads element 0 as a record, for a convenience. In `--verbose` the
+    same counts are written to stderr (`okf: checked …`, `okf: 18 rules: …`,
+    `okf: diagnostics …`), which is where `--verbose` already speaks and which is
+    explicitly not part of the machine-readable contract. Revisit only if a consumer
+    needs the metadata *without* a terminal, and then as a separate `--format` value
+    rather than as a change to this one.
+- **Search snippets flatten link syntax the way they already flatten emphasis.** A
+  window landing inside a link target rendered `[The **custodian** model](**custodian**-model.md)`
+  — half a link, with the match marked inside a URL (friction #12). Link text is prose
+  and stays; the target goes, along with the brackets and parentheses, before the window
+  is chosen, so the marker offsets and the surrogate-pair snapping all operate on the
+  same flattened string as before. A whole-line link *reference definition*
+  (`[label]: ../path.md`) is dropped: every character of it is address. A footnote
+  definition is not — it carries prose. Only complete single-line link forms are
+  rewritten, so `array[0]`, `[^src]`, and an unclosed bracket survive as written.
+  - **Measured over all four reference bundles and the dogfood bundle** (≈450 queries,
+    3200 snippets): every changed snippet came from a document containing markdown
+    links, and **no snippet from a link-free document changed** — the byte-comparison
+    the change was gated on.
+- **Not addressed here, deliberately:** the fenced-code half of friction #12 (a snippet
+  whose window lands in an ASCII diagram). Dropping fenced blocks from the snippet
+  source is a corpus question, not a rendering one — the body is scored with the fences
+  in it, so a match could then have no window to show — and it belongs with the
+  scoring revisit, not with a markdown-flattening fix.

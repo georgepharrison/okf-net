@@ -474,11 +474,15 @@ public static class OkfSearchEngine
 
     /// <summary>
     /// Reduces markdown to the one line a snippet is made of: heading markers, one leading
-    /// list or block-quote marker per line, and every emphasis asterisk are dropped, and
-    /// runs of whitespace collapse to one space. Only the snippet is transformed — the
-    /// concept file is untouched and scoring reads the raw body. Asterisks go because the
-    /// snippet marks its own matches with <c>**</c>, and a body that already carries bold
-    /// would otherwise render as <c>****term****</c>.
+    /// list or block-quote marker per line, every emphasis asterisk, and every link target
+    /// are dropped, and runs of whitespace collapse to one space. Only the snippet is
+    /// transformed — the concept file is untouched and scoring reads the raw body.
+    /// Asterisks go because the snippet marks its own matches with <c>**</c>, and a body
+    /// that already carries bold would otherwise render as <c>****term****</c>. Link
+    /// targets go for the same reason one step further out: a window that lands inside
+    /// <c>[text](target)</c> emits half a link, and marking a term inside a URL
+    /// (<c>[The **custodian** model](**custodian**-model.md)</c>) is both unreadable and
+    /// invalid markdown. The link *text* is prose and stays.
     /// </summary>
     private static string Flatten(string? text)
     {
@@ -516,14 +520,15 @@ public static class OkfSearchEngine
                 start++;
             }
 
-            for (var i = start; i < line.Length; i++)
+            if (IsLinkReferenceDefinition(line, start))
             {
-                if (line[i] != '*')
-                {
-                    plain.Append(line[i]);
-                }
+                // `[label]: ../path.md` is address, not prose: every character of it is
+                // the target a snippet must not show. A footnote definition
+                // (`[^label]: …`) is the opposite — it is the note itself — and is kept.
+                continue;
             }
 
+            AppendFlattened(plain, line, start);
             plain.Append(' ');
         }
 
@@ -547,6 +552,114 @@ public static class OkfSearchEngine
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Whether the line is a link reference definition, <c>[label]: destination</c>. A
+    /// footnote definition is deliberately not one: it carries prose.
+    /// </summary>
+    /// <param name="line">The trimmed line.</param>
+    /// <param name="start">Where the line's content begins.</param>
+    /// <returns><see langword="true" /> when the whole line is a link address.</returns>
+    private static bool IsLinkReferenceDefinition(string line, int start)
+    {
+        if (start >= line.Length || line[start] != '[' || (start + 1 < line.Length && line[start + 1] == '^'))
+        {
+            return false;
+        }
+
+        var close = line.IndexOf(']', start + 1);
+        return close > start + 1 && close + 1 < line.Length && line[close + 1] == ':';
+    }
+
+    /// <summary>
+    /// Appends one line's content with emphasis asterisks and link targets removed. A
+    /// link is recognized only in its complete single-line form — <c>[text](target)</c>,
+    /// <c>[text][label]</c>, and the image forms with a leading <c>!</c> — so a lone
+    /// bracket in prose, a footnote reference (<c>[^id]</c>), and a link split across
+    /// lines all survive as written rather than being guessed at.
+    /// </summary>
+    /// <param name="plain">The buffer to append to.</param>
+    /// <param name="line">The trimmed line.</param>
+    /// <param name="start">Where the line's content begins, after its block markers.</param>
+    private static void AppendFlattened(StringBuilder plain, string line, int start)
+    {
+        for (var i = start; i < line.Length; i++)
+        {
+            var character = line[i];
+            if (character == '*')
+            {
+                continue;
+            }
+
+            if (character is '[' or '!' && TryLink(line, i, out var text, out var end))
+            {
+                // The text is flattened in turn: it may carry emphasis, and a nested
+                // image (`[![alt](img)](href)`) is a link inside a link.
+                AppendFlattened(plain, text, 0);
+                i = end;
+                continue;
+            }
+
+            plain.Append(character);
+        }
+    }
+
+    /// <summary>
+    /// Matches a complete inline or reference link starting at <paramref name="index" />.
+    /// </summary>
+    /// <param name="line">The line being read.</param>
+    /// <param name="index">The offset of the <c>[</c>, or of the <c>!</c> of an image.</param>
+    /// <param name="text">The link's text, when one was matched.</param>
+    /// <param name="end">The offset of the link's last character, when one was matched.</param>
+    /// <returns><see langword="true" /> when a link was matched.</returns>
+    private static bool TryLink(string line, int index, out string text, out int end)
+    {
+        text = string.Empty;
+        end = index;
+
+        var open = line[index] == '!' ? index + 1 : index;
+        if (open >= line.Length || line[open] != '[' || (open + 1 < line.Length && line[open + 1] == '^'))
+        {
+            return false;
+        }
+
+        var depth = 0;
+        var close = -1;
+        for (var i = open; i < line.Length; i++)
+        {
+            if (line[i] == '[')
+            {
+                depth++;
+            }
+            else if (line[i] == ']' && --depth == 0)
+            {
+                close = i;
+                break;
+            }
+        }
+
+        if (close < 0 || close + 1 >= line.Length)
+        {
+            return false;
+        }
+
+        var opener = line[close + 1];
+        var closer = opener switch { '(' => ')', '[' => ']', _ => '\0' };
+        if (closer == '\0')
+        {
+            return false;
+        }
+
+        var target = line.IndexOf(closer, close + 2);
+        if (target < 0)
+        {
+            return false;
+        }
+
+        text = line[(open + 1)..close];
+        end = target;
+        return true;
     }
 
     private static string? Scalar(OkfMapping frontmatter, string key) =>

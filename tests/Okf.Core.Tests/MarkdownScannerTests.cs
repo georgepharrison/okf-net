@@ -61,6 +61,27 @@ public class MarkdownScannerTests
     }
 
     [Fact]
+    public void AFootnoteAloneOnALineIsAReferenceUnlessItCarriesTheColon()
+    {
+        var scan = MarkdownScanner.Scan(
+            """
+            SELECT 1;
+
+            [^src]
+
+            [^src]: The source.
+            """,
+            1);
+
+        // The colon is what makes a definition (GFM/pandoc footnote syntax, and the form
+        // `[^src]` alone on a line is how Google's ga4 bundle cites a source under a SQL
+        // block). Reading a bare label as a definition would make a cited source look
+        // uncited to OKF0102.
+        Assert.Equal([false, true], scan.Footnotes.Select(note => note.IsDefinition));
+        Assert.Equal([3, 5], scan.Footnotes.Select(note => note.Line));
+    }
+
+    [Fact]
     public void RecordsHeadingLevelsAndBullets()
     {
         var scan = MarkdownScanner.Scan(

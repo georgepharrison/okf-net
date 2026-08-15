@@ -123,6 +123,15 @@ public static class OkfRules
     /// </summary>
     public const string GeneratedIndexDrift = "OKF0306";
 
+    /// <summary>A <c>sources[]</c> entry carries no <c>resource</c> (§5.1 requires one).</summary>
+    public const string MissingSourceResource = "OKF0307";
+
+    /// <summary>A <c>sources[].resource</c> path names nothing inside the bundle (§6.2).</summary>
+    public const string UnresolvableSourceResource = "OKF0308";
+
+    /// <summary>A markdown link resolves outside the bundle root (§6.2).</summary>
+    public const string LinkLeavesBundle = "OKF0309";
+
     private static readonly OkfRule[] Catalog =
     [
         new(
@@ -215,6 +224,24 @@ public static class OkfRules
             OkfRuleCategory.Hygiene,
             OkfSeverity.Warning,
             "A generated index.md differs from what `okf index` would emit (run `okf index`)."),
+        new(
+            MissingSourceResource,
+            "missing-source-resource",
+            OkfRuleCategory.Hygiene,
+            OkfSeverity.Warning,
+            "A sources[] entry carries no resource; §5.1 requires one within an entry."),
+        new(
+            UnresolvableSourceResource,
+            "unresolvable-source-resource",
+            OkfRuleCategory.Hygiene,
+            OkfSeverity.Info,
+            "A sources[].resource written as a path names nothing inside the bundle (§6.2)."),
+        new(
+            LinkLeavesBundle,
+            "link-leaves-bundle",
+            OkfRuleCategory.Hygiene,
+            OkfSeverity.Info,
+            "A markdown link resolves outside the bundle root; a bundle should be complete on its own (§6.2)."),
     ];
 
     private static readonly Dictionary<string, OkfRule> ById =

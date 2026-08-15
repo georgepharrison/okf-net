@@ -3,7 +3,7 @@
   // (decisions.md, "the `okf lint` milestone" — project config lives at the
   // vault root, sibling of bundles/). CLI args still win over it.
   //
-  // Both promotions below follow decisions.md §7, which names generated-file
+  // The promotions below follow decisions.md §7, which names generated-file
   // drift as a rule `okf init` should promote to error, and the missing
   // `description` warning as the one that degrades every index entry and
   // search snippet in a bundle we own. Defaults stay defaults for foreign
@@ -15,7 +15,13 @@
       "OKF0306": "error",
       // OKF0301 missing-description: a concept without a description renders
       // as a bare link in its index and a snippet-less search hit.
-      "OKF0301": "error"
+      "OKF0301": "error",
+      // OKF0307 missing-source-resource: provenance is the load-bearing half of
+      // the trust model, so a `sources` entry recording something nobody can go
+      // and check is a defect here, whatever it is elsewhere. Its companion
+      // OKF0308 (a path resolving to nothing) stays at info: this vault cites
+      // documents by pinned URL and has no in-bundle source paths to break.
+      "OKF0307": "error"
     }
     // Tag rules (OKF0304 missing-tags, OKF0305 unregistered-tag with
     // `tagRegistry`) are deliberately left at their hidden defaults until the

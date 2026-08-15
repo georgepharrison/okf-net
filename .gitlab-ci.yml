@@ -97,9 +97,10 @@ test:
 # and test jobs compile, with no artifact hand-off to go stale between stages.
 #
 # Two commands, two contracts:
-#   - `lint okf/` picks up okf/okf.json, which promotes OKF0306 and OKF0301 to
-#     error for this vault, so exit 1 covers drift and missing descriptions as
-#     well as §11 conformance (CLI-14).
+#   - `lint okf/` picks up okf/okf.json, which promotes OKF0306, OKF0301 and
+#     OKF0307 to error for this vault, so exit 1 covers drift, missing
+#     descriptions and unfollowable provenance as well as §11 conformance
+#     (CLI-14).
 #   - `index --check` is the mechanical drift gate; its exit code is fixed at 1
 #     on drift and deliberately does NOT consult severity, so it still fails
 #     even if someone demotes OKF0306 in config.

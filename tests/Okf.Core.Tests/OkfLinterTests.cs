@@ -232,6 +232,91 @@ public class OkfLinterTests
     }
 
     [Fact]
+    public void OKF0102TreatsOnlyAFootnoteReferenceAsACitation()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "citations.md",
+            """
+            ---
+            type: Reference
+            title: Citations
+            description: d
+            tags: [t]
+            sources:
+              - id: defined-only
+                resource: https://example.invalid/one
+              - id: referenced
+                resource: https://example.invalid/two
+              - id: on-its-own-line
+                resource: https://example.invalid/three
+            ---
+
+            # Citations
+
+            A cited claim.[^referenced]
+
+            A block quoted from elsewhere.
+
+            [^on-its-own-line]
+
+            [^defined-only]: Never referenced above.
+            [^referenced]: One.
+            [^on-its-own-line]: Three.
+            """);
+
+        var diagnostics = bundle.Lint();
+
+        // §5.1: `id` attributes individual claims, so the citation is the `[^id]` in the
+        // prose. A `[^id]: …` definition line is the note itself — a source that has only
+        // one is listed, footnoted, and never actually used, which is the same finding
+        // markdownlint reports as MD053 (unused link reference definition).
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(OkfRules.UnusedSourceId, diagnostic.RuleId);
+        Assert.Contains("`defined-only`", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OKF0102SaysWhetherTheSourceWasFootnotedAtAll()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "citations.md",
+            """
+            ---
+            type: Reference
+            title: Citations
+            description: d
+            tags: [t]
+            sources:
+              - id: defined-only
+                resource: https://example.invalid/one
+              - id: absent
+                resource: https://example.invalid/two
+            ---
+
+            # Citations
+
+            Nothing here cites anything.
+
+            [^defined-only]: The note, with no reference to it.
+            """);
+
+        var messages = bundle.Lint()
+            .Where(diagnostic => diagnostic.RuleId == OkfRules.UnusedSourceId)
+            .ToDictionary(diagnostic => diagnostic.Message.Split('`')[1], diagnostic => diagnostic.Message);
+
+        // "Never cited by a `[^defined-only]` footnote" would be read as a linter bug by an
+        // author looking straight at the `[^defined-only]:` line three rows down. The two
+        // findings are different repairs — write the citation, or drop the source — so the
+        // messages have to be different too.
+        Assert.Equal(2, messages.Count);
+        Assert.Contains("footnote definition but is never referenced", messages["defined-only"], StringComparison.Ordinal);
+        Assert.DoesNotContain("definition", messages["absent"], StringComparison.Ordinal);
+        Assert.Contains("is never cited by a `[^absent]` footnote", messages["absent"], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OKF0103FiresWhenASourceMovedAfterGeneration()
     {
         using var bundle = new TempBundle();
@@ -363,6 +448,171 @@ public class OkfLinterTests
         Assert.Equal(OkfRules.BrokenInternalLink, diagnostic.RuleId);
         Assert.Equal(OkfSeverity.Info, diagnostic.Severity);
         Assert.Contains("/tables/gone.md", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OKF0307FiresWhenASourceEntryHasNoResource()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "sourced.md",
+            """
+            ---
+            type: Reference
+            title: Sourced
+            description: d
+            tags: [t]
+            sources:
+              - id: no-resource
+                title: A source nobody can follow
+              - resource: ""
+                title: An empty one
+              - id: fine
+                resource: https://example.invalid/one
+            ---
+
+            # Sourced
+
+            Claims.[^no-resource][^fine]
+            """);
+
+        var diagnostics = bundle.Lint().Where(d => d.RuleId == OkfRules.MissingSourceResource).ToList();
+
+        // §5.1: `resource` is REQUIRED within an entry. The unnamed entry is reported by
+        // its position, since it has no id to name it by.
+        Assert.Equal(2, diagnostics.Count);
+        Assert.All(diagnostics, diagnostic => Assert.Equal(OkfSeverity.Warning, diagnostic.Severity));
+        Assert.All(diagnostics, diagnostic => Assert.Equal(6, diagnostic.Line));
+        Assert.Contains(diagnostics, d => d.Message.Contains("`no-resource`", StringComparison.Ordinal));
+        Assert.Contains(diagnostics, d => d.Message.Contains("#2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void OKF0308OnlyJudgesResourceValuesThatReadAsPaths()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("policies/margin-standard.md", CleanConcept)
+            .Add(
+                "metrics/margin.md",
+                """
+                ---
+                type: Metric
+                title: Margin
+                description: d
+                tags: [t]
+                sources:
+                  - id: url
+                    resource: https://example.invalid/one
+                  - id: scope
+                    resource: all queries in BigQuery project X
+                  - id: descriptor
+                    resource: dashboards/exec-margin
+                  - id: rooted
+                    resource: /policies/margin-standard.md
+                  - id: root-relative
+                    resource: policies/margin-standard.md
+                  - id: typo
+                    resource: ../policies/margin-standrd.md
+                  - id: escapes
+                    resource: ../../elsewhere/margin.md
+                ---
+
+                # Margin
+
+                Claims.[^url][^scope][^descriptor][^rooted][^root-relative][^typo][^escapes]
+                """);
+
+        var diagnostics = bundle.Lint().Where(d => d.RuleId == OkfRules.UnresolvableSourceResource).ToList();
+
+        // §5.1 allows a scope descriptor and §6.2 an absolute URL, so neither is checked;
+        // `dashboards/exec-margin` is SPEC §5.1's own descriptor-shaped example and is left
+        // alone too. What is left: a misspelled path and one that leaves the bundle.
+        Assert.Equal(2, diagnostics.Count);
+        Assert.All(diagnostics, diagnostic => Assert.Equal(OkfSeverity.Info, diagnostic.Severity));
+        Assert.Contains(
+            diagnostics,
+            d => d.Message.Contains("`typo`", StringComparison.Ordinal)
+                && d.Message.Contains("margin-standrd.md", StringComparison.Ordinal));
+        Assert.Contains(diagnostics, d => d.Message.Contains("`escapes`", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void OKF0309ReportsALinkThatResolvesOutsideTheBundleRoot()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("tables/orders.md", CleanConcept)
+            .Add(
+                "metrics/revenue.md",
+                """
+                ---
+                type: Metric
+                title: Revenue
+                description: d
+                tags: [t]
+                ---
+
+                # Revenue
+
+                Inside [orders](../tables/orders.md), outside [decisions](../../../docs/decisions.md),
+                external [docs](https://example.invalid/x), anchor [here](#revenue).
+                """);
+
+        var diagnostic = Assert.Single(bundle.Lint());
+
+        // A URL and an in-page anchor are not paths and say nothing about the filesystem;
+        // a path that leaves the root is spec-tolerated, so it is info rather than an
+        // error — but it is no longer silent (friction #4).
+        Assert.Equal(OkfRules.LinkLeavesBundle, diagnostic.RuleId);
+        Assert.Equal(OkfSeverity.Info, diagnostic.Severity);
+        Assert.Contains("../../../docs/decisions.md", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(10, diagnostic.Line);
+    }
+
+    [SkippableFact]
+    public void OKF0309JudgesTheWrittenPathAndNotWhereASymlinkLands()
+    {
+        using var bundle = new TempBundle();
+        using var outside = new TempBundle("outside");
+        outside.Add("stranger.md", CleanConcept);
+
+        bundle.Add(
+            "metrics/revenue.md",
+            """
+            ---
+            type: Metric
+            title: Revenue
+            description: d
+            tags: [t]
+            ---
+
+            # Revenue
+
+            Through a link that stays inside as written: [stranger](./stranger.md).
+            """);
+
+        try
+        {
+            File.CreateSymbolicLink(
+                Path.Combine(bundle.Root, "metrics", "stranger.md"),
+                Path.Combine(outside.Root, "stranger.md"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create symlinks: {exception.Message}");
+        }
+
+        var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(bundle.Bundle);
+
+        // Deliberate, and the boundary between the two containment notions in this
+        // codebase: OKF0309 reads the path the author *wrote* (decisions.md, the
+        // lint/search friction milestone: "this is a report, not a control ... nothing
+        // here reads anything"), so a link that is bundle-relative as written is not
+        // reported however the filesystem resolves it. Refusing to *read* through the
+        // link is the separate, harder control, and it is already in force: the walk
+        // leaves the symlinked file out of the bundle entirely, so only `revenue.md` is
+        // linted.
+        Assert.Equal(1, result.FileCount);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]

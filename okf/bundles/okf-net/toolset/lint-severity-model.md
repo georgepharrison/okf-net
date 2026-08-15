@@ -3,7 +3,7 @@ type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 tags: [okf-net, lint, diagnostics, severity, configuration]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T22:32:01-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -55,7 +55,7 @@ are never valid configuration keys — configuration references the number.
 | `OKF0003` | invalid-index-structure | An `index.md` breaks §8 | error |
 | `OKF0004` | invalid-log-structure | A `log.md` breaks §9 | error |
 | `OKF0101` | uncited-footnote | A footnote label joins to no `sources[].id` | warning |
-| `OKF0102` | unused-source-id | A `sources[].id` is never cited | warning |
+| `OKF0102` | unused-source-id | A `sources[].id` is never cited by a footnote *reference* | warning |
 | `OKF0103` | source-drift | A source's `last_modified` is later than `generated.at` | warning |
 | `OKF0201` | self-verification | A `verified[].by` equals `generated.by` | warning |
 | `OKF0202` | stale-concept | `stale_after` has passed | warning |
@@ -65,9 +65,25 @@ are never valid configuration keys — configuration references the number.
 | `OKF0304` | missing-tags | The concept has no `tags` | hidden |
 | `OKF0305` | unregistered-tag | A tag is absent from `lint.tagRegistry` | hidden |
 | `OKF0306` | generated-index-drift | A generated index differs from what `okf index` would emit | warning |
+| `OKF0307` | missing-source-resource | A `sources[]` entry carries no `resource` | warning |
+| `OKF0308` | unresolvable-source-resource | A `sources[].resource` written as a path names nothing in the bundle | info |
+| `OKF0309` | link-leaves-bundle | A link resolves outside the bundle root | info |
 
 Two rules default to **hidden** rather than off: hidden is a severity, so
 enabling a tag policy is a configuration edit rather than a feature flag.
+
+A run says how many of those rules were live, because a clean report and a
+silenced one are otherwise the same sentence:
+
+```text
+Checked 21 files in 1 bundle (18 rules: 16 active, 2 hidden): 0 errors, 0 warnings, 0 infos.
+```
+
+`--verbose` expands that to one line per rule — effective severity and the
+configuration layer that set it — on standard error. The `--json` output stays a
+bare array of diagnostic records, with no run-metadata envelope, because that
+array is the contract the MCP server and CI annotations read; the same counts go
+to standard error instead.
 
 # Configuring it
 
@@ -78,17 +94,27 @@ because those default to info. An **unknown rule id in configuration is
 itself reported** — a typo that silently disabled a rule would be the worst
 possible failure mode for a linter.
 
-This vault's own `okf/okf.json` promotes exactly two rules to error:
-`OKF0306`, because nothing here is hand-edited that `okf index` owns, and
+This vault's own `okf/okf.json` promotes exactly three rules to error:
+`OKF0306`, because nothing here is hand-edited that `okf index` owns;
 `OKF0301`, because a concept with no description renders as a bare link in
-its index and a snippet-less hit in search.
+its index and a snippet-less hit in search; and `OKF0307`, because provenance
+is the load-bearing half of the trust model and a source entry with no
+`resource` records something nobody can go and check.
 
 # Deliberate limits
 
 - **Broken links are info, never an error by default.** The specification
   requires consumers to tolerate them: a dangling link is often knowledge not
-  yet written. A link that resolves *outside* the bundle root is not
-  bundle-internal and is not reported at all.
+  yet written. A link that resolves *outside* the bundle root is reported
+  separately, also at info: it is spec-tolerated, but leaving it silent made it
+  indistinguishable from a correct link, and a bundle whose links only work from
+  inside one checkout is not portable.
+- **A `sources[].resource` is only checked when it unambiguously reads as a
+  path.** The specification lets the field be a scope descriptor (`all queries in
+  BigQuery project X`) or an absolute URL, and no rule here ever touches the
+  network. What is left — a path that names nothing in the bundle — is reported at
+  info, and is resolved from the citing concept first and the bundle root second,
+  because producers write both.
 - **Staleness never blocks by default.** An expired date is a prompt, not a
   defect.
 - **Near-duplicate detection is a cheap heuristic for now** — title or

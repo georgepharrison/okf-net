@@ -109,10 +109,13 @@ internal static partial class MarkdownScanner
 
             foreach (var match in FootnoteRegex().Matches(line).Cast<Match>())
             {
-                var isDefinition = match.Index == 0
-                    || (line[..match.Index].Trim().Length == 0
-                        && match.Index + match.Length < line.Length
-                        && line[match.Index + match.Length] == ':');
+                // A definition is `[^label]:` opening a line. The colon is what makes it
+                // one: `[^label]` alone on its own line is a reference — the form Google's
+                // ga4 bundle uses to cite a source under a SQL block — and counting it as
+                // a definition would let OKF0102 call a genuinely cited source uncited.
+                var isDefinition = line[..match.Index].Trim().Length == 0
+                    && match.Index + match.Length < line.Length
+                    && line[match.Index + match.Length] == ':';
                 scan.Footnotes.Add(new MarkdownFootnote(match.Groups["label"].Value, lineNumber, isDefinition));
             }
 
