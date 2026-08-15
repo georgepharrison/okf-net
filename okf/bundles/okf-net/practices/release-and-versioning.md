@@ -53,10 +53,16 @@ the minimum, and it is the first thing to delete at the 1.0 flip.
 
 # Distribution
 
-A release produces the self-contained single-file binaries described in
-[library, CLI, MCP layering](../toolset/library-cli-mcp-layering.md), plus a
-`curl | sh` install path, and publishes `Okf.Core` as a NuGet package to the
-self-hosted GitLab instance's built-in package registry.
+Today the `release` job does exactly one thing: run `semantic-release`, which
+cuts the prerelease tag and writes the GitLab release notes. **No artifact is
+published yet** — there is no packaging or publish job in the pipeline, which
+is the still-open half of PRD Q10.
+
+The intended end state is that a release also produces the self-contained
+single-file binaries described in [library, CLI, MCP
+layering](../toolset/library-cli-mcp-layering.md), a `curl | sh` install
+path, and `Okf.Core` as a NuGet package on the self-hosted GitLab instance's
+built-in registry, whose configuration is to be verified at first publish.
 
 The point of shipping a binary rather than a runtime-dependent package is
 stated in the goals and worth repeating here: **the implementation language

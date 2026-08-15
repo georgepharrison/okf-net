@@ -79,6 +79,12 @@ inbox for machine-derived insight — reviewable, and ignorable, which matters
 just as much. See [the custodian
 model](../practices/custodian-model.md).
 
+Both commands are designed and not yet built, and neither is the
+acknowledgment derivation itself. What `Okf.Core` does implement today is the
+tier derivation and the staleness comparison, which `okf search` already
+reports on every hit. Until the rest ships, acknowledgment is something a
+reader works out from frontmatter rather than something a command answers.
+
 # Staleness is a third axis
 
 `stale_after` is lifecycle, not trust: a concept is stale once today is on or

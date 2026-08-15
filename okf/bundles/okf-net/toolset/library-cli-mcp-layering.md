@@ -25,9 +25,15 @@ behaviour the other lacks.[^decisions]
 ```text
 Okf.Core   parse · validate · trust · staleness · index · search · discovery
    │
-   ├── Okf.Cli    okf lint | index | search | inbox | verify | register | mcp
-   └── okf mcp    search · read · list, over stdio
+   ├── Okf.Cli    okf lint | index | search        (built)
+   │              okf inbox | verify | register | unregister | init | mcp
+   └── okf mcp    search · read · list, over stdio (not built)
 ```
+
+The diagram is the designed surface, not an inventory. `lint`, `index`, and
+`search` exist today; the rest of the verb list and the whole MCP adapter are
+later milestones, in the build order Core → index → search → MCP → skills.
+Everything below describes the contract each one is being built against.
 
 # Why the library is the core
 

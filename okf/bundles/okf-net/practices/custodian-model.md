@@ -62,7 +62,8 @@ custodial discipline.
 # Surfacing, not landing
 
 Machine-derived insight is **offered for review, never landed silently**. The
-chain is deliberately made of parts that already exist:
+chain is deliberately built out of primitives the format and the host forge
+already provide — no new frontmatter field, no bespoke review queue:
 
 1. The custodian writes or updates a concept and stamps
    `generated.{by,at}` — and nothing else. It never writes `verified` for its
@@ -81,7 +82,12 @@ The staleness-refresh loop is the same chain with a different trigger: when a
 version-pinned source's `stale_after` expires, the custodian fetches release
 notes from the pinned version to current, updates or drafts the affected
 concept with a derived impact analysis, and surfaces it exactly as above.
-That loop is post-MVP, but the surfaces it depends on are not.
+
+That loop is post-MVP, and so is most of the chain it rides on: of the five
+steps, only the staleness trigger is implemented today, reported by
+`okf lint` as `OKF0202`. `okf inbox` and `okf verify` are designed and not
+yet built. The chain is the contract the custodian is being built to, not a
+description of what runs on this repository now.
 
 # Search before create
 

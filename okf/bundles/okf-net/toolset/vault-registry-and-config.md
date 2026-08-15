@@ -43,10 +43,15 @@ entry in it** — no special-casing, no privileged path. Everything beyond the
 current project enters through the registry, which means there is exactly one
 mechanism to reason about rather than one mechanism plus an exception.
 
-`okf register` and `okf unregister` are explicit and idempotent:
-re-registering a known path and unregistering an unknown one are both
-no-op successes. **Auto-registration is off by default**, with a global
-setting to opt into it.
+`okf register` and `okf unregister` are specified as explicit and idempotent:
+re-registering a known path and unregistering an unknown one are both no-op
+successes. **Auto-registration is off by default**, with a global setting to
+opt into it.
+
+Neither command is built yet, which makes the registry a designed layer
+rather than one you can populate today. Search is therefore project-scoped
+full stop — there is nothing to opt in to, and no `--scope`/`--all` flag
+ships — until they land.
 
 # Scope is project-only by default
 
