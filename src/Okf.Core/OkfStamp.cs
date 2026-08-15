@@ -76,7 +76,19 @@ public static class OkfStamp
 
         var document = OkfDocument.Parse(text);
         Verify(document, actor, at);
-        return document.Serialize();
+        var emitted = document.Serialize();
+        if (!Accepts(emitted, actor, before))
+        {
+            // The fallback is held to the same terms as the insertion. It is the less
+            // travelled of the two paths, which is the argument for checking it rather
+            // than against: frontmatter okf cannot read back is a corrupted concept
+            // whichever path produced it, and refusing costs one parse.
+            throw new OkfDocumentException(
+                "Stamping produced frontmatter that does not read back as one more "
+                + "verification event, so nothing was written.");
+        }
+
+        return emitted;
     }
 
     /// <summary>
