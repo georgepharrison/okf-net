@@ -59,14 +59,43 @@ consume.
 stable channel yet, and the `rc` is not decoration — the API, the CLI surface
 and the diagnostic set can all still move.
 
-> **No binary is downloadable yet.** The publishing job is new and has never
-> run: nothing runs it but a tag pipeline, and no tag has been cut since it
-> landed. Every release before that one carries no binary, and the job itself
-> is unproven until the first tag exercises it. Until then, build from source:
+```sh
+curl -fsSL https://get.tychostation.dev/install.sh | sh
+```
+
+That fetches the newest release's manifest, verifies the binary's `sha256`
+against it, and installs to `~/.local/bin/okf`. Pin a version with
+`--version`, install somewhere else with `OKF_INSTALL_DIR`, or look before
+you leap with `--dry-run`:
+
+```sh
+curl -fsSL https://get.tychostation.dev/install.sh | sh -s -- --version 1.0.0-rc.15
+curl -fsSL https://get.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://get.tychostation.dev/install.sh | sh -s -- --dry-run
+```
+
+The script is [`install.sh`](install.sh) in this repository, and every release
+ships the copy it was cut with.
+
+> **`get.tychostation.dev` resolves only inside Ringo's network today.** The
+> host is an internal nginx behind the internal Caddy; there is no public DNS
+> record and no public route, so the one-liner above will not resolve for
+> anyone else. Public availability — and the auth, rate limiting and
+> **manifest signing** that have to come with it — is tracked in
+> [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26). The
+> manifest is unsigned until then: the `sha256` check proves the bytes match
+> the manifest, and nothing yet proves the manifest came from us.
+>
+> **The publishing job is also still unproven.** `latest.json` and the
+> installer are uploaded by a tag pipeline, and until a tag has run one, the
+> artifact host has nothing to serve. Until then, build from source:
 > `mise run publish-aot` leaves the same binary in `artifacts/aot/okf`.
 
-The download URL is stable and predictable: the package version is the release
-tag without its leading `v`. Take a version from the
+### From the package registry, by hand
+
+The fallback, and what the installer does underneath. The download URL is
+stable and predictable: the package version is the release tag without its
+leading `v`. Take a version from the
 [releases page](https://gitlab.tychostation.dev/ringo/okf-net/-/releases) —
 once a release carries a binary, it links it directly — and:
 
@@ -79,10 +108,13 @@ chmod +x okf
 ./okf version   # <version>+<short-sha> — the tag, and the commit it was built from
 ```
 
+Each release also carries `latest.json` beside the binary, which is what makes
+that release self-describing — a version, and per asset a relative path, a
+size and a `sha256`. Fetch it the same way to check a download by hand.
+
 The `PRIVATE-TOKEN` header is needed only because the project is private
-today; it drops out if that changes. A `curl | sh` installer that resolves the
-newest rc for you does not exist yet — the stable URL scheme above is the half
-of it that does.
+today; it drops out if that changes. It is also the reason the one-liner exists
+at all: the artifact host holds the read token so a consumer does not have to.
 
 Two caveats worth stating plainly:
 
@@ -131,9 +163,12 @@ violate OKF conformance):
 skills are built and gated in CI; the registry (`okf register`) and the Pi
 shim are later milestones. Every merge to `main` cuts an `rc` tag, and from
 the first tag cut after the publishing job landed that tag also ships a
-runnable binary and this repo's own knowledge bundle — see
-[Install](#install-prerelease-binaries), which says plainly that none exists
-yet. Usable from source, deliberately not yet stable.
+runnable binary, this repo's own knowledge bundle, a release manifest and the
+installer that reads it — see [Install](#install-prerelease-binaries), which
+says plainly that no tag has produced any of it yet, and that the install
+one-liner resolves only inside Ringo's network
+([#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26)). Usable
+from source, deliberately not yet stable.
 
 ## Documentation
 
