@@ -382,3 +382,11 @@ question in `prd.md` §6.
   (CLI-8): a pinned lead section, or dropping the requirement in favor of the
   `about.md`/`about-this-bundle.md` convention being discoverable by name. Left open
   deliberately — it is an `okf init` concern, not a generator one.
+
+### Ruling: MS-PL is allowlisted (2026-08-14)
+
+Ringo delegated the call. MS-PL stays in `scripts/licenses-allowed.json`:
+OSI-approved permissive license, ASF Category A (may be included in Apache
+products), and its one restriction (redistributed MS-PL *source* stays MS-PL)
+cannot bite here — both MS-PL packages (Xunit.SkippableFact, Validation) are
+test-only dependencies that never enter shipped binaries.
