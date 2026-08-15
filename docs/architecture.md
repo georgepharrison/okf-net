@@ -20,7 +20,9 @@ This section is written for the agent that will next update this file.
 2. **Keep `AD` identifiers stable and append-only.** Amend an existing `AD`'s **Rule** in
    place when the decision was refined; add the next unused `AD-n` when the decision is
    new. *Done when* the identifiers still ascend with no gaps reused and no renumbering:
-   `grep -oE '^### AD-[0-9]+' docs/architecture.md` prints a strictly increasing sequence.
+   `grep -oE '^### ~*AD-[0-9]+' docs/architecture.md` prints a strictly increasing sequence.
+   The `~*` is what keeps a struck heading (rule 3) inside that sequence instead of
+   dropping out of it.
 3. **Strike a superseded `AD`; never delete one.** Wrap its heading in `~~` strikethrough,
    keep its **Binds** / **Prevents** / **Rule** lines intact for the record, and add a
    `**Superseded by:** AD-n` line. *Done when* the retired identifier is still present in
@@ -33,13 +35,28 @@ This section is written for the agent that will next update this file.
    grep -nE '\bTBD\b|\bTODO\b|\bFIXME\b|similar to AD-[0-9]+' docs/architecture.md
    ```
 
-5. **Every Stack row carries a version**, and every mermaid block parses. *Done when*
-   `mise run lint` is clean and each fenced `mermaid` block renders.
+5. **Every Stack row carries a version**, and every mermaid block renders. `mise run lint`
+   checks neither, so check them: read the Stack column, and render every block —
+
+   ```sh
+   awk '/^```mermaid$/{n++;f=1;next} /^```$/{f=0} f{print > ("/tmp/ad-"n".mmd")}' \
+     docs/architecture.md
+   for m in /tmp/ad-*.mmd; do npx -y @mermaid-js/mermaid-cli -i "$m" -o "$m.svg"; done
+   ```
+
+   *Done when* every block produces an SVG, and you have **read** each one: a diagram is a
+   claim, and an arrow that points at the wrong component is as false as a wrong **Rule**.
+   Keep them portrait-ish — `flowchart TB` over `LR` — because these are reviewed on a
+   phone.
 6. **Regenerate the dogfood concept in the same change.** The bundle concept
    `toolset/architecture-spine.md` summarizes this document; when a section changes
    materially, update it and re-run `mise run cli -- index okf/bundles/okf-net`.
    *Done when* `mise run cli -- lint okf/` reports `0 errors, 0 warnings, 0 infos` and
    `mise run cli -- index --check okf/bundles/okf-net` reports `0 drifted`.
+7. **Re-reconcile Deferred with the board.** It tracks issues, so it goes stale on its own.
+   *Done when* `glab issue list --all --label phase:post-1.0` and `--label phase:polish`
+   each list only open issues the table already carries, and the table names no issue that
+   has since closed.
 
 ## Design Paradigm
 
@@ -100,14 +117,14 @@ argued it.
 Who may depend on whom. This is a rule, not a picture.
 
 ```mermaid
-flowchart LR
-    hooks["git hooks · CI · skills"] --> cli
+flowchart TB
+    callers["CI jobs · agent skills"] --> cli
     hosts["MCP hosts"] --> mcp
     cli["Okf.Cli<br/>verbs, args, JSON writers"] --> core
     mcp["MCP server<br/>okf mcp"] --> core
     core["Okf.Core<br/>all logic"] --> fs["filesystem<br/>markdown + YAML"]
     core -. never .-> cli
-    core -. never .-> net["network · models · subprocesses"]
+    core -. never .-> net["network · models"]
 ```
 
 ### AD-1 — The format is the interop layer; okf-net is optional
@@ -157,9 +174,11 @@ flowchart LR
 - **Binds:** every command, every hook, every CI job
 - **Prevents:** a hook or pipeline whose branch depends on how somebody configured a rule.
 - **Rule:** `0` success · `1` diagnostics at error severity, or `--check` drift, or a
-  `--verify` mismatch · `2` usage or environment failure. Warnings alone never change the
-  exit code unless promoted. `okf index --check` returns 1 on drift regardless of
-  `OKF0306`'s configured severity; `okf search` exits 0 on an empty result set.
+  `--verify` mismatch, or `okf inbox --fail-if-any` over a non-empty inbox · `2` usage or
+  environment failure. Warnings alone never change the exit code unless promoted. Each of
+  the mechanical gates is severity-blind: `okf index --check` returns 1 on drift regardless
+  of `OKF0306`'s configured severity, and `--fail-if-any` reads the inbox rather than any
+  diagnostic. `okf search` exits 0 on an empty result set.
 - **Source:** PRD CLI-14, [index milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-index-milestone-2026-08-14),
   [exit codes](decisions.md#exit-codes-prd-wins-over-the-grep-convention)
 
@@ -168,8 +187,11 @@ flowchart LR
 - **Binds:** `Okf.Core`, `Okf.Cli`, the MCP server
 - **Prevents:** two surfaces answering the same question differently, one rule at a time.
 - **Rule:** `Okf.Core` has no `ProjectReference` and depends on nothing in this repo.
-  `Okf.Cli` references it one-directionally. Core returns data, never formatted text;
-  every requirement is unit-testable without a process boundary.
+  `Okf.Cli` references it one-directionally. Core returns data, never *adapter* output: the
+  diagnostic report, the `--json` writers, the console summaries and the exit-code mapping
+  are `Okf.Cli`'s and nothing else's. Artifact text the format itself defines — index
+  markdown, scaffolded files, site HTML — stays Core's, because it is content rather than
+  presentation. Every requirement is unit-testable without a process boundary.
 - **Source:** [decisions §4](decisions.md#4-layering-library-is-the-core), PRD §2.1
 
 ### AD-7 — Offline and hermetic by contract
@@ -177,11 +199,12 @@ flowchart LR
 - **Binds:** `Okf.Core`, every CLI command, every lint rule
 - **Prevents:** a gate that fails because a network did, and a library that cannot run in
   a hook or an air-gapped CI job.
-- **Rule:** No command makes a network call or invokes a model. `Okf.Core` launches no
-  subprocess — which is why `raw/` immutability is detected by the manifest's recorded
-  `sha256` and not by git. The one exception is deliberate and lives in the CLI:
-  `okf verify` may read `git config --global user.email`, through an environment the
-  caller controls.
+- **Rule:** No command makes a network call or invokes a model. Exactly one subprocess is
+  launched anywhere in the toolset, and it is `okf verify`'s identity fallback:
+  `OkfVerifyIdentity` reads `git config --global user.email` through an environment the
+  caller controls, and every other entry point takes that read as an injected delegate. No
+  other code path starts a process — which is why `raw/` immutability is detected by the
+  manifest's recorded `sha256` and not by git.
 - **Source:** PRD CLI-16, [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15),
   [acknowledgment loop](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-staleness-refresh-and-acknowledgment-loop-work-item-7-2026-08-15)
 
@@ -229,11 +252,13 @@ flowchart LR
 - **Prevents:** a rule identifier that moves between categories, and a nickname being
   accepted where an identifier belongs.
 - **Rule:** Conformance `00xx`, provenance `01xx`, trust `02xx`, hygiene `03xx`. The range
-  is fixed by category and never reused. Kebab nicknames are documentation only and are
-  never valid configuration keys. The shipped catalog is `OKF0001`–`OKF0004`,
+  is fixed by category and never reused. A kebab nickname is a label — it may appear in
+  prose and beside the id in `--json` output, and is never a valid configuration key. The
+  shipped catalog is `OKF0001`–`OKF0004`,
   `OKF0101`–`OKF0103`, `OKF0201`–`OKF0202`, `OKF0301`–`OKF0310`.
 - **Source:** [Q2](decisions.md#open-question-resolutions-2026-08-14),
-  [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14)
+  [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14),
+  [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15) (`OKF0310`)
 
 ### AD-12 — Four Roslyn severities, no exemptions, and a typo is never silent
 
@@ -292,10 +317,11 @@ flowchart LR
 - **Rule:** Ask *if this source changed or vanished tomorrow, could the custodian still
   re-verify the concept?* Yes — cite it through `sources[].resource` with a
   `last_modified` and a version pin. No — capture the artifact into `raw/`, ingest it into
-  an ordinary concept under the bundle's `references/`, cite the ingested concept, and keep
-  the original URL as a courtesy field. Lossy formats are captured as a packet, everything
-  else flat.
-- **Source:** [decisions §5](decisions.md#5-provenance-capture-vs-cite), PRD SKILL-3
+  an ordinary concept under the bundle's `references/`, cite the ingested concept, and carry
+  the original URL forward on both the ingested concept (§5.1 `resource`) and the manifest
+  entry (`originalUrl`). Lossy formats are captured as a packet, everything else flat.
+- **Source:** [decisions §5](decisions.md#5-provenance-capture-vs-cite) (superseded on
+  *where* by [Q3](decisions.md#open-question-resolutions-2026-08-14)), PRD SKILL-3
 
 ### AD-17 — `raw/` sits outside every bundle root; `references/` keeps plain §6.3 semantics
 
@@ -304,8 +330,9 @@ flowchart LR
   okf-net attaching private meaning to a spec-defined directory name.
 - **Rule:** `<vault>/raw/` is the drop zone, a sibling of `bundles/`. Nothing under
   `bundles/<name>/references/` carries okf-net-specific semantics. Because `raw/` is
-  outside every bundle root it is unreachable by search, by index generation, and by MCP —
-  asserted by test rather than assumed — and it never ships in a distribution.
+  outside every bundle root it is unreachable by search and by MCP and never ships in a
+  distribution — each asserted by test rather than assumed — and index generation never
+  reaches it either, for the same structural reason.
 - **Source:** [Q3](decisions.md#open-question-resolutions-2026-08-14),
   [Q7 corpus rule](decisions.md#q7-resolution-search-semantics-2026-08-14)
 
@@ -324,11 +351,13 @@ flowchart LR
 ### AD-19 — One hash convention, one implementation
 
 - **Binds:** the capture manifest, `okf-bundle.json`, `latest.json`, `install.sh`
-- **Prevents:** two spellings of integrity in one repository, and a second hashing code
-  path to keep in step.
-- **Rule:** `sha256`, 64 lowercase hex digits, computed by `OkfCaptureManifest.Sha256Of`
-  wherever `Okf.Core` needs it. `raw/` immutability and distribution integrity answer to
-  the same primitive.
+- **Prevents:** two spellings of integrity in one repository, and a digest that has to be
+  recomputed differently to be compared.
+- **Rule:** `sha256`, 64 lowercase hex digits, lowercase-hex-encoded. Every file on disk is
+  hashed by `OkfCaptureManifest.Sha256Of`; the archive verifier, which holds a stream and
+  no path, uses the one-line stream form beside it (`OkfBundler.Digest`). `raw/`
+  immutability and distribution integrity answer to the same convention and produce
+  comparable digests.
 - **Source:** [bundler manifest](decisions.md#okf-bundlejson-the-attestation-and-where-it-sits)
 
 ### AD-20 — Trust tier derives from `verified` alone, and no actor verifies its own generation
@@ -354,8 +383,8 @@ flowchart LR
   behind a `generated.by` that is not a `human:` actor (an absent `by` counts as
   non-human). A verification carrying no readable `at` reads as acknowledged and can never
   win the latest-verification comparison. `okf inbox` reports one row per concept carrying
-  its reasons — never per finding, which is `okf lint`'s job — and exits 0 always, with
-  `--fail-if-any` for the caller that wants a branch.
+  its reasons — never per finding, which is `okf lint`'s job — and exits 0 whatever it
+  finds, with `--fail-if-any` for the caller that wants a branch.
 - **Source:** PRD CORE-15,
   [acknowledgment loop](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-staleness-refresh-and-acknowledgment-loop-work-item-7-2026-08-15)
 
@@ -389,11 +418,14 @@ flowchart LR
 - **Binds:** `okf init`, `okf verify`, the bundler, `latest.json`
 - **Prevents:** three legal ISO 8601 spellings inside one repository, and a lexical sort
   that disagrees with a chronological one.
-- **Rule:** Everything okf-net **writes** is RFC 3339 UTC, `Z`-suffixed, second precision,
-  rendered by `OkfCanonicalTimestamp` and nowhere else. Reading stays tolerant of other
-  spellings and nothing already written is rewritten. Per the .NET convention, the static
-  helper is named for what it does while the value type keeps the plain domain noun —
-  hence `OkfCanonicalTimestamp` beside `OkfLifecycleInstant`.
+- **Rule:** Every **instant** okf-net writes is RFC 3339 UTC, `Z`-suffixed, second
+  precision, rendered by `OkfCanonicalTimestamp` and nowhere else; the bare dates the
+  format asks for (a `log.md` heading, the site's generation date) are the only exception.
+  Reading stays tolerant of other spellings and nothing already written is rewritten. Per
+  the .NET convention the static helper is named for what it *does* and the value type for
+  what it *holds* — hence `OkfCanonicalTimestamp` (the one written form) beside
+  `OkfLifecycleInstant` (whatever spelling is on disk, date or instant). The plain
+  `OkfTimestamp` was retired by the 1.0.0 review, not reassigned.
 - **Source:** [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15),
   [type reconciliation](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-staleness-refresh-and-acknowledgment-loop-work-item-7-2026-08-15)
 
@@ -445,8 +477,9 @@ flowchart LR
   contract that freezes today's engine.
 - **Rule:** Nothing in a result record names BM25, tokens or fields: `score` is an opaque
   higher-is-better number and `matchMode` says only `all`, `any` or `filter`. Results are
-  links-first — path, title, type, score, trust tier, stale flag, bounded snippet — and
-  never a full body. One writer (`SearchJson`) renders both surfaces, so parity is about
+  links-first — id and path, title, type, description, tags, score, trust tier, stale flag,
+  a bounded snippet and the terms it matched — and never a full body. One writer
+  (`SearchJson`) renders both surfaces, so parity is about
   bytes rather than fields. `--json` is a bare array; a metadata envelope is deferred and
   would be a versioned change.
 - **Source:** [Q7](decisions.md#q7-resolution-search-semantics-2026-08-14),
@@ -473,9 +506,13 @@ flowchart LR
   that turns a knowledge base into a surface an untrusted host can edit.
 - **Rule:** Three tools — `okf_list`, `okf_search`, `okf_read` — namespaced because a
   client mixes servers in one flat list. No write tool exists; stamping and index
-  generation stay CLI operations. No tool takes a `path` argument: scope is fixed by
-  `okf mcp [path]` and re-resolved per call. Containment is one shared primitive that
-  refuses absolute paths, `..` however spelled, and a backslash outright. Errors split by
+  generation stay CLI operations. No tool takes a *scope* path — a tool's `path` argument
+  is bundle-relative and nothing else; the scope is fixed by `okf mcp [path]` and
+  re-resolved per call, so a client cannot widen what the server was launched with.
+  Containment is two layers: a path grammar that refuses absolute paths, `~`, `..` however
+  spelled, a backslash and a NUL, and one shared primitive (`OkfBundle.TryResolve`) that
+  resolves against the bundle root and refuses anything that leaves it, symlinks
+  followed. Errors split by
   who can recover: a malformed argument or a traversal attempt is a JSON-RPC `-32602`; a
   miss the model can act on is a tool result with `isError: true`.
 - **Source:** PRD MCP-4, MCP-5,
@@ -483,7 +520,8 @@ flowchart LR
 
 ### AD-31 — Configuration precedence is fixed, and `OKF_HOME` is not a severity layer
 
-- **Binds:** every command, `okf.json`, CLI flags
+- **Binds:** `okf lint`, `okf verify`, `okf.json`, CLI flags — the commands that read
+  configuration; every other verb takes none
 - **Prevents:** an environment variable quietly changing what a team's committed contract
   says a rule means.
 - **Rule:** Built-in defaults → global file (`XDG_CONFIG_HOME`, else `~/.config/okf/okf.json`)
@@ -491,8 +529,9 @@ flowchart LR
   to the layer below. `OKF_HOME` moves *which* personal vault is read, never a rule's
   severity. An explicit `--config` file replaces the project config rather than adding to
   it. `--verbose` reports the effective value and the layer that set it.
-- **Source:** [Q4](decisions.md#open-question-resolutions-2026-08-14),
-  [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14)
+- **Source:** [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14),
+  superseding [Q4](decisions.md#open-question-resolutions-2026-08-14), which listed
+  `OKF_HOME` as a precedence layer and omitted the built-in defaults
 
 ### AD-32 — `okf.json` is JSONC at the vault root, committed as the team contract
 
@@ -501,8 +540,9 @@ flowchart LR
   the file that made it.
 - **Rule:** The project config is `<vault>/okf.json` — the vault is what discovery already
   resolved, so a command that found the bundles has found the config. It is parsed with
-  comments and trailing commas allowed, and that is stated in the file's own header
-  comment, in the bundle, and here. `recipe.json` follows the same convention. The accepted
+  comments and trailing commas allowed, and that is stated in the header comment of the
+  `okf.json` that `okf init` writes, in the bundle's vaults-and-config concept, and here.
+  `recipe.json` follows the same convention. The accepted
   cost is that a strict JSON schema or editor will flag a file the tool reads happily.
 - **Source:** [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14),
   [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15)
@@ -561,8 +601,9 @@ flowchart LR
   are left unset, because pinning them puts data where ustar's `prefix` field begins and
   breaks CPython's `tarfile`. `generatedAt` is the only clock reading in the packaging
   path and `--generated-at` pins it; the tag pipeline passes `$CI_COMMIT_TIMESTAMP`.
-  Reproducibility and interoperability are two claims: the archive is read back by a
-  second implementation.
+  Reproducibility and interoperability are two claims: the archive was read back by a
+  second implementation (CPython's `tarfile`) when the format was chosen, and the standing
+  test is that the whole 155-byte ustar `prefix` window stays NUL.
 - **Source:** [deterministic archives](decisions.md#deterministic-archives-and-the-one-clock-reading),
   [lessons.md](lessons.md)
 
@@ -573,8 +614,9 @@ flowchart LR
   filesystem on extraction.
 - **Rule:** `--verify` streams each entry and hashes it in memory; nothing is ever
   extracted, so a hostile `../../x`, an absolute path or a symlink entry is *reported*, not
-  written. Findings are *missing*, *modified*, *unlisted* and *unreadable*; an entry that
-  is not a regular file is *unlisted*, not skipped. An archive is identified by magic bytes,
+  written. Findings are *missing*, *modified*, *unlisted* and *unreadable*; a link or
+  device entry is *unlisted*, not skipped — directory entries alone are skipped, because
+  the bundler writes none. An archive is identified by magic bytes,
   not by its name. A distribution with no manifest is *unreadable*, never a pass. `--lint`
   lints what shipped as a stranger sees it — default severities, no `okf.json`, no vault —
   by materializing the same plan through the same writer, never an archive's own paths.
@@ -589,10 +631,13 @@ flowchart LR
   destination carries an allowlisted scheme (`http`, `https`, `mailto`) or none at all,
   read on the AST the way a browser reads it — case-insensitively, with ASCII whitespace
   and C0 controls dropped first — and anything else is percent-escaped into one inert
-  relative segment and marked `broken`, because §6.1 says mark rather than drop. Every page
-  is well-formed XML and the suite parses it; embedded JSON uses the default encoder so it
-  can neither close its own `<script>` element nor break the parse. A tag is escaped into
-  the href and into the label, and read back with `textContent`, never `innerHTML`.
+  relative segment and marked `broken`, because §6.1 says mark rather than drop; an
+  autolink, which carries no separate label to mark, is replaced by its own text. Every
+  page is well-formed XML and the suite parses it; embedded JSON uses the default encoder
+  so it can neither close its own `<script>` element nor break the parse. Untrusted values
+  are escaped where they are written and read back with `textContent` — a tag into the href
+  and into the label — and the one `innerHTML` write on the page takes generator-escaped
+  article HTML and nothing else.
 - **Source:** [site milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-static-site-milestone-work-item-6-2026-08-15)
 
 ### AD-39 — The site ships no third-party JavaScript and loads nothing at run time
@@ -601,7 +646,7 @@ flowchart LR
 - **Prevents:** a supply-chain artifact nobody here can rebuild, and a page that reports
   the reader's browsing to a CDN.
 - **Rule:** No third-party JavaScript, vendored or CDN-loaded — the graph is a
-  Fruchterman-Reingold layout on a `<canvas>` in about 250 lines of our own. Markdown is
+  Fruchterman-Reingold layout on a `<canvas>` in about 390 lines of our own. Markdown is
   the opposite call: Markdig renders bodies **server-side**, so pages are readable with
   scripting off. The stylesheet and client script stay editable files under
   `src/Okf.Core/Assets/`, embedded as manifest resources — data in the image, not a type
@@ -618,8 +663,10 @@ flowchart LR
   bundle drill-down and the removable active filters, and by nothing that only states a
   fact. Everything informational is `.facts` / `.signal`: a real definition list with no
   fill, border, hover or pointer. Colour is a status channel and never the only one — every
-  status also carries a glyph and a word. Generation is deterministic (seeded layout, fixed
-  iteration count, injected date, ordinal page order). `--out` pointing into a bundle, or
+  status also carries a glyph and a word. Generation is deterministic — injected date,
+  ordinal page order, byte-identical reruns — and carries no layout coordinate at all; the
+  graph is laid out in the reader's browser from a seeded PRNG under an iteration bound, so
+  it is reproducible per reader rather than per build. `--out` pointing into a bundle, or
   at a bundle's parent, is refused with exit 2 before anything is written, and nothing is
   ever deleted from the output directory.
 - **Source:** [site milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-static-site-milestone-work-item-6-2026-08-15)
@@ -640,16 +687,19 @@ flowchart LR
 
 ### AD-42 — Every hop of the release chain re-verifies the bytes, and the host pulls
 
-- **Binds:** the `publish` job, `latest.json`, `sync.sh`, `install.sh`
+- **Binds:** the `publish` job, `latest.json`, `install.sh`, and the artifact host's
+  `sync.sh` (which lives on the host, not in this repository)
 - **Prevents:** a package whose name lies about its contents, and an SSH credential on a
   shared runner that can write to the box serving the install script.
 - **Rule:** CI stamps from the tag, never from `git describe`, and the job compares
-  `okf version` from the freshly compiled binary against the tag before uploading anything.
+  `okf version` from the freshly compiled binary against `<tag minus the leading v>+<short
+  sha>` before uploading anything.
   `latest.json` is the release contract and carries both a relative `path` (resolved
   against the installer's base URL) and the absolute registry `url`, because the installer
   must not know about GitLab and the host's `sync.sh` needs a URL it can pull with a token.
-  Nothing pushes into the artifact host: it holds a read-only registry token and re-verifies
-  each asset on the way in, publishing version directories by rename. The installer
+  Nothing pushes into the artifact host: by design it holds a read-only registry token and
+  re-verifies each asset on the way in, publishing version directories by rename — a claim
+  about the host, which this repository cannot check. The installer
   downloads to a temp directory, compares digests, prints both on a mismatch, and only then
   stages and renames within the install directory. An `https` base URL is followed only to
   `https`, on the first hop and every redirect after it.
@@ -658,16 +708,18 @@ flowchart LR
 
 ### AD-43 — Dependencies must be Apache-2.0-compatible, and CI proves it
 
-- **Binds:** every `PackageReference`, every pinned dotnet tool
+- **Binds:** every `PackageReference` in `Okf.sln`, every pinned dotnet tool
 - **Prevents:** a copyleft or source-available license entering a shipped or test binary,
   and a package that changed license between majors slipping in on a remembered fact.
 - **Rule:** Only permissive licenses (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, MS-PL).
   Check the license of the **exact version** being added. The `licenses` job builds a
   CycloneDX SBOM of `Okf.sln` and fails on any component not covered by
   `scripts/licenses-allowed.json`; an SPDX expression must be wholly satisfiable and a
-  component with no SPDX id fails unless an override pins that exact name and version with
-  an evidence link. Tool-manifest entries are invisible to the SBOM, so **a tool's license
-  is checked by hand when it is pinned and the finding recorded in the commit.**
+  component with no SPDX id fails unless `scripts/license-overrides.json` pins that exact
+  name and version with an evidence link. Two things the SBOM cannot see are checked by
+  hand instead, and the finding recorded in the commit: a pinned dotnet tool, because a
+  tool manifest is not a project reference; and anything under `spikes/`, which is outside
+  `Okf.sln` on purpose and must therefore never ship.
 - **Source:** [AGENTS.md](../AGENTS.md), [MS-PL ruling](decisions.md#ruling-ms-pl-is-allowlisted-2026-08-14),
   [mutation testing](decisions.md#proposed-decisions-decided-2026-08-15-review-9-mutation-testing-work-item-11-2026-08-14)
 
@@ -691,15 +743,15 @@ flowchart LR
 | Concern | Convention |
 | --- | --- |
 | Type names | Every public type in `Okf.Core` is `Okf`-prefixed. The **value type keeps the plain domain noun** and a **static helper is named for what it does** — `OkfCanonicalTimestamp` (helper) beside `OkfLifecycleInstant` (value). Names say what they do; a name that carries its own meaning is the documentation. |
-| C# style as the code stands | File-scoped namespaces everywhere (62 of 62 files). Private instance fields are plain `camelCase`, disambiguated with `this.` — no underscore prefix appears anywhere in `src/`. `var` is used freely (about 726 sites). `Nullable` and `TreatWarningsAsErrors` are on. Ringo's own idiom, and the `_camelCase`-versus-`camelCase` choice, is enforced by configuration in [#31](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/31) — until then this row records what is true, not what is wanted. |
+| C# style as the code stands | File-scoped namespaces everywhere (62 of 62 files under `src/`). Private instance fields are plain `camelCase`, disambiguated with `this.` — no underscore prefix appears anywhere in `src/`. `var` is used freely (666 declaration sites). `Nullable` and `TreatWarningsAsErrors` are on, set per-csproj; there is no `.editorconfig`. Ringo's own idiom, and the `_camelCase`-versus-`camelCase` choice, is enforced by configuration in [#31](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/31) — until then this row records what is true, not what is wanted. |
 | Comments | For what a name cannot carry — a constraint, a spec section, a non-obvious why. Never narration of the next line. Reviewers flag narrative comments as noise. |
 | Commits | Conventional Commits v1.0.0 on every non-merge commit, enforced by the `commit-msg` hook and re-checked in CI across the whole push range. Commit *type* drives the release, so a type must be honest — no tooling change smuggled into a `docs:` commit. |
-| Diagnostics | `OKF####` identifiers in configuration and JSON; kebab nicknames in prose only. A diagnostic carries id, severity, path, and line/column where determinable. |
+| Diagnostics | An `OKF####` identifier is the only thing accepted as a configuration key; a kebab nickname is a label, never a key, though `--json` emits it beside the id for readability. A diagnostic carries id, severity, message, path, bundle root, and a line where locating one is cheap. There is no column. |
 | Timestamps | Written: RFC 3339 UTC `Z`, second precision, through `OkfCanonicalTimestamp`. Read: tolerant, compared at the coarser precision, on the date **as written**. |
 | Actors | SPEC §7: `<producer>/<version>` (`okf/1.0.0-rc.24`, `claude-fable/5`), `human:<id>`, `process:<id>`. Validated before it is written. |
-| Machine-maintained JSON | `okf.json` and `recipe.json` are **JSONC** — comments and trailing commas — because the reason for a promotion is the half a reviewer needs. `raw/manifest.json`, `okf-bundle.json` and `latest.json` are strict JSON with **camelCase** keys, read with `JsonDocument` rather than a deserializer. |
+| Machine-maintained JSON | `okf.json` and `recipe.json` are **JSONC** — comments and trailing commas — because the reason for a promotion is the half a reviewer needs. `raw/manifest.json`, `okf-bundle.json` and `latest.json` are strict JSON with **camelCase** keys; okf reads the first two with `JsonDocument` rather than a deserializer, and `latest.json` is deliberately shallow enough that `install.sh` parses it in POSIX shell without one. |
 | Markdown | `markdownlint-cli2`, `MD013` off repo-wide; the vault adds `MD025: false` via an `extends` line, because a nested config replaces the parent rather than merging. `mise run lint` is the gate. |
-| File layout | `src/Okf.Core` (all logic) · `src/Okf.Cli` (verbs, args, JSON writers, MCP) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, decisions, prd, lessons, spikes) · `scripts/`, `.githooks/`, `spikes/`. |
+| File layout | `src/Okf.Core` (all logic) · `src/Okf.Cli` (verbs, args, JSON writers, MCP) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests`, `tests/install-sh` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, `decisions.md`, `prd.md`, `lessons.md`, and `spikes/`) · `scripts/`, `.githooks/`, `.config/` (the dotnet tool manifest), `spikes/` (outside `Okf.sln`), and `install.sh` at the root. |
 | Skills | One directory per skill, frontmatter of `name` and `description` only, body plain markdown. Nothing host-specific: no tool names, no `allowed-tools`, no slash commands. Every step ends on a checkable, environment-verified completion criterion. |
 
 ## Stack
@@ -719,7 +771,7 @@ row set once it exists.
 | Microsoft.NET.Test.Sdk | 17.14.1 | MIT | Test host |
 | coverlet.collector | 6.0.4 | MIT | Coverage collection |
 | dotnet-stryker | 4.16.0 | Apache-2.0 | Mutation testing; local tool, invisible to the SBOM (AD-43, AD-44) |
-| cyclonedx | 6.2.0 | tool manifest, checked by hand per AD-43 | SBOM generation for the license gate |
+| cyclonedx | 6.2.0 | Apache-2.0 | SBOM generation for the license gate; local tool, so its own license is checked by hand (AD-43) |
 | markdownlint-cli2 | latest (mise-managed) | — | `mise run lint` |
 | semantic-release | unpinned (installed in the `release` job) | — | Cuts `vX.Y.Z-rc.N` from `main` and creates the GitLab Release |
 | GitLab (self-hosted) | CE 19.0.1 | — | Repository, CI, Pages, generic package registry |
@@ -732,7 +784,6 @@ row set once it exists.
 
 ```mermaid
 flowchart TB
-    hooks["git hooks<br/>pre-commit, commit-msg"] --> cli
     ci["GitLab CI<br/>validate · deploy · release"] --> cli
     skills["Agent skills<br/>capture · custodian · vault"] --> cli
     hosts["MCP hosts<br/>Claude Code, Cursor"] --> mcp
@@ -744,14 +795,14 @@ flowchart TB
     cli --> core
     mcp --> core
     core --> vault[("vault<br/>bundles · raw · custodian")]
-    cli --> dist["distribution<br/>tar.gz · zip · dir"]
-    cli --> site["static site<br/>GitLab Pages · file://"]
+    core --> dist["distribution<br/>tar.gz · zip · dir"]
+    core --> site["static site<br/>GitLab Pages · file://"]
 ```
 
 ### Lint pipeline
 
 ```mermaid
-flowchart LR
+flowchart TB
     hook["pre-commit hook"] --> mdl["markdownlint-cli2<br/>staged .md only"]
     hook --> cm["check-manifest.py<br/>only when okf/raw/ is staged"]
     job["CI dogfood job"] --> lint["okf lint okf/"]
@@ -804,18 +855,18 @@ sequenceDiagram
     participant C as Okf.Core
     participant B as bundles
     H->>S: tools/call okf_search
-    S->>S: resolve scope, per call
+    S->>S: resolve scope,<br/>per call
     S->>C: OkfSearchEngine.Search
-    C->>B: read concepts, skip reserved files
-    B-->>C: frontmatter and body
-    C-->>S: results with score, tier, stale, snippet
-    S-->>H: SearchJson, the same bytes as okf search
+    C->>B: read concepts,<br/>skip reserved files
+    B-->>C: frontmatter<br/>and body
+    C-->>S: results: score, tier,<br/>stale, snippet
+    S-->>H: SearchJson — the same<br/>bytes as okf search
 ```
 
 ### Site generation
 
 ```mermaid
-flowchart LR
+flowchart TB
     vault["resolved vault"] --> build["OkfSiteBuilder<br/>builds OkfSiteModel"]
     build --> mdown["OkfSiteMarkdown<br/>Markdig · DisableHtml<br/>scheme allowlist"]
     assets["Assets/site.css + site.js<br/>embedded resources"] --> gen
@@ -834,8 +885,8 @@ flowchart LR
 | `okf index` | `OkfIndexGenerator`, `OkfIndex`; `IndexCommand` renders | AD-5, AD-13, AD-14, AD-15 | CORE-9, CORE-10, CLI-9, CLI-10, ACC-3, ACC-7 |
 | `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28 | CORE-11, CLI-3, CLI-11 |
 | `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator` | AD-6, AD-28, AD-29, AD-30 | MCP-1 … MCP-5, CORE-12 |
-| `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25 | CORE-14, CORE-15, CLI-12, CLI-13 |
-| `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfConfig`, `OkfIndexGenerator` | AD-2, AD-13, AD-15, AD-31, AD-32 | CLI-8, CLI-9 |
+| `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
+| `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37 | PRD §5 (post-MVP roadmap), CLI-14 |
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40 | PRD §5 (post-MVP roadmap) |
 | Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI | AD-1, AD-6, AD-16, AD-18, AD-20 | SKILL-1 … SKILL-8 |
@@ -863,6 +914,7 @@ not fix. Board:
 | [#32](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/32) — `externalBundles` obtain-from hint | Additive to `okf-bundle.json` and does not change AD-34's dangling-and-record answer; a versioned manifest addition. |
 | [#33](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/33) — remote MCP bridge for claude.ai | A non-stdio transport is one of the things AD-29 named as the trigger to revisit the hand-rolled loop; it also depends on #26. |
 | [#34](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/34) — advisory on excessive prose in `index.md` | A new hygiene diagnostic with a configurable threshold; the range is fixed (AD-11) but the threshold's default needs real bundles to calibrate against. |
+| [#35](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/35) — spike: what okf-net should learn from BMAD's skills | A talk-first study of how a workflow can make a document's *shape* deterministic while its prose is not — this spine is the first instance. What it changes about `skills/` is the spike's output, not an input. |
 | [#13](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/13) — dead-code and contextual DRY pass | Waits for the feature milestones to stop moving; the mutation run's 137 no-coverage mutants are its input list. |
 | [#14](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/14) — composed-method style | A mechanical refactor across public surfaces, deliberately separate from any logic change. |
 | [#15](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/15) — SOLID and DI audit, boundary isolation | Formalizes AD-9's boundary rule; a DI container is itself an AOT question, so it is a considered change rather than a cleanup. |
