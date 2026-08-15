@@ -3,7 +3,7 @@ type: Concept
 title: Bundle Self-Description Conventions
 description: The layout conventions okf-net layers on OKF, and the README trap that forced bundle root apart from repo root.
 tags: [okf, format, conventions, layout, readme-trap]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -43,6 +43,15 @@ every bundle:
   raw/               # drop zone for captured artifacts, outside every bundle
 ```
 
+`okf init` writes exactly that layout, and **refuses** to write it inside a
+bundle root: the README it creates at the vault root would be a
+frontmatter-less concept there. That refusal is the trap surfacing while it
+can still be avoided, rather than later as a generic `OKF0001` on a file
+somebody has already committed. It also writes `raw/.gitignore`, which
+un-ignores everything under `raw/` — an ordinary repository's `*.log` or
+`tmp/` patterns match real captured artifacts, and a capture git silently
+declines to stage looks exactly like one that worked.
+
 The same reasoning places `raw/` outside the bundles: a `.md` file dropped
 into a drop zone inside a bundle root would be a frontmatter-less concept and
 would break conformance on arrival. See [provenance: capture versus
@@ -58,7 +67,10 @@ For bundles okf-net produces:
   `okf_version: "0.2"` frontmatter — the one place the specification permits
   frontmatter on an index.
 - The bundle carries an `about-this-bundle.md` concept naming the toolset,
-  the custodian, the update cadence, and the consumption options.
+  the custodian, the update cadence, and the consumption options. It is the
+  first concept `okf init` writes, and the bundle-root index is generated from
+  the real generator rather than from a template, so a scaffolded index cannot
+  be born drifted.
 - Each subdirectory carries an `about.md` whose `description` becomes that
   directory's blurb in the parent index. This is the whole reason the
   convention exists: it is what lets index generation stay deterministic and

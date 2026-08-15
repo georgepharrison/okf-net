@@ -3,7 +3,7 @@ type: Concept
 title: Vaults, Registry, and Configuration
 description: How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
 tags: [okf-net, vault, registry, configuration, discovery]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -17,7 +17,14 @@ sources:
     last_modified: 2026-08-14
 ---
 
-A **vault** is a directory holding `bundles/`. Two exist by default: the
+A **vault** is a directory holding `bundles/`. `okf init` creates one:
+`README.md` outside every bundle root, `okf.json`, `custodian/`, `raw/` with
+its capture manifest, and one bundle carrying `about-this-bundle.md`, a
+`log.md`, and a generated `index.md`. It writes only what is missing, so a
+second run reports what is there and changes nothing, and it refuses to
+initialize inside a bundle root — see [bundle self-description
+conventions](../format/bundle-self-description.md) for the trap that refusal
+avoids. Two exist by default: the
 project vault, found by walking up from the working directory for a directory
 named `okf/`, and the personal vault at `~/okf/` — visible, not hidden,
 because knowledge someone accumulates for years should not live somewhere
@@ -77,6 +84,15 @@ Precedence, highest first:
 A setting present at a higher layer wins; lower layers still supply unset
 keys, and `--verbose` reports the effective value together with the layer it
 came from.
+
+`okf.json` is named `.json` and **parsed as JSONC**: comments and trailing
+commas are accepted, deliberately. A severity promotion without a stated
+reason is a promotion nobody can review, and the reasons are the half of a
+configuration file a reader actually needs. The cost is real and is accepted
+rather than hidden — a strict JSON editor or schema will flag a file the tool
+reads happily — and `okf init` writes the config with its reasons in it, so
+the convention is exercised from the first commit rather than discovered by
+reading the parser.
 
 The **project config is committed, and that is the point**: it is the team
 contract, reviewed like code. It sits at the vault root rather than as a

@@ -132,6 +132,14 @@ public static class OkfRules
     /// <summary>A markdown link resolves outside the bundle root (§6.2).</summary>
     public const string LinkLeavesBundle = "OKF0309";
 
+    /// <summary>
+    /// A <c>raw/</c> item recorded as ingested in the capture manifest no longer matches
+    /// its recorded <c>sha256</c> (PRD CLI-9's <c>raw/</c>-immutability rule). The one
+    /// vault-scoped rule okf-net ships, because <c>raw/</c> sits outside every bundle root
+    /// by construction (decisions.md Q3).
+    /// </summary>
+    public const string RawItemMutated = "OKF0310";
+
     private static readonly OkfRule[] Catalog =
     [
         new(
@@ -242,6 +250,12 @@ public static class OkfRules
             OkfRuleCategory.Hygiene,
             OkfSeverity.Info,
             "A markdown link resolves outside the bundle root; a bundle should be complete on its own (§6.2)."),
+        new(
+            RawItemMutated,
+            "raw-item-mutated",
+            OkfRuleCategory.Hygiene,
+            OkfSeverity.Warning,
+            "An ingested raw/ item no longer matches the sha256 its capture manifest entry records."),
     ];
 
     private static readonly Dictionary<string, OkfRule> ById =

@@ -262,9 +262,11 @@ hook: single process, no daemon, no network, meaningful exit code.
   | Missing source resource | A `sources[]` entry carries no `resource`, which §5.1 requires within an entry | warning |
   | Unresolvable source resource | A `sources[].resource` written as a path names nothing inside the bundle (§6.2); absolute URLs and §5.1 scope descriptors are never checked | info |
   | Link leaves the bundle | A markdown link resolves outside the bundle root (§6.2), which was previously unreported and so indistinguishable from a correct link | info |
+  | Raw item mutated | An ingested `raw/` item no longer matches the `sha256` its capture-manifest entry records (CLI-9) | warning |
 
-  The last three rows were added from the dogfood friction log (work item #21, from
-  #19's note_168); see decisions.md, "the lint/search friction milestone".
+  The three rows above the last were added from the dogfood friction log (work item #21,
+  from #19's note_168); see decisions.md, "the lint/search friction milestone". The last
+  is CLI-9's `raw/`-immutability rule, which landed with `okf init` (work item #4).
 
 - **CLI-8 — `okf init` scaffolding.** `okf init` creates the project layout from
   decisions §2.
@@ -283,8 +285,12 @@ hook: single process, no daemon, no network, meaningful exit code.
   - Generated drift: an on-disk generated file differs from what `okf index` would emit
     for the same tree.
   - `raw/` mutation: a `raw/` item recorded as ingested in the capture manifest changed
-    after its capture. Detection is git-based; outside a git work tree the rule reports as
-    inapplicable rather than failing. `references/` carries no okf-net-specific semantics
+    after its capture. **Detection is by the manifest's recorded `sha256`, not by git** —
+    the hash is the format-level record, it works in a vault that is not a work tree, and
+    it needs no process launched from a library that is offline and AOT-clean by contract
+    (CLI-16). The scope is the *vault*, the only rule for which that is true, because
+    `raw/` sits outside every bundle root (Q3); a bundle with no vault around it leaves
+    the rule inapplicable rather than failing. `references/` carries no okf-net-specific semantics
     (Q3, resolved) — files under it are ordinary spec §6.3 concepts, validated the same as
     any other concept (CORE-1, CORE-3), and this rule does not apply to them.
 - **CLI-10 — `okf index`.** Write generated index files for a bundle.

@@ -107,6 +107,12 @@ internal static class LintCommand
         {
             Severities = new OkfSeverityResolver(layers),
             TagRegistry = project?.TagRegistry ?? global?.TagRegistry,
+
+            // The vault, not a bundle: `raw/` sits outside every bundle root, so OKF0310
+            // is the one rule whose scope is the whole vault (decisions.md Q3). A working
+            // set with no vault — a foreign bundle handed over by path — leaves it null,
+            // and the rule reports as inapplicable rather than failing (PRD CLI-9).
+            VaultRoot = workingSet.VaultRoot,
             Today = DateOnly.FromDateTime(DateTime.Now),
         };
 

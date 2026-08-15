@@ -29,7 +29,8 @@ so nothing indexes it, searches it, or ships it.
 `okf <command> --help` for a command's options. Search is tokenized,
 field-weighted, and returns a trust tier and a stale flag per hit, so a hit can
 be judged before it is opened — reach for it in place of a text scan of the
-directory. With `okf` absent from the PATH, stop and say so.
+directory. With `okf` absent from the PATH and no documented equivalent in the
+project, stop and say so.
 
 The layout it resolves against:
 
@@ -139,7 +140,7 @@ survive:
         { "path": "2026-08-14-okapi-bm25-paper/original.pdf", "sha256": "9f2c…" },
         { "path": "2026-08-14-okapi-bm25-paper/extracted.md", "sha256": "41ab…" }
       ],
-      "capturedAt": "2026-08-14T20:41:50-05:00",
+      "capturedAt": "2026-08-14T20:41:50Z",
       "capturedBy": "claude-fable/5",
       "originalUrl": "https://example.org/papers/okapi-bm25.pdf",
       "title": "Okapi at TREC-3",
@@ -156,7 +157,7 @@ survive:
 | `form` | `flat` or `packet` |
 | `files[].path` | Relative to `okf/raw/`. Every file of the item |
 | `files[].sha256` | `sha256sum <file>`. What "unchanged" is measured against |
-| `capturedAt` | ISO 8601 with offset: `date -Iseconds` |
+| `capturedAt` | RFC 3339 UTC, `Z`-suffixed, seconds: `date -u +%Y-%m-%dT%H:%M:%SZ` |
 | `capturedBy` | Your actor, §7 form: `<producer>/<version>` |
 | `originalUrl` | Where it came from; absent only for material with no URL |
 | `title`, `sourceLastModified` | Optional, and worth the two seconds — they become the ingested concept's `title` and `sources[].last_modified` |
@@ -191,10 +192,10 @@ type: Concept
 title: BM25 Field Weighting
 description: One sentence. It becomes the index entry and the search snippet.
 tags: [search, ranking]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T20:41:50Z }
 sources:
   - id: okapi-bm25-paper
-    resource: references/okapi-bm25.md
+    resource: /references/okapi-bm25.md
     title: Okapi at TREC-3
     last_modified: 1994-11-01
 ---
@@ -233,11 +234,14 @@ and every `[^id]` label in the body matches a `sources[].id`.
 ## 8. Stamp `generated`
 
 ```yaml
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T20:41:50Z }
 ```
 
 `by` is your actor in §7 form — `<producer>/<version>` for an agent or tool,
-`process:<id>` for an automated process. `at` is `date -Iseconds`. Restamp on
+`process:<id>` for an automated process. `at` is RFC 3339 UTC at second
+precision — `date -u +%Y-%m-%dT%H:%M:%SZ` — which is the one form okf-net
+writes, because a `Z`-suffixed stamp sorts as text in the order it sorts in
+time and a local offset records where you were sitting. Restamp on
 every write, a one-line edit included: `generated.at` older than the content is
 a false freshness signal, and it feeds every drift and stale check downstream.
 
