@@ -60,7 +60,7 @@ stable channel yet, and the `rc` is not decoration — the API, the CLI surface
 and the diagnostic set can all still move.
 
 ```sh
-curl -fsSL https://get.tychostation.dev/install.sh | sh
+curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 ```
 
 That fetches the newest release's manifest, verifies the binary's `sha256`
@@ -69,15 +69,15 @@ against it, and installs to `~/.local/bin/okf`. Pin a version with
 you leap with `--dry-run`:
 
 ```sh
-curl -fsSL https://get.tychostation.dev/install.sh | sh -s -- --version 1.0.0-rc.15
-curl -fsSL https://get.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
-curl -fsSL https://get.tychostation.dev/install.sh | sh -s -- --dry-run
+curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0-rc.15
+curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 ```
 
 The script is [`install.sh`](install.sh) in this repository, and every release
 ships the copy it was cut with.
 
-> **`get.tychostation.dev` resolves only inside Ringo's network today.** The
+> **`get.okf.tychostation.dev` resolves only inside Ringo's network today.** The
 > host is an internal nginx behind the internal Caddy; there is no public DNS
 > record and no public route, so the one-liner above will not resolve for
 > anyone else. Public availability — and the auth, rate limiting and

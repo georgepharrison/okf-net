@@ -2075,13 +2075,13 @@ this branch (three work items are in flight at once). It is a one-line follow-up
 
 ### Proposed decisions (decided 2026-08-15, review #9): self-hosted install (work item #25, 2026-08-15)
 
-`curl -fsSL https://get.tychostation.dev/install.sh | sh` now exists, and with it the two
+`curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` now exists, and with it the two
 things the version-stamping milestone deferred: a release that describes itself, and a host
 that serves it. The infrastructure half lives in
 [tychostation/iac!30](https://gitlab.tychostation.dev/tychostation/iac/-/merge_requests/30)
 — nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www`.
 
-**Local-only, and the README says so where a reader will hit it.** `get.tychostation.dev`
+**Local-only, and the README says so where a reader will hit it.** `get.okf.tychostation.dev`
 has no public DNS record and no public route. That is not a stepping stone that got
 forgotten: an unauthenticated host serving a script people pipe into `sh` is a different
 security object from an internal one, and the difference is auth, rate limiting, abuse
