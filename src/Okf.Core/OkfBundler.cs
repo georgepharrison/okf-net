@@ -262,7 +262,18 @@ public static class OkfBundler
         }
         else if (File.Exists(full))
         {
-            (manifestText, digests) = ReadArchive(full);
+            try
+            {
+                (manifestText, digests) = ReadArchive(full);
+            }
+            catch (InvalidDataException exception)
+            {
+                // A file that is not an archive at all — someone verified the wrong path,
+                // or a download landed as an error page. It is reported, never thrown:
+                // `InvalidDataException` is not an `IOException`, so letting it escape
+                // would crash the process rather than exit 1 with a sentence.
+                return Unreadable(full, $"'{full}' is not a readable archive: {exception.Message}");
+            }
         }
         else
         {
@@ -385,13 +396,22 @@ public static class OkfBundler
             foreach (var link in scan.Links)
             {
                 if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out var resolved) != LinkTarget.Outside
-                    || resolved is null
-                    || IsShipped(shipped, resolved))
+                    || resolved is null)
                 {
                     continue;
                 }
 
-                var key = (entry.Path, link.Target, BundleNameOf(resolved, vaultRoot));
+                // A link may name a directory (`../other-bundle/`), and a trailing slash
+                // survives normalization — so it is trimmed before the target is compared
+                // against the packaged paths, or a link to a bundle that *is* shipped
+                // would be reported as dangling.
+                var target = Path.TrimEndingDirectorySeparator(resolved);
+                if (IsShipped(shipped, target))
+                {
+                    continue;
+                }
+
+                var key = (entry.Path, link.Target, BundleNameOf(target, vaultRoot));
                 if (!dangling.ContainsKey(key))
                 {
                     dangling[key] = new OkfExternalLink(key.Item1, key.Item2, key.Item3, link.Line);

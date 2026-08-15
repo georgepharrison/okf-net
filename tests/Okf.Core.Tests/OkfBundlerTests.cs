@@ -84,6 +84,10 @@ public class OkfBundlerTests
         var parsed = OkfDistributionManifest.Parse(manifest.ToJson());
 
         Assert.NotNull(parsed);
+        Assert.Equal(manifest.ManifestVersion, parsed.ManifestVersion);
+        Assert.Equal(manifest.OkfVersion, parsed.OkfVersion);
+        Assert.Equal(manifest.Generator, parsed.Generator);
+        Assert.Equal(manifest.SourceVault, parsed.SourceVault);
         Assert.Equal(manifest.GeneratedAt, parsed.GeneratedAt);
         Assert.Equal(manifest.Bundles, parsed.Bundles);
         Assert.Equal(
@@ -130,6 +134,180 @@ public class OkfBundlerTests
         var link = Assert.Single(manifest.ExternalLinks);
         Assert.Equal("bundles/beta/gadgets.md", link.From);
         Assert.Null(link.Bundle);
+    }
+
+    [Fact]
+    public void A_link_to_a_packaged_bundles_directory_is_not_dangling()
+    {
+        using var tree = new BundlerVault();
+        tree.Write(
+            "bundles/alpha/topics/widgets.md",
+            Concept("Widgets", "Everything about [gadgets](../../beta/) lives next door."));
+
+        var manifest = OkfBundler.Plan(tree.WorkingSet(), Options()).Manifest;
+
+        Assert.Empty(manifest.ExternalLinks);
+    }
+
+    [Fact]
+    public void A_link_to_a_bundle_left_out_names_that_bundle_even_as_a_bare_directory()
+    {
+        using var tree = new BundlerVault();
+        tree.Write(
+            "bundles/alpha/topics/widgets.md",
+            Concept("Widgets", "Everything about [gadgets](../../beta/) lives next door."));
+
+        var manifest = OkfBundler.Plan(tree.WorkingSet(), Options(bundles: ["alpha"])).Manifest;
+
+        var link = Assert.Single(manifest.ExternalLinks);
+        Assert.Equal("../../beta/", link.To);
+        Assert.Equal("beta", link.Bundle);
+    }
+
+    [Fact]
+    public void Dangling_links_are_deduplicated_and_ordered_by_document_then_line()
+    {
+        using var tree = new BundlerVault();
+        tree.Write(
+            "bundles/alpha/about-this-bundle.md",
+            Concept("About Alpha", "See [gadgets](../beta/gadgets.md)."));
+        tree.Write(
+            "bundles/alpha/topics/widgets.md",
+            Concept(
+                "Widgets",
+                "First [zeta](../../beta/zeta.md),\nthen [gadgets](../../beta/gadgets.md),\n"
+                + "then [zeta again](../../beta/zeta.md),\n"
+                // Two on one line, so the tie-break past the line number is exercised.
+                + "and finally [psi](../../beta/psi.md) beside [omega](../../beta/omega.md)."));
+
+        var manifest = OkfBundler.Plan(tree.WorkingSet(), Options(bundles: ["alpha"])).Manifest;
+
+        Assert.Equal(
+            [
+                ("bundles/alpha/about-this-bundle.md", "../beta/gadgets.md"),
+                ("bundles/alpha/topics/widgets.md", "../../beta/zeta.md"),
+                ("bundles/alpha/topics/widgets.md", "../../beta/gadgets.md"),
+                ("bundles/alpha/topics/widgets.md", "../../beta/omega.md"),
+                ("bundles/alpha/topics/widgets.md", "../../beta/psi.md"),
+            ],
+            manifest.ExternalLinks.Select(link => (link.From, link.To)));
+    }
+
+    /// <summary>
+    /// A link that dangles *inside* its own bundle is an ordinary §6.1 broken link — the
+    /// linter's business (OKF0302) and not the distribution's, because packaging neither
+    /// caused it nor can fix it. Only links that leave the bundle are recorded.
+    /// </summary>
+    [Fact]
+    public void A_link_broken_inside_its_own_bundle_is_not_a_distribution_finding()
+    {
+        using var tree = new BundlerVault();
+        tree.Write(
+            "bundles/beta/gadgets.md",
+            Concept("Gadgets", "See [the missing one](not-written-yet.md)."));
+
+        var manifest = OkfBundler.Plan(tree.WorkingSet(), Options()).Manifest;
+
+        Assert.Empty(manifest.ExternalLinks);
+    }
+
+    [Fact]
+    public void The_entries_and_the_manifest_agree_on_one_ordinal_order()
+    {
+        using var tree = new BundlerVault();
+
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+
+        var paths = plan.Entries.Select(entry => entry.Path).ToList();
+        Assert.Equal(paths.Order(StringComparer.Ordinal), paths);
+        Assert.Equal(paths, plan.Manifest.Files.Select(file => file.Path));
+    }
+
+    [Fact]
+    public void The_packaged_bundles_are_ordered_by_name_whatever_order_they_were_asked_for()
+    {
+        using var tree = new BundlerVault();
+
+        var manifest = OkfBundler.Plan(tree.WorkingSet(), Options(bundles: ["beta", "alpha"])).Manifest;
+
+        Assert.Equal(["alpha", "beta"], manifest.Bundles);
+    }
+
+    [Fact]
+    public void The_total_is_the_sum_of_the_packaged_files_not_the_largest_of_them()
+    {
+        using var tree = new BundlerVault();
+
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+
+        Assert.Equal(
+            plan.Entries.Select(entry => new FileInfo(entry.SourcePath).Length).Sum(),
+            plan.TotalBytes);
+        Assert.True(plan.TotalBytes > plan.Entries.Max(entry => entry.Length));
+    }
+
+    [Fact]
+    public void A_bundle_outside_any_vault_packages_with_no_source_vault()
+    {
+        using var tree = new BundlerVault();
+        var lone = tree.CreateDirectory("foreign/handbook");
+        File.WriteAllText(Path.Combine(lone, "gadgets.md"), Concept("Gadgets", "Gadgets."));
+        var workingSet = OkfDiscovery.Resolve(lone, new OkfEnvironment(tree.Output));
+
+        var plan = OkfBundler.Plan(workingSet, Options());
+
+        Assert.Null(plan.Manifest.SourceVault);
+        Assert.Contains("\"sourceVault\": null", plan.Manifest.ToJson(), StringComparison.Ordinal);
+        Assert.Equal(["bundles/handbook/gadgets.md"], plan.Entries.Select(entry => entry.Path));
+    }
+
+    [Fact]
+    public void The_manifest_is_indented_and_newline_terminated_because_a_consumer_reads_it()
+    {
+        using var tree = new BundlerVault();
+
+        var json = OkfBundler.Plan(tree.WorkingSet(), Options()).Manifest.ToJson();
+
+        Assert.Contains("\n  \"okfVersion\": \"0.2\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"manifestVersion\": 1", json, StringComparison.Ordinal);
+        Assert.EndsWith("}\n", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The reader is tolerant in the same direction the format is: a manifest that omits
+    /// what this build would have written still reads, at the versions this build knows.
+    /// </summary>
+    [Fact]
+    public void A_manifest_missing_its_versions_reads_at_the_current_ones()
+    {
+        var parsed = OkfDistributionManifest.Parse(
+            """{ "generator": "okf/1.0.0", "generatedAt": "2026-08-15T14:00:00Z", "files": [] }""");
+
+        Assert.NotNull(parsed);
+        Assert.Equal(OkfDistributionManifest.CurrentVersion, parsed.ManifestVersion);
+        Assert.Equal(OkfDistributionManifest.SpecVersion, parsed.OkfVersion);
+        Assert.Null(parsed.SourceVault);
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("""{ "generator": "okf/1.0.0" }""")]
+    [InlineData("""{ "generatedAt": "2026-08-15T14:00:00Z" }""")]
+    [InlineData("[]")]
+    public void A_manifest_that_is_not_one_does_not_parse(string json) =>
+        Assert.Null(OkfDistributionManifest.Parse(json));
+
+    [Fact]
+    public void Verify_reports_a_file_that_is_not_an_archive_rather_than_throwing()
+    {
+        using var tree = new BundlerVault();
+        var impostor = Path.Combine(tree.Output, "not-an-archive.tar.gz");
+        File.WriteAllText(impostor, "PKZ this is a 404 page, not an archive\n");
+
+        var result = OkfBundler.Verify(impostor);
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal(OkfDistributionIssue.Unreadable, finding.Issue);
     }
 
     [Fact]
@@ -190,6 +368,41 @@ public class OkfBundlerTests
         var expected = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
         Assert.NotEmpty(stamps);
         Assert.All(stamps, stamp => Assert.Equal(expected, stamp));
+    }
+
+    [Fact]
+    public void Archive_entries_are_written_in_ordinal_path_order_with_the_manifest_last()
+    {
+        using var tree = new BundlerVault();
+        var archive = Path.Combine(tree.Output, "bundle.tar.gz");
+
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), archive, OkfDistributionFormat.TarGz);
+
+        var names = TarEntries(archive).Select(entry => entry.Name).ToList();
+        Assert.Equal(names.Order(StringComparer.Ordinal), names);
+        Assert.Equal(OkfDistributionManifest.FileName, names[^1]);
+    }
+
+    [Fact]
+    public void Archive_entries_carry_no_owner_and_a_normalized_mode()
+    {
+        using var tree = new BundlerVault();
+        var archive = Path.Combine(tree.Output, "bundle.tar.gz");
+
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), archive, OkfDistributionFormat.TarGz);
+
+        foreach (var entry in TarEntries(archive).Cast<PaxTarEntry>())
+        {
+            // Whose machine built the archive is not part of what was packaged, and a
+            // producer's umask must not travel with the knowledge.
+            Assert.Equal(string.Empty, entry.UserName);
+            Assert.Equal(string.Empty, entry.GroupName);
+            Assert.Equal(0, entry.Uid);
+            Assert.Equal(0, entry.Gid);
+            Assert.Equal(
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead,
+                entry.Mode);
+        }
     }
 
     [Fact]
@@ -330,6 +543,22 @@ public class OkfBundlerTests
     }
 
     [Fact]
+    public void Verify_lists_every_unlisted_file_in_path_order()
+    {
+        using var tree = new BundlerVault();
+        var directory = Path.Combine(tree.Output, "dist");
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), directory, OkfDistributionFormat.Directory);
+        File.WriteAllText(Path.Combine(directory, "bundles", "beta", "zeta.md"), "---\ntype: Concept\n---\n");
+        File.WriteAllText(Path.Combine(directory, "bundles", "beta", "alpha.md"), "---\ntype: Concept\n---\n");
+
+        var result = OkfBundler.Verify(directory);
+
+        Assert.Equal(
+            ["bundles/beta/alpha.md", "bundles/beta/zeta.md"],
+            result.Findings.Select(finding => finding.Path));
+    }
+
+    [Fact]
     public void Verify_reports_a_file_the_manifest_lists_and_the_distribution_lost()
     {
         using var tree = new BundlerVault();
@@ -366,6 +595,21 @@ public class OkfBundlerTests
 
     private static string Concept(string title, string body) =>
         $"---\ntype: Concept\ntitle: {title}\ndescription: A fixture concept.\n---\n\n{body}\n";
+
+    /// <summary>Every entry of a tar.gz, in the order it was written.</summary>
+    private static List<TarEntry> TarEntries(string archive)
+    {
+        var entries = new List<TarEntry>();
+        using var file = File.OpenRead(archive);
+        using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var reader = new TarReader(gzip);
+        while (reader.GetNextEntry(copyData: true) is { } entry)
+        {
+            entries.Add(entry);
+        }
+
+        return entries;
+    }
 
     private static Dictionary<string, string> TarContents(string archive)
     {

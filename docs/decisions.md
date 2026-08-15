@@ -1654,3 +1654,36 @@ and carries `manifestVersion`, `okfVersion`, `generator`, `sourceVault`, `genera
   the flag is not worth inventing. (c) *An extractor* (`okf bundle --extract`), for the
   reason above. (d) *Incremental or delta distributions*: the whole artifact is a few
   hundred kilobytes.
+
+#### The scoped mutation run, and what it found
+
+`dotnet stryker --mutate` over the four new files: **54.64% → 67.33%** after the survivors
+were read (374 mutants tested, 270 killed). The score is above the repo's `break`
+threshold of 60 and within a few points of the solution baseline, and the exercise earned
+its keep twice, in defects rather than in tests:
+
+- **A link naming a *directory* was always reported as dangling.** `../other-bundle/`
+  normalizes with its trailing separator intact, so the comparison against the packaged
+  paths never matched, and a link into a bundle that *was* shipped came out in
+  `externalLinks`. The separator is now trimmed before the target is compared. This is the
+  exact case the spike's answer turns on, and no test had it.
+- **`okf bundle --verify` crashed on a file that is not an archive.**
+  `InvalidDataException` is not an `IOException`, so a 404 page saved as `okf.tar.gz` —
+  the most likely thing anybody will ever point `--verify` at by mistake — escaped the
+  command's handlers and killed the process instead of exiting 1 with a sentence.
+
+Ten tests came out of the rest, all of them contracts rather than change-detectors: entry
+and manifest ordering are one order and it is ordinal; the packaged bundle list is sorted
+by name whatever order `--bundle` was given in; dangling links dedupe and sort by
+document, then line, then target; archive entries carry no owner names and a normalized
+mode; a bundle with no vault around it records `sourceVault: null`; a stamp with no offset
+reads as UTC (a local reading would make the same command on two laptops write two
+manifests); the inline `--out=` form; and `--lint` off by default.
+
+**Not chased, and the classification is the same one the mutation-testing milestone
+recorded:** 39 string-literal mutants on diagnostic and report prose, 25 mutants that
+delete an argument guard (`ArgumentNullException.ThrowIfNull`), and a tail of equivalents —
+`leaveOpen: true → false` on a stream that is disposed by its owner anyway, `Append →
+Prepend` before a sort, `separator <= 0` where the value cannot be 0, and the `IsZip`
+magic-byte conjunction, which no input distinguishes because a file that starts `P` but
+not `PK` is not a zip either way.

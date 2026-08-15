@@ -145,6 +145,158 @@ public class BundleCommandTests
     }
 
     [Fact]
+    public void OptionsAreAcceptedInTheirInlineFormToo()
+    {
+        using var vault = new DistributableVault();
+        var spaced = Path.Combine(vault.Output, "spaced.zip");
+
+        // Also a directory that does not exist yet: an --out naming a new path has to
+        // create the tree on the way, which is what a release job's `artifacts/` is.
+        var inline = Path.Combine(vault.Output, "nested", "deeper", "inline.zip");
+
+        Cli.RunIn(
+            vault.Project,
+            vault.Home,
+            "bundle",
+            vault.Root,
+            "--out",
+            spaced,
+            "--format",
+            "zip",
+            "--bundle",
+            "beta",
+            "--generated-at",
+            Stamp);
+        var run = Cli.RunIn(
+            vault.Project,
+            vault.Home,
+            "bundle",
+            vault.Root,
+            $"--out={inline}",
+            "--format=zip",
+            "--bundle=beta",
+            $"--generated-at={Stamp}");
+        var verified = Cli.RunIn(vault.Project, vault.Home, "bundle", $"--verify={inline}");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(File.ReadAllBytes(spaced), File.ReadAllBytes(inline));
+        Assert.Equal(CliApplication.ExitSuccess, verified.ExitCode);
+    }
+
+    [Fact]
+    public void VerifyingSomethingThatIsNotAnArchiveFailsWithASentence()
+    {
+        using var vault = new DistributableVault();
+        var impostor = Path.Combine(vault.Output, "download.tar.gz");
+        File.WriteAllText(impostor, "<html>404 Not Found</html>\n");
+
+        var run = Cli.RunIn(vault.Project, vault.Home, "bundle", "--verify", impostor);
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        Assert.Contains("unreadable", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A stamp with no offset is read as UTC, not as the packaging machine's local time —
+    /// otherwise the same command on two laptops writes two different manifests, which is
+    /// the one thing the reproducibility claim cannot survive.
+    /// </summary>
+    [Fact]
+    public void AStampWithNoOffsetIsReadAsUtcAndRenderedCanonically()
+    {
+        using var vault = new DistributableVault();
+        var archive = Path.Combine(vault.Output, "dist.tar.gz");
+
+        Cli.RunIn(
+            vault.Project,
+            vault.Home,
+            "bundle",
+            vault.Root,
+            "--out",
+            archive,
+            "--generated-at",
+            "2026-08-15T14:00:00");
+
+        using var document = JsonDocument.Parse(TarEntry(archive, OkfDistributionManifest.FileName));
+        Assert.Equal(Stamp, document.RootElement.GetProperty("generatedAt").GetString());
+    }
+
+    [Fact]
+    public void TheStampGoesIntoTheManifestExactlyAsGiven()
+    {
+        using var vault = new DistributableVault();
+        var archive = Path.Combine(vault.Output, "dist.tar.gz");
+
+        Cli.RunIn(vault.Project, vault.Home, "bundle", vault.Root, "--out", archive, "--generated-at", "2026-01-02T03:04:05Z");
+
+        using var document = JsonDocument.Parse(TarEntry(archive, OkfDistributionManifest.FileName));
+        Assert.Equal("2026-01-02T03:04:05Z", document.RootElement.GetProperty("generatedAt").GetString());
+    }
+
+    [Fact]
+    public void VerboseReportsResolutionAndTheDestinationOnStderr()
+    {
+        using var vault = new DistributableVault();
+        var archive = Path.Combine(vault.Output, "dist.tar.gz");
+
+        var quiet = Cli.RunIn(vault.Project, vault.Home, "bundle", vault.Root, "--out", archive, "--generated-at", Stamp);
+        var loud = Cli.RunIn(
+            vault.Project,
+            vault.Home,
+            "bundle",
+            vault.Root,
+            "--out",
+            archive,
+            "--verbose",
+            "--generated-at",
+            Stamp);
+
+        Assert.DoesNotContain("okf: resolved", quiet.Error, StringComparison.Ordinal);
+        Assert.Contains("okf: resolved vault", loud.Error, StringComparison.Ordinal);
+        Assert.Contains("okf: writing tar.gz to", loud.Error, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            loud.Error.Split('\n').Count(line => line.StartsWith("okf: packaging ", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void WithoutTheFlagNothingIsLinted()
+    {
+        using var vault = new DistributableVault();
+        var archive = Path.Combine(vault.Output, "dist.tar.gz");
+
+        var run = Cli.RunIn(vault.Project, vault.Home, "bundle", vault.Root, "--out", archive, "--generated-at", Stamp);
+
+        Assert.DoesNotContain("Linting the distribution", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADirectoryDistributionIsLintedWhereItWasWritten()
+    {
+        using var vault = new DistributableVault();
+        var directory = Path.Combine(vault.Output, "dist");
+
+        var run = Cli.RunIn(
+            vault.Project,
+            vault.Home,
+            "bundle",
+            vault.Root,
+            "--out",
+            directory,
+            "--format",
+            "dir",
+            "--lint",
+            "--generated-at",
+            Stamp);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("Linting the distribution", run.Output, StringComparison.Ordinal);
+        // Paths are reported relative to the distribution, which is what a consumer sees.
+        Assert.Contains("Checked 6 files in 2 bundles", run.Output, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(directory, OkfDistributionManifest.FileName)));
+    }
+
+    [Fact]
     public void VerifyPassesOnWhatWasJustPackaged()
     {
         using var vault = new DistributableVault();
@@ -180,6 +332,8 @@ public class BundleCommandTests
 
         Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
         Assert.Contains("bundles/beta/gadgets.md: modified", run.Output, StringComparison.Ordinal);
+        Assert.Contains("1 problem.", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("every file matches", run.Output, StringComparison.Ordinal);
     }
 
     [Fact]
