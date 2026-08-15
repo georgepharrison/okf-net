@@ -35,9 +35,14 @@ not any implementation of it — the interop layer.
   optional.
 - The **body** is ordinary markdown for humans and language models, with
   structural markdown preferred over freeform prose.
-- Directory structure follows the **domain**. Document kind lives in `type`,
-  and cross-cutting categorisation lives in `tags` — never in the folder
-  names.
+- **Directory structure is the producer's choice.** The specification says
+  layout is independent of the domain and that producers organise concepts
+  however suits the knowledge being captured; it mandates no tree shape at
+  all. What it does fix is where the other two axes live: document kind in
+  `type`, cross-cutting categorisation in `tags`. Organising the tree
+  domain-first and keeping both of those axes out of the folder names is
+  okf-net's own convention, not a rule the format imposes — see [bundle
+  self-description](bundle-self-description.md).
 
 `index.md` and `log.md` are the only reserved filenames. Both are optional:
 an index is a navigational view of a directory, and a log records notable
