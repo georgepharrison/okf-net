@@ -110,7 +110,7 @@ Process note: BMAD judged overkill for MVP (SPEC.md is the PRD; these sessions w
 
 ## Open items (tracked in session task list, mirrored here)
 
-- **Bundler** — strip custodian machinery for distribution; SPIKE: how to package cross-bundle concept references (inline? vendor? dangling-link?).
+- ~~**Bundler** — strip custodian machinery for distribution; SPIKE: how to package cross-bundle concept references (inline? vendor? dangling-link?).~~ **Both resolved (2026-08-15, work item #5)** — see [the bundler milestone](#proposed-decisions-pending-review-the-bundler-work-item-5-2026-08-15). The spike's answer is *leave the link dangling and record it*; the alternatives and why they lose are recorded there.
 - **Static site generator** — replace Obsidian dependency; GitLab Pages/file-handoff targets; prior art: `reference_agent visualize` self-contained viz.html. **Ringo has more to add on displaying OKF v0.2 fields (trust tiers, stale_after, verified-by-agent-vs-human) on the site.**
 - **Custodian staleness-refresh loop** — on `stale_after` expiry for version-pinned sources: fetch release notes current→latest, update/draft concept incl. derived impact analysis; surfaces via draft status + inbox + CI PR.
 - **Vectorization spike** — optional sqlite-vec (or similar) semantic index; strictly opt-in; fallback only when progressive disclosure fails; generated artifact, never authoritative.
@@ -1452,3 +1452,205 @@ that a non-goal, and it stays one.
   rendered the same string as `OkfTimestamp.ToCanonical` (verified byte-for-byte across
   offsets, subseconds, and both ends of the range before it was deleted), and one
   canonical form with two renderers is one renderer too many.
+
+### Proposed decisions (pending review): the bundler (work item #5, 2026-08-15)
+
+The first post-MVP item, and the one PRD §1.3 named as a non-goal *for MVP* rather than
+forever. `okf bundle` packages a vault's bundles for **consume-only** distribution: it
+ships `bundles/` and nothing else, in any of the three shapes SPEC §3 permits, with an
+attestation of what shipped. It also settles the cross-bundle-reference spike this
+document has carried as an open item since topic 1.
+
+#### The cross-bundle reference SPIKE, resolved: leave the link dangling and say so
+
+When a *subset* of a multi-bundle vault is packaged, a link from an included bundle into
+an excluded one has nothing to point at. Three answers were available.
+
+- **(a) Leave it dangling, and record every one in the distribution manifest.
+  Adopted.** §6.1 does not merely tolerate this — it says a link whose target is not in
+  the bundle "is not malformed; it may simply represent not-yet-written knowledge", and
+  obliges *every* consumer to cope. A dangling link is therefore a legal artifact of the
+  format rather than damage the bundler inflicted, and the honest thing to do with a legal
+  artifact is to name it: `okf-bundle.json` lists `externalLinks: [{from, to, bundle}]`,
+  and the run prints one warning line per link on stderr. The consumer learns what they
+  did not receive, from the distribution itself, without the bundler having invented
+  anything.
+- **(b) Vendor the linked concepts into the shipped bundle. Rejected.** It violates the
+  bundle boundary the whole model rests on, and it duplicates *trust state*: a vendored
+  copy carries its own `generated`, its own `verified`, its own `stale_after`, and its own
+  provenance, all of which now describe a document that lives somewhere else and is
+  maintained by someone else. The copy cannot be re-verified (§5's decision test fails on
+  it by construction), it will silently diverge from the original, and `OKF0303`'s
+  near-duplicate rule would be right to complain about it. A knowledge format whose
+  packaging step multiplies documents is a format that decays.
+- **(c) Refuse to package unless `--allow-dangling` is passed. Rejected.** It makes the
+  tool block what the spec explicitly permits, which is the inverse of the standing
+  principle that *defaults block only what the spec says*. It would also fire on the
+  common, correct case — a vault whose bundles cross-reference each other, packaged one
+  bundle at a time — and a flag that must be passed every time is a flag nobody reads.
+  The warning carries the same information at the same moment and costs nothing.
+
+**What the layout buys, and why it is the layout.** A distribution keeps the vault's
+`bundles/<name>/` shape rather than hoisting a single bundle to the root. The consequence
+is the useful half of the spike's answer: a relative link from `bundles/a/x.md` to
+`../b/y.md` **still resolves** when both bundles are packaged, so cross-bundle references
+are not broken by distribution at all in the whole-vault case. Only two things dangle — a
+link into a bundle the caller left out, and a link into something no distribution ever
+carries (`raw/`, `custodian/`, the repository around the vault) — and those two are
+exactly what `externalLinks` lists. The manifest records a link as dangling by asking
+whether its resolved target is in the shipped file set, not by guessing from its shape.
+
+#### What ships, and what never does
+
+- **Included:** `bundles/<name>/**` — concepts, `index.md`, `log.md`, `about.md` files,
+  `references/`, **and non-markdown content**. A bundle is more than its concepts: §6.3's
+  `references/` convention explicitly covers code, and Google's own bundles carry `.py`
+  attesters and a `viz.html`. `OkfBundle.ContentFiles()` is `MarkdownFiles()` with the
+  extension filter removed and every other rule of that walk kept — no dotfiles, no
+  dot-directories, no symlink that leaves the bundle root.
+- **Excluded, by construction:** everything outside a bundle root. `raw/`, `custodian/`,
+  `okf.json`, `.markdownlint.yaml`, and the vault README are not skipped by a rule; they
+  are never reached, because the walk starts at `bundles/<name>/`. Q3 called `raw/` a
+  producer-side archive and this is the sentence that makes it true: a consumer receives
+  the extracted `references/` concept plus the original URL in frontmatter, never the
+  captured bytes.
+- **Excluded, by name:** editor and tool droppings inside a bundle — `*~`, `*.swp`,
+  `*.swo`, `*.swn`, `*.orig`, `*.rej`, `*.bak`, `Thumbs.db`, `desktop.ini`. Deliberately a
+  short list matched on the **name**, never on content, and deliberately not extended to
+  "anything that is not `.md`": a file whose name does not say it is junk gets packaged,
+  because a producer who put it in a bundle root meant it there. `.DS_Store` and
+  `.obsidian/` need no entry — the dotfile rule already has them.
+- **Not stripped, because it was never there:** the custodian machinery is *beside* the
+  bundle rather than inside it (topic 1), so "the bundler strips custodian machinery" is,
+  in the end, a walk that starts one directory lower. The design decision was made in
+  topic 1; this milestone only had to not undo it.
+
+#### Deterministic archives, and the one clock reading
+
+The same vault, packaged by the same version with the same stamp, is **byte-identical**.
+That is a requirement rather than a nicety: a release artifact whose bytes change on every
+rebuild cannot be checked against a published digest, and a reproducible archive is what
+lets two people confirm they received the same knowledge.
+
+- **Entries are sorted by path, ordinal**, and the manifest sorts with them (`bundles/…` <
+  `okf-bundle.json`, so it lands last). **No directory entries** are written: every
+  extractor creates the directories a file path implies, and an entry carrying no bytes is
+  one more thing that would have to be made deterministic.
+- **Every archive timestamp is `1980-01-01T00:00:00Z`**, not the file's mtime and not the
+  epoch. Not the mtime because a fresh `git clone` re-stamps every file, so an archive
+  built from a checkout would differ from one built from a working tree with no content
+  difference at all — the case a release runner hits every time. Not the epoch because zip
+  stores an MS-DOS timestamp, which cannot represent anything before 1980; one constant
+  both formats can hold beats a smaller number that only one of them can.
+- **Ownership is `0:0` with empty owner names, and every file ships mode `0644`.** An
+  executable attester loses its bit; that is accepted, because okf-net never executes an
+  executor or an attester (PRD §1.3 makes running them a permanent non-goal) and a
+  consumer who wants to run one can `chmod`. The alternative — carrying the producer's
+  modes — makes the archive depend on a umask.
+- **The gzip and zip containers were measured, not assumed.** .NET's `GZipStream` writes a
+  header whose MTIME field is zero and which carries no filename, so the compressed stream
+  is reproducible; `ZipArchiveEntry.LastWriteTime` is set from a `DateTimeOffset` with an
+  explicit zero offset, so the DOS timestamp does not depend on the packaging machine's
+  time zone. Both were verified by building the same archive twice, 1.1 seconds apart,
+  and comparing bytes — which is also how the test asserts it, with every source file
+  re-stamped in between.
+- **`generatedAt` is the only clock reading anywhere in the packaging path**, and
+  `--generated-at <instant>` pins it. This is the reproducible-builds `SOURCE_DATE_EPOCH`
+  problem in miniature and it gets the same answer: an honest timestamp by default, an
+  injectable one for a release. The tag pipeline passes `$CI_COMMIT_TIMESTAMP`, so the
+  published archive is reproducible from the tag alone rather than from the minute the
+  runner happened to start.
+
+#### `okf-bundle.json`: the attestation, and where it sits
+
+The distribution manifest sits at the distribution **root** — outside every bundle root —
+and carries `manifestVersion`, `okfVersion`, `generator`, `sourceVault`, `generatedAt`,
+`bundles`, `externalLinks`, and a `sha256` for every file shipped.
+
+- **Outside the bundle root, for the README trap's reason.** §11 makes every non-reserved
+  file in a bundle a concept that must carry parseable frontmatter with a non-empty `type`.
+  A manifest *inside* a bundle root would therefore be a frontmatter-less concept and would
+  fail the conformance check it exists to support — the same trap that keeps `README.md`
+  out of a bundle root (topic 2). It also means a consumer who deletes it, or never notices
+  it, still has a complete `cat`-readable bundle, which is the §1 promise the manifest must
+  not quietly withdraw.
+- **The manifest is the one unhashed file.** It cannot record its own digest without a
+  fixed point, and a self-attesting manifest proves nothing anyway: the integrity claim is
+  only as strong as the channel the manifest itself arrived over. What the hashes are for
+  is the mundane and common failure — a truncated download, a half-applied edit, a file
+  added to an unpacked copy — not a forgery.
+- **`sha256`, and the field is spelled exactly as the capture manifest spells it.** One
+  hash convention in the repository: 64 lowercase hex digits, `OkfCaptureManifest.Sha256Of`
+  is the single implementation, and `raw/` immutability (`OKF0310`) and distribution
+  integrity now answer to the same primitive.
+- **Keys are camelCase, not the spec's `okf_version` snake_case.** Frontmatter is YAML read
+  by document tooling; this is machine-maintained JSON read by the same reader that reads
+  `raw/manifest.json`, and the two JSON files should not disagree about their own
+  conventions. The *value* is the spec version (`"0.2"`); only the key's spelling is
+  okf-net's.
+- **`sourceVault` is a name, never a path.** It records the vault directory's name, or —
+  when the vault is the conventional `okf/`, which names nothing — the project directory's
+  name, so okf-net's own distribution says `okf-net`. Recording the absolute path would
+  ship the producer's filesystem layout to every consumer, which is not information anybody
+  asked for.
+- **`generator` is a §7 actor** (`okf/1.0.0-rc.15`) carrying the semantic version and
+  *not* the `+sha` build metadata: an archive should be reproducible from a tag, and which
+  machine compiled the binary is not part of what was packaged.
+
+#### `--verify`, and `--lint`
+
+- **`--verify <archive-or-directory>` re-hashes and reports; exit 1 on any mismatch.**
+  Three findings, and the third is the one worth having: a file the manifest lists and the
+  distribution lost (**missing**), a file whose bytes changed (**modified**), and a file
+  the distribution carries that the manifest never listed (**unlisted**). Without the
+  third, adding a file to an unpacked distribution would pass verification, which is the
+  attack the check is easiest to write wrongly. An archive is identified by its **magic
+  bytes** rather than by its name, because a downloaded artifact may have been renamed and
+  the bytes are what has to be read.
+- **A distribution with no manifest is *unreadable*, not valid.** "Nothing to check" must
+  never render as a pass; `okf bundle --verify` on a directory the bundler never wrote
+  exits 1 and says so.
+- **`--lint` lints what shipped, as a stranger sees it: default severities, no
+  `okf.json`, no vault.** Linting the *source* bundles would have been one line shorter
+  and would have answered a different question — the producer's config promotes rules, so
+  a vault that lints clean under its own contract says nothing about how the distribution
+  reads to someone who has neither the config nor the vault. It is asserted as a real
+  difference rather than argued: the test packages a vault whose config promotes `OKF0301`
+  to error and shows the same concept reported at *warning* in the distribution and at
+  *error* in the vault. `VaultRoot` is deliberately left null — a distribution has no
+  vault machinery by definition, which is exactly what makes `OKF0310` inapplicable.
+  - **What it lints is a materialization of the same plan**, written by the same writer
+    that produces the `dir` format, into a temporary directory that is removed afterwards.
+    No extractor ships: reading an archive is needed for `--verify` and writing one is
+    needed for packaging, but *un*packing is `tar -xzf`'s job and a consumer already has it.
+  - **`OKF0309` (link-leaves-bundle) at info is the expected shape, not a defect**, for a
+    subset carrying cross-bundle links: the rule reports precisely the links
+    `externalLinks` records. `--lint` fails the run only on errors, i.e. only on §11
+    conformance, which is the same contract `okf lint` has everywhere else.
+
+#### Smaller calls, recorded because they will be asked about
+
+- **tar.gz is the default** (the Apache/OSS distribution norm, and the one shape that
+  preserves ordering and modes on every platform without a second tool); `zip` and `dir`
+  are the other two §3 shapes. The format follows the `--out` name when it says something
+  (`.zip`), and `--format` always wins. A `dir` distribution *is* the git-repository shape
+  §3 recommends — commit it and the recommendation is satisfied — so no fourth format was
+  added for it.
+- **An archive is overwritten; a directory is not.** An archive file is wholly generated
+  output, like a regenerated `index.md`, and re-running must be safe for a release job. A
+  *directory* may be anything, so the bundler writes into one only when it is empty, new,
+  or holds a readable `okf-bundle.json` — in which case exactly the files that manifest
+  lists are deleted, the emptied directories pruned, and the new distribution written. It
+  never recursively deletes a directory it cannot prove it wrote, and a re-run therefore
+  leaves nothing stale behind for `--verify` to report as *unlisted*.
+- **An unknown `--bundle` name is refused before anything is written**, listing the names
+  that are available. Silently packaging nothing, or packaging everything, are both worse
+  answers to a typo.
+- **Deferred, deliberately.** (a) *Signing.* Hashes without a signature are integrity, not
+  authenticity; a signature needs a key, a distribution channel for the public half, and a
+  policy for rotation, none of which exists yet. The manifest's shape leaves room for a
+  detached signature over it. (b) *Per-bundle archives* — one archive per bundle in a
+  multi-bundle vault. `--bundle` plus a loop is the same thing, and until someone wants it
+  the flag is not worth inventing. (c) *An extractor* (`okf bundle --extract`), for the
+  reason above. (d) *Incremental or delta distributions*: the whole artifact is a few
+  hundred kilobytes.

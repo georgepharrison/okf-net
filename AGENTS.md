@@ -10,6 +10,10 @@ implementation choices in this repo.
   Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). Enforced by
   a `commit-msg` git hook.
 - **Setup.** Run `mise run setup` once after cloning to install git hooks.
+- **Running the CLI.** Nothing installs an `okf` binary in this checkout, so
+  `mise run cli -- <args>` (e.g. `mise run cli -- lint okf/`) is the documented
+  `okf` equivalent here — it is what the skills' escape hatch points at, and it
+  is the form every task and hook in this repo uses.
 - **Markdown lint.** Linted with `markdownlint-cli2` (config in
   `.markdownlint.yaml`). Dot-folders (e.g. `.claude/`, `.github/`) are
   excluded.

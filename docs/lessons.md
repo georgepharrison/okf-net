@@ -74,6 +74,14 @@ future session (human or agent) relearns them. Newest first within sections.
   Review is not overhead here; it is where correctness came from.
 - A stalled subagent can be resumed with its on-disk work intact — check
   `git status` first, then resume it with a summary of confirmed state.
+- Parallel builders on separate branches independently created the same type
+  name (`Okf.Core.OkfTimestamp`, in work items #4 and #7) with different
+  meanings — a write-form renderer and a comparison type. File-level
+  conflict-minimization cannot prevent this: neither branch's file existed in
+  the other, so git had nothing to conflict on and the collision only surfaced
+  at merge. Reviews caught it pre-merge and the comparison type became
+  `OkfLifecycleInstant`. Mitigation for next time: reserve new type names in
+  the prompt, or give each parallel builder its own namespace.
 - Repo-local git identity may be an *agent* identity
   (`ringo.harrison+agent@gmail.com`) — anything deriving a human identity
   (e.g. `okf verify`) must read **global** git config, never local.
