@@ -58,10 +58,21 @@ future session (human or agent) relearns them. Newest first within sections.
   the archive embeds the writing process's pid. `TarReader` hides those
   entries, so a test written through the reader cannot see them, and a
   two-writes-in-one-process byte comparison passes. Use `TarEntryFormat.Gnu`
-  (mtime in the header, no extended entries, no 100-character path limit; pin
-  `AccessTime`/`ChangeTime` too). Ustar is reproducible but throws on a path
-  over 100 characters it cannot split. `GZipStream` is fine — its header
-  carries MTIME 0 and no filename.
+  (mtime in the header, no extended entries, no 100-character path limit).
+  Ustar is reproducible but throws on a path over 100 characters it cannot
+  split. `GZipStream` is fine — its header carries MTIME 0 and no filename.
+- **Do NOT set `AccessTime`/`ChangeTime` on a `GnuTarEntry`.** Unset they are
+  already deterministic — `System.Formats.Tar` writes NUL bytes, which is
+  what GNU tar itself writes for a non-incremental entry — and pinning them
+  breaks readers without helping any: GNU puts atime/ctime at byte 345, which
+  in ustar is where the `prefix` field begins, and CPython's `tarfile` joins
+  `prefix` onto the entry name for every non-GNU-typed entry without checking
+  the archive's magic first. Pinned, `tar -xzf` and libarchive read the
+  archive correctly while the Python standard library extracts it into a
+  directory named after the octal timestamp (`02263523000/bundles/…`).
+  Reproducibility and interoperability are two claims: byte-comparing two of
+  your own archives proves the first and says nothing about the second, so
+  read one back with a *different* implementation.
 
 ## Testing
 

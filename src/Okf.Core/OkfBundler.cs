@@ -515,8 +515,19 @@ public static class OkfBundler
         // so a PAX archive embeds the pid of the process that wrote it and two builds of
         // the same vault differ. GNU carries mtime in the header itself, needs no extended
         // headers, and — unlike ustar — has no 100-character limit on a path, which an
-        // arbitrary consumer's bundle may well exceed. Its atime/ctime fields are pinned
-        // for the same reason every other timestamp here is.
+        // arbitrary consumer's bundle may well exceed.
+        //
+        // `AccessTime` and `ChangeTime` are deliberately LEFT UNSET, which writes GNU's
+        // atime/ctime fields as NUL bytes — what GNU tar's own writer puts there for a
+        // non-incremental entry. They are already deterministic either way, so this is an
+        // interoperability fix rather than a reproducibility one: those two fields occupy
+        // bytes 345–368, which in *ustar* is the start of the `prefix` field, and CPython's
+        // `tarfile` joins `prefix` onto the name for every non-GNU-typed entry without
+        // first checking the magic. Pinning them to a real instant therefore made the
+        // stdlib module every Python consumer reaches for — including the OKF reference
+        // implementation — extract this archive into a directory named after the octal
+        // timestamp (`02263523000/bundles/…`). GNU tar and libarchive read it correctly
+        // either way; writing NULs makes CPython read it correctly too, and costs nothing.
         using var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true);
         using var tar = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
 
@@ -527,8 +538,6 @@ public static class OkfBundler
             {
                 DataStream = content,
                 ModificationTime = ArchiveTimestamp,
-                AccessTime = ArchiveTimestamp,
-                ChangeTime = ArchiveTimestamp,
                 Mode = FileMode,
                 Uid = 0,
                 Gid = 0,

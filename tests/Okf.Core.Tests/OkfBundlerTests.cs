@@ -609,6 +609,32 @@ public class OkfBundlerTests
         Assert.False(result.IsValid);
     }
 
+    /// <summary>
+    /// GNU's <c>atime</c> and <c>ctime</c> sit at byte 345 of a header block, which in
+    /// ustar is where the <c>prefix</c> field begins — and CPython's <c>tarfile</c> joins
+    /// <c>prefix</c> onto the entry name for every non-GNU-typed entry without checking the
+    /// archive's magic first. Writing a real instant into them therefore made the Python
+    /// standard library extract this archive into a directory named after the octal
+    /// timestamp. GNU tar's own writer leaves the field NUL for a non-incremental entry;
+    /// so does this one, and the expectation below is the byte range POSIX assigns to
+    /// <c>prefix</c>, not a constant read back out of the code.
+    /// </summary>
+    [Fact]
+    public void Tar_headers_leave_the_ustar_prefix_window_empty_so_every_reader_agrees_on_the_name()
+    {
+        using var tree = new BundlerVault();
+        var archive = Path.Combine(tree.Output, "bundle.tar.gz");
+
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), archive, OkfDistributionFormat.TarGz);
+
+        var blocks = RawTarHeaderBlocks(archive);
+        Assert.NotEmpty(blocks);
+        foreach (var block in blocks)
+        {
+            Assert.Equal(new byte[155], block[345..500]);
+        }
+    }
+
     /// <summary>The options every test uses, with the clock and the version pinned.</summary>
     private static OkfBundlerOptions Options(IReadOnlyList<string>? bundles = null) => new()
     {
@@ -624,7 +650,13 @@ public class OkfBundlerTests
     /// Every name in the archive's raw 512-byte header blocks, sorted — including any a
     /// tar writer added for its own bookkeeping, which <see cref="TarReader" /> hides.
     /// </summary>
-    private static IEnumerable<string> RawTarNames(string archive)
+    private static IEnumerable<string> RawTarNames(string archive) =>
+        RawTarHeaderBlocks(archive)
+            .Select(block => Encoding.UTF8.GetString(block.AsSpan(0, 100).TrimEnd((byte)0)))
+            .Order(StringComparer.Ordinal);
+
+    /// <summary>Every 512-byte header block of a tar.gz, data blocks stepped over.</summary>
+    private static List<byte[]> RawTarHeaderBlocks(string archive)
     {
         using var file = File.OpenRead(archive);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
@@ -632,7 +664,7 @@ public class OkfBundlerTests
         gzip.CopyTo(raw);
         var bytes = raw.ToArray();
 
-        var names = new List<string>();
+        var blocks = new List<byte[]>();
         for (var offset = 0; offset + 512 <= bytes.Length; offset += 512)
         {
             var block = bytes.AsSpan(offset, 512);
@@ -642,15 +674,14 @@ public class OkfBundlerTests
                 break;
             }
 
-            var name = Encoding.UTF8.GetString(block[..100].TrimEnd((byte)0));
             var size = Convert.ToInt64(
                 Encoding.ASCII.GetString(block.Slice(124, 12)).Trim('\0', ' '),
                 fromBase: 8);
-            names.Add(name);
+            blocks.Add(block.ToArray());
             offset += (int)((size + 511) / 512) * 512;
         }
 
-        return names.Order(StringComparer.Ordinal);
+        return blocks;
     }
 
     /// <summary>Every entry of a tar.gz, in the order it was written.</summary>

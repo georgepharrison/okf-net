@@ -1566,13 +1566,30 @@ lets two people confirm they received the same knowledge.
   measurement too — it throws on a path over 100 characters that cannot be split across
   its name and prefix fields, which an arbitrary consumer's bundle can reach (measured: a
   350-character path throws; GNU writes it through a constant-named long-link entry).
-  GNU carries mtime in the header, needs no extended headers, and its `atime`/`ctime`
-  fields are pinned like every other timestamp here.
+  GNU carries mtime in the header and needs no extended headers.
   - **The test that now catches it reads the raw 512-byte header blocks** and asserts that
     every name in the archive is one the plan named. `TarReader` consumes extended headers
     silently, so no test written through the reader can see an entry the writer invented —
     which is exactly how a byte comparison inside one process passes while two release
     builds disagree.
+  - **GNU's `atime`/`ctime` are deliberately left unset, and that correction is the second
+    half of the lesson.** They were first pinned to `ArchiveTimestamp` "like every other
+    timestamp here", which was reasoning by analogy rather than by measurement: unset,
+    `System.Formats.Tar` writes those two fields as NUL bytes, so they were already
+    constant and pinning them bought no determinism at all. What it cost was
+    *interoperability*. GNU puts atime/ctime at byte 345 of the header block, which in
+    ustar is where the `prefix` field begins, and CPython's `tarfile` joins `prefix` onto
+    the entry name for every non-GNU-typed entry without first checking the archive's
+    magic. So `tar -xzf` and libarchive read the archive correctly while Python's standard
+    library — the module a large share of consumers will reach for, and the language of the
+    reference implementation this repo checks itself against — extracted it into a
+    directory named after the octal timestamp: `02263523000/bundles/okf-net/…`. Writing
+    NULs is what GNU tar's own writer does for a non-incremental entry, and it costs
+    nothing. **The generalizable half:** reproducibility and interoperability are two
+    different claims, and byte-comparing two of your own archives establishes only the
+    first. The archive is now read back by a second implementation, and the test asserts
+    that the whole 155-byte ustar `prefix` window is empty — a byte range POSIX defines,
+    not a constant read back out of the code.
 - **`generatedAt` is the only clock reading anywhere in the packaging path**, and
   `--generated-at <instant>` pins it. This is the reproducible-builds `SOURCE_DATE_EPOCH`
   problem in miniature and it gets the same answer: an honest timestamp by default, an
