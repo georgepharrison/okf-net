@@ -16,18 +16,20 @@ namespace Okf.Cli;
 /// </remarks>
 internal static class SearchJson
 {
-    /// <summary>Renders an outcome as the result array.</summary>
+    /// <summary>
+    /// Renders an outcome as the result array. Always indented: both surfaces print it that
+    /// way, and a switch here would be the seam byte-parity is supposed to close.
+    /// </summary>
     /// <param name="outcome">The search outcome.</param>
-    /// <param name="indented">Whether to pretty-print; the CLI does, the MCP tool does not.</param>
     /// <returns>The JSON array.</returns>
-    public static string Write(OkfSearchOutcome outcome, bool indented = true)
+    public static string Write(OkfSearchOutcome outcome)
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
         using var buffer = new MemoryStream();
         var options = new JsonWriterOptions
         {
-            Indented = indented,
+            Indented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
