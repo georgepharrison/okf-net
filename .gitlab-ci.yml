@@ -179,3 +179,141 @@ release:
 # be enabled later.
 # include:
 #   - template: Security/Secret-Detection.gitlab-ci.yml
+
+# ============================================================================
+# Tag pipelines (issue #10). Everything below runs only for `$CI_COMMIT_TAG`.
+#
+# The `workflow:` block above has always allowed tag pipelines, but until now
+# no job matched a tag: every tag semantic-release cut started a pipeline that
+# failed immediately with "no jobs in this pipeline", so a red pipeline was the
+# normal outcome of a successful release. `publish` is the job that makes a tag
+# pipeline mean something.
+#
+# It deliberately does NOT reuse the `publish-aot` mise task: that task derives
+# a version from `git describe` against the working tree, and here the version
+# is the thing being released — the tag itself, which is authoritative and needs
+# no guessing. Both callers agree on the contract Directory.Build.props
+# documents (a bare semver in `-p:Version`, a commit in `-p:SourceRevisionId`).
+#
+# Every step echoes what it is about to do, including the URLs it will call.
+# None of this can be exercised before a real tag exists, so the log has to be
+# the debugger.
+# ============================================================================
+publish:
+  # Inherits the SDK image, the NuGet cache and the telemetry opt-outs; `rules`
+  # is replaced wholesale (extends merges keys, it does not append to lists),
+  # which is the point — `.dotnet` is branch-only, this job is tag-only.
+  extends: .dotnet
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG
+  variables:
+    # Same package coordinates the README's install one-liner documents. The
+    # file name carries the platform because the package version cannot: one
+    # generic package version holds many files, and a future darwin-arm64 or
+    # linux-musl build is another file under this same version.
+    OKF_PACKAGE_NAME: okf
+    OKF_PACKAGE_FILE: okf-linux-x64
+  script:
+    - |
+      # The tag is `vX.Y.Z-rc.N`; the package version is the same string without
+      # the `v`, so that it is character-for-character what the binary inside it
+      # answers to `okf version` (modulo the `+sha` metadata). The registry would
+      # take the `v` too — this instance was probed with a deliberately
+      # non-semver version and accepted it (2026-08-14), so the strip is a
+      # consistency choice, not a validation workaround.
+      OKF_VERSION="${CI_COMMIT_TAG#v}"
+      OKF_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_PACKAGE_FILE}"
+      OKF_RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}"
+      # The job token authenticates both APIs. If the instance ever refuses it
+      # for release asset links, set a project CI variable RELEASE_API_TOKEN
+      # (masked, `api` scope) and this switches over with no other change.
+      if [ -n "${RELEASE_API_TOKEN:-}" ]; then
+        OKF_AUTH_HEADER="PRIVATE-TOKEN: ${RELEASE_API_TOKEN}"
+        echo "==> authenticating with RELEASE_API_TOKEN"
+      else
+        OKF_AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
+        echo "==> authenticating with the CI job token"
+      fi
+      echo "==> tag ${CI_COMMIT_TAG} -> version ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
+      echo "    package: ${OKF_PACKAGE_URL}"
+      echo "    release: ${OKF_RELEASE_URL}"
+
+    - |
+      # NativeAOT needs a C toolchain and zlib headers, which the SDK image does
+      # not carry (it is buildpack-deps:*-curl plus the SDK). Documented
+      # prerequisite: `apt-get install clang zlib1g-dev`.
+      echo "==> installing the NativeAOT toolchain (clang, zlib1g-dev)"
+      apt-get update -qq
+      apt-get install -y -qq --no-install-recommends clang zlib1g-dev >/dev/null
+
+    - |
+      echo "==> publishing NativeAOT linux-x64 stamped ${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
+      dotnet publish src/Okf.Cli \
+        --configuration Release \
+        --runtime linux-x64 \
+        --output artifacts/aot \
+        -p:Version="${OKF_VERSION}" \
+        -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}"
+
+    - |
+      # Proves the stamp survived the native compile before anything is
+      # published under a version number that claims it.
+      echo "==> the published binary reports:"
+      ./artifacts/aot/okf version
+
+    - |
+      echo "==> uploading ${OKF_PACKAGE_FILE} to the generic package registry"
+      # Re-running a tag pipeline uploads the same file name under the same
+      # package version again. Generic packages allow duplicates by default, so
+      # a rerun is fine as written; if duplicates are ever disallowed on this
+      # project, this is the step that will fail, and the fix is to skip the
+      # upload when the file already exists — not to force it.
+      curl --silent --show-error --fail-with-body \
+        --header "${OKF_AUTH_HEADER}" \
+        --upload-file artifacts/aot/okf \
+        "${OKF_PACKAGE_URL}"
+      echo
+
+    - |
+      # semantic-release creates the GitLab release from the main-branch
+      # pipeline that pushed this tag, so the two pipelines overlap: the
+      # release usually exists well before the AOT compile finishes, but it is
+      # not guaranteed to exist when this job starts. Wait for it rather than
+      # racing it.
+      echo "==> waiting for release ${CI_COMMIT_TAG}"
+      attempt=1
+      until curl --silent --show-error --fail-with-body --output release.json \
+            --header "${OKF_AUTH_HEADER}" "${OKF_RELEASE_URL}"; do
+        if [ "${attempt}" -ge 10 ]; then
+          echo "    release ${CI_COMMIT_TAG} still absent after ${attempt} attempts — did semantic-release fail?" >&2
+          exit 1
+        fi
+        echo "    not there yet (attempt ${attempt}); retrying in 15s"
+        attempt=$((attempt + 1))
+        sleep 15
+      done
+
+    - |
+      # Idempotent by construction: link names and URLs must be unique within a
+      # release, so a blind POST would fail the second time a tag pipeline runs
+      # (a rerun, or a retried job). Ask first.
+      if grep -qF "${OKF_PACKAGE_URL}" release.json; then
+        echo "==> asset link already attached to ${CI_COMMIT_TAG} — nothing to do"
+      else
+        echo "==> attaching the asset link to release ${CI_COMMIT_TAG}"
+        curl --silent --show-error --fail-with-body --request POST \
+          --header "${OKF_AUTH_HEADER}" \
+          --data-urlencode "name=${OKF_PACKAGE_FILE}" \
+          --data-urlencode "url=${OKF_PACKAGE_URL}" \
+          --data-urlencode "link_type=package" \
+          "${OKF_RELEASE_URL}/assets/links"
+        echo
+      fi
+  artifacts:
+    # The binary is already in the package registry; this copy exists so a
+    # failed link step can be diagnosed (and the binary retrieved) from the job
+    # itself.
+    expire_in: 30 days
+    paths:
+      - artifacts/aot/okf
