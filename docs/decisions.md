@@ -833,4 +833,19 @@ Each is a place the tools fought the first real author working under them.
   on a copy and observed: `OKF0309` for a markdown link into `raw/` (which is why the
   custodian records the raw item by manifest id in prose instead), `OKF0201` for
   self-verification, `OKF0306` at error for a hand-edited index, `OKF0102` for a source
-  declared and never referenced.
+  declared and never referenced, `OKF0202` for a concept past its `stale_after`, and
+  `OKF0004` for a `log.md` out of date order.
+- **Reviewed by walking them again.** A second pass ran both procedures against a fresh
+  vault taking every instruction literally, and its improvisation points became fixes:
+  the custodian's ingest template declared a `sources` entry without asking for its
+  `[^id]`, so a concept written exactly to it landed on `OKF0102` while that step's own
+  completion criterion passed; `ingestion.concepts` (vault-root-relative) and
+  `files[].path` (`raw/`-relative) sat side by side with only the second base written
+  down; `okf verify` was asserted as available in the capture skill where the custodian
+  hedges it as designed-not-built; and the custodian advertised stale concepts as a
+  trigger while having no branch for one, though `OKF0202` is a default warning and so
+  already blocked its publish gate. The last gap is the one worth recording as a rule
+  rather than a repair: **a manifest that will not parse, or a `sha256` that no longer
+  matches, is reported and left as found, never rewritten to make it parse** — an agent
+  that repairs the immutability record is how the record is lost, and neither skill had
+  said so.
