@@ -1,0 +1,609 @@
+using System.Globalization;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+
+namespace Okf.Core;
+
+/// <summary>
+/// The site's HTML. Every fragment is built here and shared by both emitters, so a concept
+/// reads identically whether it arrived as its own page or as a slice of one file.
+/// </summary>
+/// <remarks>
+/// <para><b>Everything is XML-well-formed.</b> Attributes are always quoted, boolean
+/// attributes carry a value, void elements are self-closed, and inline <c>&lt;style&gt;</c>
+/// and <c>&lt;script&gt;</c> bodies are wrapped in a comment-hidden CDATA section. That is
+/// not pedantry: it is what lets the test suite parse every generated page with a real XML
+/// parser and fail on a page okf-net broke, instead of eyeballing output.</para>
+/// <para><b>Colour is a status channel.</b> The five trust and lifecycle tiles carry the
+/// reserved status palette; every one of them also carries a glyph and a word, so nothing on
+/// the dashboard is legible only to a reader who can separate the hues.</para>
+/// </remarks>
+internal static class OkfSiteHtml
+{
+    /// <summary>Escapes text for use as element content or an attribute value.</summary>
+    /// <param name="text">The text to escape.</param>
+    /// <returns>The escaped text.</returns>
+    public static string Escape(string? text) => WebUtility.HtmlEncode(text ?? string.Empty);
+
+    /// <summary>The relative prefix from a page back to the site root.</summary>
+    /// <param name="href">The page's root-relative href.</param>
+    /// <returns>A prefix of <c>../</c> segments, empty for a page at the root.</returns>
+    public static string Root(string href)
+    {
+        var depth = href.Count(character => character == '/');
+        return string.Concat(Enumerable.Repeat("../", depth));
+    }
+
+    /// <summary>Wraps CSS or JavaScript so the inline element stays well-formed XML.</summary>
+    /// <param name="code">The code to inline.</param>
+    /// <returns>The wrapped code.</returns>
+    public static string Cdata(string code) => $"/*<![CDATA[*/\n{code}\n/*]]>*/";
+
+    /// <summary>Renders a whole document.</summary>
+    /// <param name="title">The document title.</param>
+    /// <param name="description">The meta description, or <see langword="null" />.</param>
+    /// <param name="head">Extra markup for <c>&lt;head&gt;</c>.</param>
+    /// <param name="body">The document body's markup.</param>
+    /// <param name="tail">Markup emitted after the body content, typically scripts.</param>
+    /// <returns>The document.</returns>
+    public static string Document(string title, string? description, string head, string body, string tail)
+    {
+        var builder = new StringBuilder();
+        builder.Append("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n")
+            .Append("<meta charset=\"utf-8\" />\n")
+            .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n")
+            .Append("<title>").Append(Escape(title)).Append("</title>\n");
+
+        if (description is { Length: > 0 })
+        {
+            builder.Append("<meta name=\"description\" content=\"").Append(Escape(description)).Append("\" />\n");
+        }
+
+        builder.Append(head).Append("</head>\n<body>\n").Append(body).Append(tail).Append("</body>\n</html>\n");
+        return builder.ToString();
+    }
+
+    /// <summary>Renders the sticky top bar.</summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="root">The relative prefix back to the site root.</param>
+    /// <param name="current">Which nav entry is the current page, or <see langword="null" />.</param>
+    /// <returns>The markup.</returns>
+    public static string TopBar(OkfSiteModel model, string root, string? current)
+    {
+        var dashboard = model.SingleFile ? "#" : root + OkfSiteBuilder.IndexHref;
+        var graph = model.SingleFile ? "#graph" : root + OkfSiteBuilder.GraphHref;
+
+        return new StringBuilder()
+            .Append("<header class=\"topbar\"><div class=\"topbar-inner\">\n")
+            .Append("<a class=\"brand\" href=\"").Append(dashboard).Append("\">").Append(Escape(model.Name)).Append("</a>\n")
+            .Append("<span class=\"brand-sub\">OKF v0.2 knowledge site</span>\n")
+            .Append("<nav class=\"topnav\" aria-label=\"Site\">")
+            .Append("<a href=\"").Append(dashboard).Append('"')
+            .Append(current == "dashboard" ? " aria-current=\"page\"" : string.Empty).Append(">Dashboard</a>")
+            .Append("<a href=\"").Append(graph).Append('"')
+            .Append(current == "graph" ? " aria-current=\"page\"" : string.Empty).Append(">Graph</a>")
+            .Append("</nav>\n</div></header>\n")
+            .ToString();
+    }
+
+    /// <summary>Renders the footer.</summary>
+    /// <param name="model">The site model.</param>
+    /// <returns>The markup.</returns>
+    public static string Footer(OkfSiteModel model) =>
+        "<footer class=\"site-foot\"><p>Generated by okf from " +
+        Plural(model.Counts.Bundles, "bundle") + " on " +
+        Escape(model.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) +
+        ". Trust tiers, staleness and lifecycle are read from each concept's frontmatter " +
+        "(OKF v0.2 §5); nothing here is a score.</p></footer>\n";
+
+    /// <summary>Renders the trust dashboard: the tiles, the filter bar and the concept list.</summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="hrefFor">Where a concept's page lives, from the dashboard.</param>
+    /// <returns>The markup.</returns>
+    public static string Dashboard(OkfSiteModel model, Func<OkfSitePage, string> hrefFor)
+    {
+        var counts = model.Counts;
+        var builder = new StringBuilder();
+
+        builder.Append("<div class=\"page-head\"><h1>").Append(Escape(model.Name)).Append("</h1>\n")
+            .Append("<p class=\"lede\">")
+            .Append(Plural(counts.Concepts, "concept")).Append(" across ")
+            .Append(Plural(counts.Bundles, "bundle"))
+            .Append(". Every tile below is a filter — click one to narrow the list, click it again to clear it.")
+            .Append("</p></div>\n");
+
+        builder.Append("<section aria-labelledby=\"tiles-heading\">\n")
+            .Append("<h2 id=\"tiles-heading\" class=\"sr-only\">Trust dashboard</h2>\n")
+            .Append("<div class=\"tiles\">\n");
+
+        builder.Append(Tile("bundles", "accent", "▦", "Bundles", counts.Bundles, "drill down per bundle"));
+        builder.Append(Tile("all", "accent", "◆", "Concepts", counts.Concepts, "everything in this site"));
+        builder.Append(Tile("human-reviewed", "good", "✔", "Human-reviewed", counts.HumanReviewed, "a human: actor verified it"));
+        builder.Append(Tile("machine-confirmed", "warning", "◎", "Machine-confirmed", counts.MachineConfirmed, "verified, but not by a human"));
+        builder.Append(Tile("unverified", "neutral", "○", "Unverified", counts.Unverified, "no verified event"));
+        builder.Append(Tile("stale", "critical", "△", "Stale", counts.Stale, "past its stale_after"));
+        builder.Append(Tile("draft", "serious", "✎", "Draft", counts.Draft, "status: draft"));
+
+        builder.Append("</div>\n<div class=\"bundle-drill\" id=\"bundle-drill\">\n");
+        foreach (var bundle in model.Bundles)
+        {
+            builder.Append("<button type=\"button\" class=\"chip\" data-bundle=\"")
+                .Append(Escape(bundle.Name)).Append("\" aria-pressed=\"false\">")
+                .Append(Escape(bundle.Name))
+                .Append(" <span class=\"count\">")
+                .Append(bundle.Concepts.ToString(CultureInfo.InvariantCulture))
+                .Append("</span></button>\n");
+        }
+
+        builder.Append("</div>\n</section>\n");
+
+        builder.Append("<div class=\"filterbar\">\n")
+            .Append("<input id=\"concept-search\" type=\"search\" placeholder=\"Search title, type, tag or description\" aria-label=\"Search concepts\" />\n")
+            .Append("<button type=\"button\" class=\"btn\" id=\"filter-reset\">Clear filters</button>\n")
+            .Append("</div>\n")
+            .Append("<p class=\"filter-state\" id=\"filter-state\"><b>")
+            .Append(counts.Concepts.ToString(CultureInfo.InvariantCulture))
+            .Append("</b> of ").Append(counts.Concepts.ToString(CultureInfo.InvariantCulture))
+            .Append(" concepts</p>\n");
+
+        builder.Append("<ul class=\"card-list\" id=\"concept-list\">\n");
+        foreach (var page in model.Concepts)
+        {
+            builder.Append(Card(page, hrefFor(page)));
+        }
+
+        builder.Append("</ul>\n")
+            .Append("<p class=\"empty\" id=\"concept-empty\" hidden=\"hidden\">No concept matches this filter.</p>\n");
+
+        return builder.ToString();
+    }
+
+    /// <summary>Renders the graph section.</summary>
+    /// <param name="model">The site model.</param>
+    /// <returns>The markup.</returns>
+    public static string Graph(OkfSiteModel model) =>
+        new StringBuilder()
+            .Append("<section id=\"graph\">\n")
+            .Append("<div class=\"page-head\"><h1>Graph</h1><p class=\"lede\">")
+            .Append(Plural(model.Concepts.Count, "concept")).Append(", ")
+            .Append(Plural(model.Edges.Count, "cross-link"))
+            .Append(". Nodes are coloured by trust tier and ringed when stale; drag to move one, ")
+            .Append("click one to open it.</p></div>\n")
+            .Append("<div class=\"toolbar\">\n")
+            .Append("<button type=\"button\" class=\"btn\" id=\"graph-color\">Colour by type</button>\n")
+            .Append("<button type=\"button\" class=\"btn\" id=\"graph-fit\">Fit to view</button>\n")
+            .Append("<button type=\"button\" class=\"btn\" id=\"graph-relayout\">Re-run layout</button>\n")
+            .Append("</div>\n")
+            .Append("<div class=\"graph-wrap\">\n")
+            .Append("<canvas id=\"graph-canvas\" role=\"img\" aria-label=\"Force-directed graph of concepts and their cross-links\"></canvas>\n")
+            .Append("<div class=\"graph-tip\" id=\"graph-tip\"></div>\n")
+            .Append("<div class=\"graph-legend\" id=\"graph-legend\"></div>\n")
+            .Append("</div>\n")
+            .Append("<noscript><p class=\"noscript-note\">The graph needs JavaScript. Every concept is still reachable from the dashboard list and from each bundle's index.</p></noscript>\n")
+            .Append("</section>\n")
+            .ToString();
+
+    /// <summary>Renders one concept's article: breadcrumbs, badges, body, metadata and backlinks.</summary>
+    /// <param name="page">The page to render.</param>
+    /// <param name="model">The site model.</param>
+    /// <param name="hrefFor">Where another page lives, as seen from this one.</param>
+    /// <param name="dashboardHref">Where the site's landing page lives, as seen from this one.</param>
+    /// <returns>The markup.</returns>
+    public static string Article(
+        OkfSitePage page,
+        OkfSiteModel model,
+        Func<OkfSitePage, string> hrefFor,
+        string dashboardHref)
+    {
+        var builder = new StringBuilder();
+
+        builder.Append("<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><ol>\n")
+            .Append("<li><a href=\"").Append(dashboardHref).Append("\">").Append(Escape(model.Name)).Append("</a></li>\n");
+
+        foreach (var crumb in page.Crumbs)
+        {
+            builder.Append("<li>");
+            if (crumb.Href is { Length: > 0 } href)
+            {
+                builder.Append("<a href=\"").Append(href).Append("\">").Append(Escape(crumb.Label)).Append("</a>");
+            }
+            else
+            {
+                builder.Append(Escape(crumb.Label));
+            }
+
+            builder.Append("</li>\n");
+        }
+
+        builder.Append("</ol></nav>\n");
+
+        builder.Append("<div class=\"page-head\"><h1>").Append(Escape(page.Title)).Append("</h1>\n");
+        if (page.Description is { Length: > 0 } description)
+        {
+            builder.Append("<p class=\"lede\">").Append(Escape(description)).Append("</p>\n");
+        }
+
+        builder.Append("<div class=\"badge-row\">").Append(Badges(page)).Append("</div>\n</div>\n");
+
+        builder.Append("<div class=\"concept-layout\">\n<article class=\"prose\">\n")
+            .Append(page.BodyHtml)
+            .Append("</article>\n<aside class=\"meta-panel\">\n");
+
+        builder.Append(MetadataPanel(page));
+        builder.Append(SourcesPanel(page));
+        builder.Append(BacklinksPanel(page, model, hrefFor));
+
+        builder.Append("</aside>\n</div>\n");
+        return builder.ToString();
+    }
+
+    /// <summary>Renders <c>window.OKF_SITE</c>, the data the dashboard and graph run on.</summary>
+    /// <param name="model">The site model.</param>
+    /// <param name="hrefFor">Where a concept's page lives, as seen from the site root.</param>
+    /// <returns>The JavaScript assignment.</returns>
+    public static string SiteData(OkfSiteModel model, Func<OkfSitePage, string> hrefFor)
+    {
+        using var buffer = new MemoryStream();
+
+        // The default encoder, deliberately, not UnsafeRelaxedJsonEscaping: it escapes `<`,
+        // `>` and `&`, which is what keeps this payload from closing the <script> element it
+        // is embedded in and what keeps every generated page parseable as XML.
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", model.Name);
+            writer.WriteString("generated", model.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            writer.WriteBoolean("singleFile", model.SingleFile);
+
+            writer.WriteStartObject("counts");
+            writer.WriteNumber("bundles", model.Counts.Bundles);
+            writer.WriteNumber("concepts", model.Counts.Concepts);
+            writer.WriteNumber("humanReviewed", model.Counts.HumanReviewed);
+            writer.WriteNumber("machineConfirmed", model.Counts.MachineConfirmed);
+            writer.WriteNumber("unverified", model.Counts.Unverified);
+            writer.WriteNumber("stale", model.Counts.Stale);
+            writer.WriteNumber("draft", model.Counts.Draft);
+            writer.WriteEndObject();
+
+            writer.WriteStartArray("bundles");
+            foreach (var bundle in model.Bundles)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", bundle.Name);
+                writer.WriteString("slug", bundle.Slug);
+                writer.WriteString("href", bundle.Href);
+                writer.WriteNumber("concepts", bundle.Concepts);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+
+            writer.WriteStartArray("concepts");
+            foreach (var page in model.Concepts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", page.Id);
+                writer.WriteString("bundle", page.BundleName);
+                writer.WriteString("path", page.Path);
+                writer.WriteString("href", hrefFor(page));
+                writer.WriteString("title", page.Title);
+                writer.WriteString("type", page.Type ?? string.Empty);
+                writer.WriteString("description", page.Description ?? string.Empty);
+                writer.WriteString("tier", page.TrustTier.ToSpecString());
+                writer.WriteString("status", page.Status);
+                writer.WriteBoolean("stale", page.Stale);
+                writer.WriteStartArray("tags");
+                foreach (var tag in page.Tags)
+                {
+                    writer.WriteStringValue(tag);
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+
+            writer.WriteStartArray("edges");
+            foreach (var edge in model.Edges)
+            {
+                writer.WriteStartArray();
+                writer.WriteStringValue(edge.Source);
+                writer.WriteStringValue(edge.Target);
+                writer.WriteEndArray();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        return "window.OKF_SITE = " + Encoding.UTF8.GetString(buffer.ToArray()) + ";\n";
+    }
+
+    /// <summary>Renders the id-to-article map the single-file router swaps between.</summary>
+    /// <param name="articles">Each concept's id and its rendered article.</param>
+    /// <returns>The JSON object.</returns>
+    public static string Articles(IEnumerable<KeyValuePair<string, string>> articles)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
+        {
+            writer.WriteStartObject();
+            foreach (var article in articles)
+            {
+                writer.WriteString(article.Key, article.Value);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>Renders "N thing" or "N things".</summary>
+    /// <param name="count">The count.</param>
+    /// <param name="singular">The singular noun.</param>
+    /// <returns>The phrase.</returns>
+    public static string Plural(int count, string singular) =>
+        $"{count.ToString(CultureInfo.InvariantCulture)} {(count == 1 ? singular : singular + "s")}";
+
+    private static string Tile(string filter, string tone, string glyph, string label, int value, string note) =>
+        new StringBuilder()
+            .Append("<button type=\"button\" class=\"tile tone-").Append(tone)
+            .Append("\" data-tone=\"").Append(tone)
+            .Append("\" data-filter=\"").Append(filter).Append("\" aria-pressed=\"false\">")
+            .Append("<span class=\"tile-value\">").Append(value.ToString(CultureInfo.InvariantCulture)).Append("</span>")
+            .Append("<span class=\"tile-label\"><span class=\"dot\" aria-hidden=\"true\"></span>")
+            .Append("<span class=\"glyph\" aria-hidden=\"true\">").Append(Escape(glyph)).Append("</span>")
+            .Append("<span class=\"tile-name\">").Append(Escape(label)).Append("</span></span>")
+            .Append("<span class=\"tile-note\">").Append(Escape(note)).Append("</span>")
+            .Append("</button>\n")
+            .ToString();
+
+    private static string Card(OkfSitePage page, string href)
+    {
+        var builder = new StringBuilder();
+        builder.Append("<li class=\"card tier-").Append(page.TrustTier.ToSpecString())
+            .Append("\" data-id=\"").Append(Escape(page.Id)).Append("\">")
+            .Append("<a class=\"card-title\" href=\"").Append(href).Append("\">")
+            .Append(Escape(page.Title)).Append("</a>");
+
+        if (page.Description is { Length: > 0 } description)
+        {
+            builder.Append("<p>").Append(Escape(description)).Append("</p>");
+        }
+
+        builder.Append("<div class=\"card-meta\">").Append(Badges(page))
+            .Append("<span class=\"path\">").Append(Escape($"{page.BundleName}/{page.Path}")).Append("</span>")
+            .Append("</div></li>\n");
+
+        return builder.ToString();
+    }
+
+    private static string Badges(OkfSitePage page)
+    {
+        var builder = new StringBuilder();
+
+        if (page.Type is { Length: > 0 } type)
+        {
+            builder.Append(Badge("type", type, glyph: null));
+        }
+
+        var tier = page.TrustTier.ToSpecString();
+        builder.Append(Badge(Tone(page.TrustTier), tier, Glyph(page.TrustTier)));
+
+        if (page.Stale)
+        {
+            builder.Append(Badge(
+                "critical",
+                page.StaleAfter is { Length: > 0 } after ? $"stale since {after}" : "stale",
+                "△"));
+        }
+        else if (page.StaleAfter is { Length: > 0 } staleAfter)
+        {
+            builder.Append(Badge("neutral", $"fresh until {staleAfter}", "△"));
+        }
+
+        if (string.Equals(page.Status, "draft", StringComparison.Ordinal))
+        {
+            builder.Append(Badge("serious", "draft", "✎"));
+        }
+        else if (string.Equals(page.Status, "deprecated", StringComparison.Ordinal))
+        {
+            builder.Append(Badge("neutral", "deprecated", "✖"));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string Badge(string tone, string text, string? glyph)
+    {
+        var builder = new StringBuilder()
+            .Append("<span class=\"badge badge-").Append(tone).Append("\">")
+            .Append("<span class=\"dot\" aria-hidden=\"true\"></span>");
+
+        if (glyph is { Length: > 0 })
+        {
+            builder.Append("<span aria-hidden=\"true\">").Append(Escape(glyph)).Append("</span>");
+        }
+
+        return builder.Append(Escape(text)).Append("</span>").ToString();
+    }
+
+    private static string Tone(OkfTrustTier tier) => tier switch
+    {
+        OkfTrustTier.HumanReviewed => "good",
+        OkfTrustTier.MachineConfirmed => "warning",
+        _ => "neutral",
+    };
+
+    private static string Glyph(OkfTrustTier tier) => tier switch
+    {
+        OkfTrustTier.HumanReviewed => "✔",
+        OkfTrustTier.MachineConfirmed => "◎",
+        _ => "○",
+    };
+
+    private static string MetadataPanel(OkfSitePage page)
+    {
+        var builder = new StringBuilder()
+            .Append("<section class=\"panel\"><h2>Metadata</h2><dl>\n");
+
+        Row(builder, "Type", page.Type is { Length: > 0 } type ? Escape(type) : Missing());
+        Row(builder, "Status", Escape(page.Status));
+        Row(builder, "Trust", Escape(page.TrustTier.ToSpecString()));
+
+        if (page.StaleAfter is { Length: > 0 } staleAfter)
+        {
+            Row(builder, "Stale after", Escape(staleAfter));
+        }
+
+        Row(builder, "Generated", Actor(page.Generated));
+        Row(
+            builder,
+            "Verified",
+            page.Verified.Count == 0 ? Missing() : string.Join("<br />", page.Verified.Select(Actor)));
+
+        if (page.Tags.Count > 0)
+        {
+            Row(
+                builder,
+                "Tags",
+                string.Concat(page.Tags.Select(tag =>
+                    $"<span class=\"badge badge-tag\">{Escape(tag)}</span> ")));
+        }
+
+        Row(builder, "Bundle", Escape(page.BundleName));
+        Row(builder, "Path", $"<span class=\"path mono\">{Escape(page.Path)}</span>");
+
+        return builder.Append("</dl></section>\n").ToString();
+    }
+
+    private static string Actor(OkfSiteEvent? actor)
+    {
+        if (actor is null)
+        {
+            return Missing();
+        }
+
+        var tone = actor.IsHuman ? "good" : "neutral";
+        var glyph = actor.IsHuman ? "✔" : "◎";
+        var text = actor.At is { Length: > 0 } at ? $"{actor.By} · {at}" : actor.By;
+        return Badge(tone, text, glyph);
+    }
+
+    private static string SourcesPanel(OkfSitePage page)
+    {
+        if (page.Sources.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder()
+            .Append("<section class=\"panel\"><h2>Sources</h2><ul class=\"sources\">\n");
+
+        foreach (var source in page.Sources)
+        {
+            builder.Append("<li class=\"source\"");
+            if (source.Id.Length > 0)
+            {
+                builder.Append(" id=\"src-").Append(Escape(source.Id)).Append('"');
+            }
+
+            builder.Append('>');
+
+            var label = source.Title ?? source.Resource ?? source.Id;
+            builder.Append("<div class=\"source-title\">");
+            if (source.IsUrl)
+            {
+                builder.Append("<a class=\"external\" target=\"_blank\" rel=\"noopener noreferrer\" href=\"")
+                    .Append(Escape(source.Resource)).Append("\">").Append(Escape(label)).Append("</a>");
+            }
+            else
+            {
+                builder.Append(Escape(label));
+            }
+
+            builder.Append("</div>");
+
+            if (!source.IsUrl && source.Resource is { Length: > 0 } resource && !string.Equals(resource, label, StringComparison.Ordinal))
+            {
+                builder.Append("<div class=\"path mono\">").Append(Escape(resource)).Append("</div>");
+            }
+
+            builder.Append("<div class=\"signals\">");
+
+            if (source.Author is { Length: > 0 } author)
+            {
+                builder.Append(Badge(
+                    source.IsHumanAuthored ? "good" : "neutral",
+                    author,
+                    source.IsHumanAuthored ? "✔" : "◎"));
+            }
+
+            if (source.LastModified is { Length: > 0 } lastModified)
+            {
+                builder.Append(Badge("neutral", $"modified {lastModified}", "↻"));
+            }
+
+            if (source.UsageCount is { Length: > 0 } usageCount)
+            {
+                builder.Append(Badge("neutral", $"used {usageCount}", "∑"));
+            }
+
+            // §5.1: the footnote label is the join key into `sources`. When the body cites
+            // this entry, the panel points at the footnote and the footnote's own back-arrow
+            // points at the citation, so the join a reader has to make in their head is one
+            // click in each direction.
+            if (source.FootnoteOrder is { } order)
+            {
+                builder.Append("<a class=\"cite\" href=\"#fn:")
+                    .Append(order.ToString(CultureInfo.InvariantCulture))
+                    .Append("\">cited as [^").Append(Escape(source.Id)).Append("]</a>");
+            }
+            else if (source.Id.Length > 0)
+            {
+                builder.Append(Badge("neutral", "not cited in the body", null));
+            }
+
+            builder.Append("</div></li>\n");
+        }
+
+        return builder.Append("</ul></section>\n").ToString();
+    }
+
+    private static string BacklinksPanel(
+        OkfSitePage page,
+        OkfSiteModel model,
+        Func<OkfSitePage, string> hrefFor)
+    {
+        if (page.CitedBy.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var byId = model.Pages.ToDictionary(candidate => candidate.Id, StringComparer.Ordinal);
+        var builder = new StringBuilder()
+            .Append("<section class=\"panel\"><h2>Cited by</h2><ul class=\"backlinks\">\n");
+
+        foreach (var id in page.CitedBy)
+        {
+            if (!byId.TryGetValue(id, out var citing))
+            {
+                continue;
+            }
+
+            builder.Append("<li><a href=\"").Append(hrefFor(citing)).Append("\">")
+                .Append(Escape(citing.Title)).Append("</a>")
+                .Append("<span class=\"path\">").Append(Escape(id)).Append("</span></li>\n");
+        }
+
+        return builder.Append("</ul></section>\n").ToString();
+    }
+
+    private static void Row(StringBuilder builder, string term, string definition) =>
+        builder.Append("<dt>").Append(Escape(term)).Append("</dt><dd>").Append(definition).Append("</dd>\n");
+
+    private static string Missing() => "<span class=\"empty\">none</span>";
+}

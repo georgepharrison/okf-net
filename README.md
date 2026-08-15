@@ -28,6 +28,11 @@ consume.
     disclosure
   - `okf search` — search across your project bundle and any registered
     bundles
+  - `okf site` — renders the vault as a self-contained static site: a trust
+    dashboard whose tiles are clickable filters, a force-directed graph of
+    cross-links coloured by trust tier, and one browsable page per concept.
+    Hostable on GitLab Pages, openable straight from `file://`, and with
+    `--single-file` reducible to one HTML file you can hand to someone
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields

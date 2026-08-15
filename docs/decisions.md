@@ -1757,3 +1757,125 @@ delete an argument guard (`ArgumentNullException.ThrowIfNull`), and a tail of eq
 Prepend` before a sort, `separator <= 0` where the value cannot be 0, and the `IsZip`
 magic-byte conjunction, which no input distinguishes because a file that starts `P` but
 not `PK` is not a zip either way.
+
+### Proposed decisions (pending review): the static site milestone (work item #6, 2026-08-15)
+
+`okf site [path] --out <dir>` renders a resolved vault as a static website. Ringo's
+design input on the work item is the specification: a trust dashboard of rounded stat
+tiles that are **clickable filters**, an Obsidian-style force-directed graph, browsable
+concepts. Editing and verifying are deliberately out of scope; they have their own item.
+Google's `reference_agent/viewer` is the prior art — its embedded-JSON bundle, its rewired
+internal links and its backlink index all survive here; its CDN-loaded Cytoscape and
+`marked` do not, for reasons below.
+
+**Multi-page by default, single file on request.** One HTML file per markdown file,
+mirroring the bundle tree, plus `index.html` (the dashboard) and `graph.html`. That is
+what makes a URL name a concept: a deep link is shareable, the back button works, and a
+browser tab title says which concept you are reading. `--single-file` emits the same site
+as one `index.html` carrying every article as embedded JSON, routed on the fragment, for
+the other thing Ringo asked for — handing someone a knowledge base as one attachment.
+The second mode was cheap **because** the first was built as a model plus fragment
+builders rather than as a template: `OkfSiteBuilder` produces an `OkfSiteModel`, and two
+emitters consume it, sharing every fragment. Only link resolution differs (a relative
+`.html` path versus `#c=<id>`), which is why the model is built per mode instead of once.
+Cost of the single-file mode, stated: a concept's own heading anchors do not survive,
+because the fragment is spent on routing.
+
+**Every link is relative; nothing is loaded at run time.** The site must work identically
+from GitLab Pages and from a `file://` path, which rules out absolute-root hrefs, and it
+must make no network request, which rules out a CDN. Both are also privacy positions: a
+knowledge site that fetched a script on every page view would report the reader's browsing
+to a third party, and a vault is exactly the kind of reading nobody wants reported.
+
+**No third-party JavaScript at all — not vendored, not CDN-loaded.** The work item offered
+Cytoscape (Google's choice), D3 or vis, all permissively licensed. All three were declined
+in favour of ~250 lines of our own: a Fruchterman-Reingold layout on a `<canvas>`, plus the
+dashboard's filtering. The reasoning is not "not invented here":
+
+- **There is no JavaScript toolchain in this repo to vendor with.** mise installs `dotnet`
+  and `markdownlint-cli2` and nothing else. Vendoring means committing a pre-built
+  `cytoscape.min.js` that nobody here built and nobody here can rebuild — a supply-chain
+  artifact taken on faith, in a repository whose whole dependency posture is an SBOM and a
+  license gate.
+- **The weight is real.** `cytoscape.min.js` is ~400 KB. It would ship inside the `okf`
+  binary, be copied into every generated site, and be inlined into every single-file
+  export. Ringo reads this on a phone.
+- **The feature list is small.** Trust-tier colouring, a type-colouring toggle, click to
+  open, drag, pan, zoom, hover label, stale ring. That is a fraction of what a graph
+  library is for, and the layout is a textbook algorithm.
+
+Markdown is a different question and got the opposite answer: **Markdig 1.3.2 (BSD-2-Clause,
+allowlisted) renders bodies server-side**, so no `marked.js` is needed either. A CommonMark
+implementation is not 250 lines, and rendering at generation time rather than in the reader's
+browser means the pages are readable with JavaScript off. Verified: `mise run licenses` reports
+`Markdig 1.3.2 BSD-2-Clause`, and `mise run publish-aot` is zero-warning with Markdig on the
+NativeAOT path — the published binary generates the dogfood site.
+
+**The stylesheet and the client script ship as embedded resources.** They stay editable,
+diffable, lintable files under `src/Okf.Core/Assets/` and are read back with
+`GetManifestResourceStream`, which is AOT-safe: a manifest resource is data in the image, not
+a type the trimmer has to be told to keep. The alternative — C# string literals — would have
+made a 500-line stylesheet unreviewable.
+
+**Raw HTML in a concept body is escaped, not emitted** (`MarkdownPipelineBuilder.DisableHtml`).
+A bundle is data okf-net did not write (PRD ACC-1), and a generated page is opened from
+`file://`, where a `<script>` smuggled through a body would run with no origin to contain it.
+It also buys the well-formedness guarantee below, which passthrough HTML cannot: nothing
+upstream validates it. The cost is visible and accepted — a foreign bundle using `<br>` shows
+the tag as text. okf-net's own generated-index marker is stripped before rendering, because it
+is the one HTML comment whose provenance the generator knows.
+
+**Every page is well-formed XML, and the suite parses it.** Attributes are quoted, boolean
+attributes carry values, void elements are self-closed, and inline `<style>`/`<script>` bodies
+are wrapped in a comment-hidden CDATA section (`/*<![CDATA[*/ … /*]]>*/`) — a wrapper browsers
+read as a JavaScript comment. The embedded JSON needs no wrapper: it is written with
+`Utf8JsonWriter`'s **default** encoder rather than `UnsafeRelaxedJsonEscaping`, so `<`, `>` and
+`&` arrive as `\u003C` and its siblings — the payload can neither close its own `<script>`
+element nor break the parse. `OkfSiteGeneratorTests` runs every page of both modes through `XmlReader`;
+an unclosed element or an unescaped ampersand fails a test rather than a reader's browser.
+
+**Only concepts are counted, graphed and back-linked.** Reserved files (§3.1) become pages —
+that is what makes the index hierarchy browsable and what breadcrumbs are built from — but a
+generated `index.md` links every concept in its directory, so letting index links into the
+graph would connect everything to everything, and letting them into "Cited by" would tell a
+reader that a concept is cited by its own table of contents. The tiles count concepts for the
+same reason: counting the tables of contents inflates every number.
+
+**Colour is a status channel, and never the only one.** The five trust and lifecycle tiles
+carry the reserved status palette — human-reviewed `good`, machine-confirmed `warning`,
+unverified neutral, stale `critical`, draft `serious` — and the two structural tiles (Bundles,
+Concepts) carry the accent, so "how much is here" never wears a status hue. Every tile also
+carries a glyph and a word, and every number stays in ink rather than in the status colour;
+that is what keeps the dashboard legible to a reader who cannot separate the hues, and what
+lets the sub-3:1 status steps be used at all. Both themes are selected rather than flipped:
+the dark block re-steps surfaces and inks against the dark plane, and the status hexes, which
+clear 3:1 there, stay put. The graph's optional colour-by-type mode draws from the validated
+categorical order and always ships a legend — past three simultaneous types those hues are
+below the all-pairs separation floor, so the legend and the node labels are doing the work.
+
+**Filter state lives in the URL fragment.** `#f=stale&b=okf-net&q=…` on the dashboard,
+`#c=<id>` in single-file mode. A filtered view is therefore linkable and survives a reload,
+which matters most in the case with no server to hold state: a `file://` page.
+
+**Generation is deterministic.** The graph's layout uses a seeded PRNG and a fixed iteration
+count, nothing reads a clock beyond today's date (injected, per CORE-7), and page order is
+ordinal. Two runs over an unchanged vault produce byte-identical output, which a CLI test
+asserts — a site that churned on every run would be unusable to diff or to publish.
+
+**`--out` may not point inside a bundle being rendered.** The next run would otherwise read
+its own HTML, and `okf lint` would find a bundle full of pages. Refused as a usage failure
+(exit 2) before anything is written. Nothing is ever deleted from the output directory
+either: an output directory belongs to the caller, and a generator that removed files it did
+not write is one `--out ~/` away from a disaster.
+
+**Deliberately not done.** No CI `pages` job — a commented block sits at the end of
+`.gitlab-ci.yml` for whoever enables it, but publishing an unreviewed design to a public URL
+is not a side effect anyone asked for, and Ringo wants to iterate locally first
+(`mise run site`). No copying of non-markdown assets into the site, so an image beside a
+concept does not travel with it; the link is left exactly as written, per §6.1's tolerance
+rule. No search index — the dashboard's filter box is a substring match over titles, types,
+tags and descriptions, not BM25; `okf search` is the ranked search, and duplicating its
+scoring in JavaScript would be a second implementation of a judgement the library already
+makes. No dogfood concept was added for the tag registry's sake: a concept about the site
+wants a `site` tag, `okf/okf.json` holds the closed registry, and that file is off-limits on
+this branch (three work items are in flight at once). It is a one-line follow-up.

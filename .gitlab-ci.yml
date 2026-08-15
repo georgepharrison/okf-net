@@ -487,3 +487,37 @@ custodian-inbox:
     expire_in: 30 days
     paths:
       - artifacts/custodian/inbox.json
+
+# ---------------------------------------------------------------------------
+# GitLab Pages for the generated knowledge site (issue #6) — NOT ENABLED YET.
+#
+# `okf site` renders the dogfood vault as a self-contained static site (a trust
+# dashboard whose tiles are filters, a force-directed graph, one page per
+# concept). Nothing about it needs a server: every link is relative and no page
+# makes a network request, so the same directory is hostable here and openable
+# from a `file://` path.
+#
+# Left commented deliberately. Ringo iterates on the site locally first
+# (`mise run site`, then open artifacts/site/index.html); publishing it is a
+# separate decision, and a `pages` job that ships an unreviewed design to a
+# public URL is not a side effect anyone asked for. Uncomment when the design
+# has settled.
+#
+# Notes for whoever enables it:
+#   - `pages` is a reserved job name; the artifact path must be `public`.
+#   - `--name` sets the site's title; without it the vault's directory name
+#     ("okf") is used, which is not what a reader wants to see.
+#   - It belongs in `validate` or a stage of its own, and should run only on
+#     the default branch — a Pages deploy from a feature branch overwrites the
+#     published site.
+#
+# pages:
+#   stage: validate
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+#   script:
+#     - mise run build
+#     - mise exec -- dotnet run --project src/Okf.Cli -- site okf/ --out public --name "okf-net"
+#   artifacts:
+#     paths:
+#       - public
