@@ -40,6 +40,10 @@ public class OkfRawImmutabilityTests
         Assert.Equal(OkfSeverity.Warning, diagnostic.Severity);
         Assert.Equal(vault.ManifestPath, diagnostic.Path);
         Assert.Contains("2026-06-01-thing.html", diagnostic.Message, StringComparison.Ordinal);
+
+        // The capture id too: a packet's files are named after it, and the entry is what
+        // a reader has to go and look at.
+        Assert.Contains("capture `2026-06-01-thing`", diagnostic.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -114,6 +118,37 @@ public class OkfRawImmutabilityTests
         using var vault = new TempVault();
         var sha = vault.WriteRaw("2026-06-01-thing.html", Captured);
         vault.WriteCapture("2026-06-01-thing", "../../escaped.html", sha);
+
+        Assert.Empty(vault.LintIds());
+    }
+
+    [Fact]
+    public void AHostilePathIsRefusedRatherThanThrown()
+    {
+        // A manifest is a file anyone can write, and a lint run must not become a crash
+        // because one of them names a path the filesystem API refuses to answer about at
+        // all: Path.GetFullPath throws on an embedded NUL rather than returning.
+        using var vault = new TempVault();
+        var sha = vault.WriteRaw("2026-06-01-thing.html", Captured);
+
+        // The NUL rides in as a JSON escape, so the manifest itself parses cleanly and
+        // the rule really does reach the path — a raw control character would make this
+        // an unparseable-manifest test wearing the wrong name.
+        vault.WriteManifest($$"""
+            {
+              "manifestVersion": 1,
+              "captures": [
+                {
+                  "id": "2026-06-01-thing",
+                  "form": "flat",
+                  "files": [{ "path": "2026-06-01-\u0000thing.html", "sha256": "{{sha}}" }],
+                  "capturedAt": "2026-06-01T00:00:00Z",
+                  "capturedBy": "tests",
+                  "ingestion": { "at": "2026-06-01T00:00:00Z", "by": "tests", "concepts": ["bundles/bundle/x.md"] }
+                }
+              ]
+            }
+            """);
 
         Assert.Empty(vault.LintIds());
     }

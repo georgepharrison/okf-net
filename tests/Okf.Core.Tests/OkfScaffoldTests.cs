@@ -284,6 +284,7 @@ public class OkfScaffoldTests
     [Theory]
     [InlineData("a/b")]
     [InlineData("a\\b")]
+    [InlineData("a\0b")]
     [InlineData(".hidden")]
     [InlineData("")]
     public void AnUnusableBundleNameIsRefused(string name)
@@ -293,6 +294,37 @@ public class OkfScaffoldTests
         Assert.Throws<OkfScaffoldException>(() => OkfScaffold.Initialize(
             Path.Combine(tree.Root, "okf"),
             new OkfScaffoldOptions { BundleName = name, Now = Noon }));
+    }
+
+    [Fact]
+    public void ALongBundleNameStillScaffolds()
+    {
+        // The README's tree diagram pads the bundle line so its comment lines up with the
+        // rest; a name longer than the column leaves no room, and the padding has to
+        // degrade to one space rather than to a negative width.
+        using var tree = new TempTree();
+        var name = "a-rather-long-bundle-name-indeed";
+
+        var result = OkfScaffold.Initialize(
+            Path.Combine(tree.Root, "okf"),
+            new OkfScaffoldOptions { BundleName = name, Now = Noon });
+
+        Assert.Equal(name, Path.GetFileName(result.BundleRoot));
+        Assert.Contains($"{name}/ #", File.ReadAllText(Path.Combine(result.VaultRoot, "README.md")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABundleNameThatCannotBeDerivedAsksForOne()
+    {
+        using var tree = new TempTree();
+
+        // Nothing in "---" survives sanitizing, so there is no name to derive and the
+        // command has to say which flag supplies one rather than inventing a bundle.
+        var failure = Assert.Throws<OkfScaffoldException>(() => OkfScaffold.Initialize(
+            Path.Combine(tree.CreateDirectory("---"), "okf"),
+            new OkfScaffoldOptions { Now = Noon }));
+
+        Assert.Contains("--name", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]

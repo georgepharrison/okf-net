@@ -100,6 +100,42 @@ public class InitCommandTests
     }
 
     [Fact]
+    public void TheBundleNameCanBeGivenInline()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("widgets");
+
+        var run = Cli.RunIn(project, home.Root, "init", "--name=gadgets");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.True(File.Exists(Path.Combine(project, "okf", "bundles", "gadgets", "index.md")));
+    }
+
+    [Fact]
+    public void APersonalVaultsBundleCanStillBeNamed()
+    {
+        using var home = new TempTree();
+        var elsewhere = Path.Combine(home.Root, "mine");
+
+        var run = Cli.Run(Cli.Environment(home.Root, home.Root, okfHome: elsewhere), "init", "--personal", "--name", "notes");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.True(File.Exists(Path.Combine(elsewhere, "bundles", "notes", "index.md")));
+        Assert.False(Directory.Exists(Path.Combine(elsewhere, "bundles", "personal")));
+    }
+
+    [Fact]
+    public void ResolutionIsReportedOnlyWhenAskedFor()
+    {
+        using var home = new TempTree();
+        var quiet = Cli.RunIn(home.CreateDirectory("one"), home.Root, "init");
+        var loud = Cli.RunIn(home.CreateDirectory("two"), home.Root, "init", "--verbose");
+
+        Assert.Empty(quiet.Error);
+        Assert.Contains("okf: vault ", loud.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ASecondRunReportsWhatExistsAndWritesNothing()
     {
         using var home = new TempTree();
@@ -156,10 +192,11 @@ public class InitCommandTests
         var elsewhere = Path.Combine(home.Root, "vaults", "mine");
         var environment = Cli.Environment(home.Root, home.Root, okfHome: elsewhere);
 
-        var init = Cli.Run(environment, "init", "--personal");
+        var init = Cli.Run(environment, "init", "--personal", "--verbose");
         var lint = Cli.Run(environment, "lint");
 
         Assert.Equal(CliApplication.ExitSuccess, init.ExitCode);
+        Assert.Contains($"okf: personal vault '{elsewhere}' (OKF_HOME, else ~/okf)", init.Error, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(elsewhere, "bundles", "personal", "index.md")));
         Assert.True(File.Exists(Path.Combine(elsewhere, "raw", "manifest.json")));
 
