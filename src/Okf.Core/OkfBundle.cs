@@ -80,13 +80,7 @@ public sealed class OkfBundle
     /// into it, which never terminates on its own.
     /// </summary>
     /// <returns>The absolute paths of the bundle's markdown files.</returns>
-    public IReadOnlyList<string> MarkdownFiles()
-    {
-        var files = new List<string>();
-        Collect(Root, "*.md", files);
-        files.Sort(static (left, right) => string.CompareOrdinal(left, right));
-        return files;
-    }
+    public IReadOnlyList<string> MarkdownFiles() => Walk("*.md");
 
     /// <summary>
     /// Every file in the tree, not only the markdown, under exactly the rules
@@ -97,12 +91,39 @@ public sealed class OkfBundle
     /// what the walk sees rather than what the linter reads.
     /// </summary>
     /// <returns>The absolute paths of the bundle's files, in ordinal path order.</returns>
-    public IReadOnlyList<string> ContentFiles()
+    public IReadOnlyList<string> ContentFiles() => Walk("*");
+
+    /// <summary>
+    /// Walks the bundle for a pattern and orders the result by BUNDLE-relative path — the
+    /// <c>/</c>-separated form — rather than by the absolute one.
+    /// </summary>
+    /// <remarks>
+    /// On a POSIX filesystem the two orders are identical: every path shares the
+    /// <c>Root + '/'</c> prefix, so comparing the whole string compares the tail. On
+    /// Windows they are not identical, because the separator is <c>\</c> (0x5C), which
+    /// sorts ABOVE the letters, where <c>/</c> (0x2F) sorts below them — so
+    /// <c>a/b.md</c> and <c>aZ.md</c> come out in opposite orders on the two platforms.
+    /// That order is not internal: it is the order of <c>okf lint</c>'s diagnostics and of
+    /// <c>okf index --json</c>'s entries, both of which a consumer may diff. Sorting on
+    /// the bundle-relative path fixes it to the spec's separator instead of the host's.
+    /// (The bundler is unaffected either way — it re-sorts its entries by their
+    /// <c>/</c>-paths — but it should not have to be the only thing that is.)
+    /// </remarks>
+    /// <param name="pattern">The search pattern to collect.</param>
+    /// <returns>The absolute paths, ordered by their bundle-relative form.</returns>
+    private IReadOnlyList<string> Walk(string pattern)
     {
         var files = new List<string>();
-        Collect(Root, "*", files);
-        files.Sort(static (left, right) => string.CompareOrdinal(left, right));
-        return files;
+        Collect(Root, pattern, files);
+
+        var ordered = new List<(string Relative, string Absolute)>(files.Count);
+        foreach (var file in files)
+        {
+            ordered.Add((RelativePath(file), file));
+        }
+
+        ordered.Sort(static (left, right) => string.CompareOrdinal(left.Relative, right.Relative));
+        return ordered.ConvertAll(static entry => entry.Absolute);
     }
 
     /// <summary>The bundle-relative path of a file inside the bundle, with <c>/</c> separators.</summary>
@@ -123,12 +144,26 @@ public sealed class OkfBundle
     /// <param name="relativePath">A bundle-relative path, empty for the root itself.</param>
     /// <param name="fullPath">The absolute path, when it is inside the bundle.</param>
     /// <returns><see langword="true" /> when the path is contained.</returns>
+    /// <remarks>
+    /// A backslash is refused outright, and that is the one rule here that is about
+    /// portability rather than containment. Bundle-relative paths are <c>/</c>-separated by
+    /// spec, and <see cref="RelativePath" /> is the only thing that mints them — so a
+    /// backslash never arrives from okf-net, only from a caller. Left alone it would mean
+    /// two different things: a literal character in a filename on Linux and macOS, a
+    /// directory separator on Windows. One string, two resolutions, and the containment
+    /// argument would then have to be made twice. <see cref="OkfConceptReader.Normalize" /> and
+    /// the MCP server's directory normalizer already refuse it for the same reason; this
+    /// is the containment primitive itself refusing it, so a caller that reaches
+    /// <c>TryResolve</c> directly cannot be the one that gets it wrong.
+    /// </remarks>
     public bool TryResolve(string? relativePath, [NotNullWhen(true)] out string? fullPath)
     {
         fullPath = null;
 
         if (relativePath is not null
-            && (Path.IsPathRooted(relativePath) || relativePath.Contains('\0', StringComparison.Ordinal)))
+            && (Path.IsPathRooted(relativePath)
+                || relativePath.Contains('\\', StringComparison.Ordinal)
+                || relativePath.Contains('\0', StringComparison.Ordinal)))
         {
             // An absolute path is never bundle-relative, even when it happens to point
             // inside the bundle: accepting it would make the caller's path grammar depend

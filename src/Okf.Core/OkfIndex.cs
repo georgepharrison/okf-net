@@ -463,7 +463,11 @@ public static class OkfIndexGenerator
             indexes.Add(new OkfIndex(path, isRoot, entries, content, existing, status));
         }
 
-        indexes.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+        // Ordered by bundle-relative path, not by absolute path, for the reason
+        // OkfBundle.Walk documents: the two agree on POSIX and disagree on Windows, and
+        // this order is `okf index --json`'s output order.
+        indexes.Sort((left, right) =>
+            string.CompareOrdinal(bundle.RelativePath(left.Path), bundle.RelativePath(right.Path)));
         return new OkfIndexPlan(bundle, indexes);
     }
 
