@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THROWAWAY SPIKE (work item #8). Deliberately NOT in Okf.sln: `mise run
+    build`, `mise run test` and the CI `licenses` job all target Okf.sln, so
+    nothing here can reach the shipping binary or the SBOM. See README.md.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>okf-spike-vec</AssemblyName>
+    <RootNamespace>Okf.Spike.Vectorization</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- The point of the spike: the same AOT posture Okf.Cli ships with, so the
+         AOT/trim analyzers run on every build here too. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+    <!-- ONNX Runtime is an opt-in dimension of the spike; without this the
+         ~330 MB native runtime is dragged into every build and publish.
+         Build with -p:SpikeOnnx=true to include it. -->
+    <SpikeOnnx Condition="'$(SpikeOnnx)' == ''">false</SpikeOnnx>
+    <DefineConstants Condition="'$(SpikeOnnx)' == 'true'">$(DefineConstants);SPIKE_ONNX</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Okf.Core\Okf.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="sqlite-vec" Version="0.1.7-alpha.2.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SpikeOnnx)' == 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.29.0" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+  </ItemGroup>
+
+</Project>
