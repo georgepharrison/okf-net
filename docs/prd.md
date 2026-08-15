@@ -1,9 +1,16 @@
 # okf-net — Product Requirements
 
-> **Status:** MVP requirements. Rationale for every decision referenced here lives in
+> **Status:** MVP requirements, reconciled against the code on 2026-08-15 (work item #37).
+> Everything in §2 is **BUILT** except CLI-2, the registry; the three post-MVP items in §5
+> marked **BUILT** shipped too. A `BUILT` marker names the work item that delivered the
+> requirement and is a pointer, not a rewrite — where a resolution has since been
+> superseded, the original text stays and the correction sits beside it.
+>
+> Rationale for every decision referenced here lives in
 > [decisions.md](decisions.md); this document states *what must be built and how it is
 > verified*, not *why*. Where the two disagree, decisions.md wins and this document is
-> wrong.
+> wrong. [architecture.md](architecture.md) is the invariant spine between them, and its
+> Capability → Architecture Map names the types each requirement lives in.
 >
 > Format under implementation: OKF v0.2, specified in
 > `~/code/knowledge-catalog/okf/SPEC.md` (referred to below as "the spec", cited by
@@ -14,7 +21,7 @@
 okf-net is a .NET toolset for producing, validating, and consuming **OKF v0.2 knowledge
 bundles**: directory trees of markdown files with YAML frontmatter. It ships as a
 library (`Okf.Core`), a single CLI binary (`okf`) that also hosts an MCP server
-(`okf mcp`), and a pair of agent skills.
+(`okf mcp`), and three agent skills (two producers and one consumer — §2.4).
 
 The format is the interop layer. Nothing okf-net produces requires okf-net to consume —
 a bundle stays `cat`-readable and `git clone`-portable (spec §1).
@@ -49,15 +56,28 @@ a bundle stays `cat`-readable and `git clone`-portable (spec §1).
 
 ### 1.3 Non-goals for MVP
 
-The following are explicitly **out of scope** for MVP and tracked as roadmap in §5:
+The following were explicitly **out of scope** for MVP and tracked as roadmap in §5. Three
+have since been built post-MVP and are marked **BUILT** here with the work item that
+delivered them; the list is kept rather than pruned, because what was deliberately left out
+of MVP is part of the record.
 
-- **Bundler** — packaging a bundle for consume-only distribution. (Out of scope for MVP;
-  built post-MVP as `okf bundle` — see §5.)
-- **Static site generator** — rendering a bundle as a browsable site.
-- **Pi extension / widget** — the TypeScript shim and any UI surface.
-- **Vectorization / semantic index** — sqlite-vec or equivalent.
+- **Bundler** — packaging a bundle for consume-only distribution. **BUILT (2026-08-15, work
+  item #5)** as `okf bundle` — see §5.
+- **Static site generator** — rendering a bundle as a browsable site. **BUILT (2026-08-15,
+  work item #6)** as `okf site`, published to GitLab Pages by the `pages` job — see §5.
+- **Pi extension / widget** — the TypeScript shim and any UI surface. Still out of scope;
+  nothing has been built.
+- **Vectorization / semantic index** — sqlite-vec or equivalent. The **spike** ran (work
+  item #8, `docs/spikes/2026-08-15-vectorization.md`) and returned GO-with-conditions; the
+  layer itself is deferred to
+  [#24](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/24) and no vector index
+  ships.
 - **Custodian staleness-refresh loop** — automated re-derivation of expired concepts and
-  the acknowledgment workflow around it.
+  the acknowledgment workflow around it. **BUILT (2026-08-15, work item #7)**, and built to
+  a deliberately narrower shape than "automated": the derivation and surfacing ship
+  (`okf inbox`, `okf verify`, the scheduled `custodian-inbox` job), and the fetch-and-draft
+  step is a documented procedure in `skills/okf-custodian/SKILL.md` that a person starts.
+  Nothing refreshes itself and no job opens a merge request — see §5.
 
 Also out of scope, permanently or until a concrete need appears: executing executors or
 attesters (§10 is *recorded and surfaced*, never run by okf-net), defining a type
@@ -71,11 +91,19 @@ work references them.
 Build order is fixed by decisions §"MVP build order": Core parse/validate → `okf index` →
 `okf search` → `okf mcp` → skills.
 
+**Status of this section as of 1.0.0: every requirement below is BUILT except CLI-2**, the
+registry, which is specified and not implemented. The per-section notes give the work item
+that delivered each group; `docs/architecture.md`'s Capability → Architecture Map names the
+types each one lives in.
+
 ### 2.1 Okf.Core
 
 `Okf.Core` holds **all** logic. The CLI and MCP server are thin adapters over it
 (decisions §4). Every requirement below is satisfied by the library and is unit-testable
 without a process boundary.
+
+**BUILT (CORE-1 … CORE-15).** The public API surface was frozen by the 1.0.0 review (work
+item #9) on 2026-08-15, and the two changes that review ordered landed in work item #30.
 
 - **CORE-1 — Frontmatter parse.** Parse a UTF-8 markdown file into `(frontmatter, body)`
   per spec §4.
@@ -201,6 +229,12 @@ without a process boundary.
 The CLI is a thin wrapper over `Okf.Core` (decisions §4). It must be usable from a git
 hook: single process, no daemon, no network, meaningful exit code.
 
+**BUILT, except CLI-2.** The shipped verbs are `okf init` (work item #4), `okf lint`,
+`okf index`, `okf search` (work item #1), `okf inbox` and `okf verify` (work item #7),
+`okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2), plus
+`okf help` and `okf version`. `okf register` / `okf unregister` (CLI-2, and CLI-3's opt-in)
+are **not built** — see §3.
+
 - **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
   - Default target is the project vault found by walking up for `okf/`.
   - With no project vault and no explicit path, the command targets the personal vault
@@ -209,7 +243,12 @@ hook: single process, no daemon, no network, meaningful exit code.
     including a foreign one.
   - Resolution is reported in `--verbose` output so "which bundle did it read" is never a
     guess.
-- **CLI-2 — Registry.** `~/.config/okf/` holds the registry of known bundles.
+- **CLI-2 — Registry. DEFERRED — specified, not built (as of 1.0.0).** No `okf register` or
+  `okf unregister` verb exists and nothing reads a registry file, so search is
+  project-scoped full stop and no `--scope`/`--all` flag ships (see §3 and
+  `docs/architecture.md`, Capability → Architecture Map). The requirement below stands as
+  the contract those verbs must satisfy when they land. `~/.config/okf/` holds the registry
+  of known bundles.
   - `okf register [path]` adds an entry; it is idempotent (re-registering the same path is
     a no-op success).
   - `okf unregister [path]` removes an entry; removing an unknown entry is a no-op
@@ -224,6 +263,10 @@ hook: single process, no daemon, no network, meaningful exit code.
     or an explicit flag opts them in.
 - **CLI-4 — Configuration precedence.** CLI args > `OKF_HOME` environment variable >
   project config > global config at `~/.config/okf/okf.json` (decisions §6, Q4 resolved).
+  **As shipped the chain is built-in defaults → global file (`XDG_CONFIG_HOME`, else
+  `~/.config/okf/okf.json`) → project file (`<vault>/okf.json`) → CLI arguments, and
+  `OKF_HOME` is not in it** — it selects the personal vault, never a rule's severity (Q4's
+  pointer below; `docs/architecture.md` AD-31).
   - A setting present at a higher layer wins; lower layers still supply unset keys.
   - The project config is committed and is the team contract; the global config is
     per-machine.
@@ -259,7 +302,7 @@ hook: single process, no daemon, no network, meaningful exit code.
   | Missing `tags` | A concept has no `tags` | off (opt-in) |
   | Unregistered tag | A tag is absent from the bundle's tag registry (beyond-spec extension) | off (opt-in) |
   | Self-verification | Any `verified[].by` equals `generated.by` | warning |
-  | Human actor on CI commit | `generated.by` is a `human:` actor on a CI-authored commit | warning (see Q9) |
+  | Human actor on CI commit | `generated.by` is a `human:` actor on a CI-authored commit | **not shipped** — no rule id, no implementation (Q9) |
   | Missing source resource | A `sources[]` entry carries no `resource`, which §5.1 requires within an entry | warning |
   | Unresolvable source resource | A `sources[].resource` written as a path names nothing inside the bundle (§6.2); absolute URLs and §5.1 scope descriptors are never checked | info |
   | Link leaves the bundle | A markdown link resolves outside the bundle root (§6.2), which was previously unreported and so indistinguishable from a correct link | info |
@@ -268,6 +311,14 @@ hook: single process, no daemon, no network, meaningful exit code.
   The three rows above the last were added from the dogfood friction log (work item #21,
   from #19's note_168); see decisions.md, "the lint/search friction milestone". The last
   is CLI-9's `raw/`-immutability rule, which landed with `okf init` (work item #4).
+
+  **BUILT, one row excepted.** Every row above except *Human actor on CI commit* ships as a
+  numbered rule. The shipped catalog is `OKF0001`–`OKF0004` (conformance),
+  `OKF0101`–`OKF0103` (provenance), `OKF0201`–`OKF0202` (trust) and `OKF0301`–`OKF0310`
+  (hygiene). `okf lint --list-rules` prints every id with its **default** severity;
+  `--verbose` on a real run reports the **effective** one and the layer that set it, and
+  `docs/architecture.md` AD-11 fixes the ranges. The two "off (opt-in)" rows above ship as
+  `hidden` and move together as one decision (AD-48).
 
 - **CLI-8 — `okf init` scaffolding.** `okf init` creates the project layout from
   decisions §2.
@@ -341,7 +392,14 @@ hook: single process, no daemon, no network, meaningful exit code.
     keys.
 - **CLI-16 — Offline and hermetic.** No command makes a network call or invokes a model.
   - The full MVP surface runs with networking disabled.
-- **CLI-17 — Distribution.** The CLI ships as a self-contained, single-file binary
+- **CLI-17 — Distribution. BUILT (2026-08-15, work items #25 and #36), except the NuGet
+  package.** Each tag pipeline publishes seven assets under one package version: three
+  binaries — `okf-linux-x64` (NativeAOT), `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe
+  self-contained, because NativeAOT compiles through the host toolchain and the only runner
+  is Linux) — this bundle as `okf-net-knowledge.tar.gz`, the `latest.json` release manifest
+  naming each asset's relative path, size and `sha256`, and the two installers that read it,
+  `install.sh` (Linux and macOS) and `install.ps1` (Windows). `Okf.Core` is **not** published
+  to a NuGet registry (still open, Q10). The CLI ships as a self-contained, single-file binary
   installable without a .NET SDK (decisions §3), targeting `net10.0` (Q10, partially
   resolved).
   - NativeAOT is preferred; a trim-safe self-contained non-AOT publish is the documented
@@ -354,6 +412,9 @@ hook: single process, no daemon, no network, meaningful exit code.
     library, remain open — see Q10.)
 
 ### 2.3 `okf mcp`
+
+**BUILT (2026-08-15, work item #2).** Three namespaced tools — `okf_list`, `okf_search`,
+`okf_read` — over a hand-rolled, newline-framed JSON-RPC 2.0 loop.
 
 - **MCP-1 — Subcommand-hosted server.** `okf mcp` starts an MCP server over stdio from the
   same binary (kcmd precedent, decisions §4).
@@ -378,7 +439,14 @@ hook: single process, no daemon, no network, meaningful exit code.
 
 ### 2.4 Skills
 
-Two skills ship in `skills/` with releases (decisions repo layout). They are prose
+**BUILT (2026-08-15, work items #3 and #27), and three shipped rather than two.** The two
+producer skills SKILL-1 … SKILL-8 specify are `skills/okf-capture` and
+`skills/okf-custodian` (work item #3). A third, consumer-side skill — `skills/okf-vault`,
+which walks an agent from a question to the concepts that answer it and back to a citation
+carrying the trust tier — was added by work item #27 and carries no numbered requirement
+here; `skills/README.md` says which of the three fires when.
+
+Skills ship in `skills/` with releases (decisions repo layout). They are prose
 instructions for agents; they call the CLI rather than reimplementing anything.
 
 - **SKILL-1 — Capture skill exists.** `skills/` contains a capture skill that turns
@@ -419,24 +487,40 @@ instructions for agents; they call the CLI rather than reimplementing anything.
 
 ## 3. CLI surface
 
+Every row below is what `okf` dispatches today, except the two marked **deferred**.
+
 | Command | Purpose | Key flags | Exit codes |
 | --- | --- | --- | --- |
-| `okf lint [path]` | Validate §11 conformance plus the configured warning set | `--json`, per-rule severity override, `--treat-all-warnings-as-errors` | 0 clean · 1 errors present · 2 usage/environment |
-| `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift) | 0 written/no drift · 1 drift under `--check` · 2 usage |
-| `okf search <query> [path]` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--format`, `--json`, scope opt-in | 0 (including no matches) · 2 usage |
-| `okf inbox` | List unacknowledged concepts (regenerated-since-verified or `draft`) | `--json` | 0 · 2 usage |
-| `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | — | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage |
-| `okf register [path]` | Add a bundle/vault to the registry (idempotent) | — | 0 · 2 usage |
-| `okf unregister [path]` | Remove a registry entry (idempotent) | — | 0 · 2 usage |
-| `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | — | 0 created · 1 refused (would overwrite) · 2 usage |
+| `okf lint [path]` | Validate §11 conformance plus the configured warning set | `--json`, `--format`, `--severity <OKF####>=<level>`, `--treat-all-warnings-as-errors`, `--config`, `--list-rules` | 0 clean · 1 errors present · 2 usage/environment |
+| `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift), `--json`, `--format` | 0 written/no drift · 1 drift under `--check` · 2 usage |
+| `okf search <query> [path]` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
+| `okf inbox [path]` | List unacknowledged concepts (regenerated-since-verified, `draft`, stale or source-drifted) | `--json`, `--format`, `--fail-if-any` | 0 (whatever it finds) · 1 non-empty inbox under `--fail-if-any` · 2 usage |
+| `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
+| `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | `--name`, `--personal` | 0 created · 1 refused (would overwrite) · 2 usage |
 | `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
-| `okf mcp` | Run the stdio MCP server (search/read/list) | — | 0 clean shutdown · 2 startup failure |
+| `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
+| `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | — | 0 clean shutdown · 2 startup failure |
+| `okf version` · `okf help` | Report the informational version (`<semver>+<short-sha>`); print the verb list | `--version`, `--help`, `-h` as aliases | 0 |
+| `okf register [path]` | **Deferred — not built.** Add a bundle/vault to the registry (idempotent) | — | — |
+| `okf unregister [path]` | **Deferred — not built.** Remove a registry entry (idempotent) | — | — |
+
+The two deferred rows wait on the registry itself (CLI-2), which does not exist: no
+registry file is read or written, and with nothing to opt in to there is no scope flag on
+`okf search` either. They are specified rather than dropped, so the contract is already
+written when they land — the same treatment `okf bundle` carried while it was post-MVP.
 
 Global flags apply to every command: `--verbose` (report vault resolution and effective
-configuration), `--json` where output is data, and the configuration overrides governed by
-CLI-4.
+configuration), `--json` / `--format json` where output is data, and the configuration
+overrides governed by CLI-4.
 
 ## 4. Acceptance and validation strategy
+
+**BUILT (ACC-1 … ACC-7).** All seven are asserted by the suite and gated in CI. ACC-5's
+dogfood bundle is `okf/bundles/okf-net/` (work items #19 and #20), checked by the `dogfood`
+job's `okf lint okf/`, `okf index --check` and `okf/custodian/check-manifest.py`; ACC-6's
+hook half is deliberately narrower than "runs in a hook" — no git hook invokes the `okf`
+binary, because a `dotnet run` on every commit is how a hook gets deleted, and ACC-6 asks
+that the path *can* run in one (`docs/architecture.md` AD-46).
 
 - **ACC-1 — Foreign-bundle acid test.** `okf lint` reports all four bundles in
   `~/code/knowledge-catalog/okf/bundles/` — `acme_retail`, `ga4`, `stackoverflow`,
@@ -503,28 +587,46 @@ refusing to package without a flag was rejected for blocking what the spec permi
 a distribution keeps the vault's `bundles/<name>/` layout, a link between two *packaged*
 bundles still resolves, so the dangling case is exactly the subset case.
 
-**Static site generator.** Replaces the Obsidian dependency with a generated browsable
-site; GitLab Pages and plain file handoff are the target outputs, with
-`reference_agent visualize`'s self-contained `viz.html` as prior art. Must surface the
-OKF v0.2 trust and lifecycle frontmatter — trust tier, `stale_after`, verified-by-agent
-versus verified-by-human — as first-class UI, not buried metadata. **Pending input from
-Ringo on exactly how those fields should be displayed.** Likely the first component to
-split out of the monorepo, on release-cadence grounds.
+**Static site generator. BUILT (2026-08-15, work item #6; see decisions.md, "the static
+site milestone").** `okf site [path] --out <dir>` renders the resolved vault as a
+self-contained static site — a landing page carrying the bundle's index hierarchy, a trust
+dashboard whose tiles and tags are clickable filters, a force-directed cross-link graph
+coloured by trust tier, and one page per markdown file — with `--single-file` collapsing
+the whole thing into one fragment-routed HTML file. It surfaces the trust and lifecycle
+frontmatter as first-class UI: every status carries a colour, a glyph and a word, and the
+one shape that means "press me" is the pill. No third-party JavaScript ships and no page
+makes a network request, so the same output is hostable on GitLab Pages (the `pages` job,
+default branch only) and openable straight from `file://`. It stayed in the monorepo: the
+generator is `Okf.Core`'s, because index and site markdown are content the format defines
+rather than adapter presentation.
 
-**Custodian staleness-refresh and acknowledgment loop.** When a version-pinned source's
-`stale_after` expires, the custodian fetches release notes from the pinned version to
-current, updates or drafts the affected concept, and derives an impact analysis. Output
-surfaces as `status: draft` → `okf inbox` → a CI-opened PR, making the PR the reviewable
-(and ignorable) inbox for machine-derived insight. Builds directly on CORE-15 and CLI-12.
+**Custodian staleness-refresh and acknowledgment loop. BUILT (2026-08-15, work item #7; see
+decisions.md, "the staleness-refresh and acknowledgment loop").** What shipped is the
+derivation and the surfacing: `okf inbox` reports one row per concept with its reasons —
+regenerated since verification, `status: draft`, no verification at all behind a non-human
+generator, stale, or citing a source that moved — and exits 0 whatever it finds, with
+`--fail-if-any` for a caller that wants a branch; `okf verify` stamps the human
+acknowledgment; the scheduled `custodian-inbox` CI job publishes the JSON as an artifact.
+What is deliberately *not* automated: nothing fetches release notes, nothing drafts, and no
+job opens a merge request. The fetch-and-draft step is a procedure in
+`skills/okf-custodian/SKILL.md` that a person starts — the custodian's product is a draft
+and an explanation, and judging whether the draft is right is the part a person is for.
+Built on CORE-15 and CLI-12.
 
-**Pi shim and widget.** A thin TypeScript extension for the Pi host that shells out to the
-CLI or speaks to `okf mcp`; no logic of its own. A Pi widget (UI surface) follows the
-shim and depends on the same display decisions as the site generator.
+**Pi shim and widget. Not built.** A thin TypeScript extension for the Pi host that shells
+out to the CLI or speaks to `okf mcp`; no logic of its own. A Pi widget (UI surface)
+follows the shim; the display decisions it was waiting on were made by the site generator
+above — status carries a colour, a glyph and a word, and only a pill is pressable.
 
-**Vectorization spike.** An optional semantic index (sqlite-vec or similar), strictly
-opt-in, used only as a fallback when progressive disclosure fails to surface the right
-concept. The index is a generated artifact and never authoritative; the bundle remains
-complete without it. Would also supply a better near-duplicate detector than the MVP
+**Vectorization spike. RUN (2026-08-15, work item #8; `docs/spikes/2026-08-15-vectorization.md`),
+layer deferred to [#24](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/24).** The
+spike returned **GO-with-conditions**: sqlite-vec works from .NET, every package in the
+graph is permissively licensed, and a NativeAOT publish is warning-clean — so Q10's
+non-AOT fallback is not needed for it. The conditions are what defers it: the extension is
+a `dlopen`-able object that cannot be embedded, so `okf` becomes three files instead of
+one, and the NuGet package is a stale third-party alpha. An optional semantic index remains
+strictly opt-in, a generated artifact and never authoritative; the bundle stays complete
+without it. It would also supply a better near-duplicate detector than the shipped
 heuristic (Q8).
 
 ## 6. Open questions
@@ -560,7 +662,13 @@ decision (and its rationale) is recorded in decisions.md.
   global config file is `~/.config/okf/okf.json`. Precedence: CLI args > `OKF_HOME`
   environment variable > project config > global file. (The project config's exact
   filename and its placement relative to `okf/` remain implementation detail, not blocked
-  on this resolution.)
+  on this resolution.) **Superseded on two points by what shipped (2026-08-15, see
+  decisions.md, "the `okf lint` milestone", and `docs/architecture.md` AD-31, AD-32):**
+  `OKF_HOME` is **not** a precedence layer — it moves which personal vault is read and
+  never a rule's severity — and the chain that ships has four layers, built-in defaults
+  first: defaults → global file (`XDG_CONFIG_HOME`, else `~/.config/okf/okf.json`) →
+  project file → CLI arguments. The project config's filename is settled too: `okf.json` at
+  the vault root, parsed as JSONC.
 - **Q5 — Are any warnings exempt from promotion? RESOLVED (2026-08-14, see
   decisions.md).** No warning is exempt. okf-net adopts Roslyn's four severities
   (hidden/info/warning/error) for all diagnostics. Broken internal links default to
@@ -598,21 +706,39 @@ decision (and its rationale) is recorded in decisions.md.
   JSON result record is engine-agnostic — nothing in it names BM25 — so the deferred
   vectorization spike (sqlite-vec, §5) can be slotted behind the same contract without a
   breaking change for MCP consumers.
-- **Q8 — Near-duplicate detection in MVP.** With vectorization deferred, what heuristic
-  backs the near-duplicate warning: title/description similarity, shingled body hashing, or
-  drop the rule from MVP and reintroduce it with the vectorization spike.
-- **Q9 — Detecting a CI-authored commit.** The "human actor on CI commit" warning needs a
-  reliable signal (`CI=true`, a GitLab-specific variable, an explicit `--ci` flag, or the
-  commit's committer identity). Without one the rule cannot fire correctly in a local hook.
+- **Q8 — Near-duplicate detection in MVP. RESOLVED by what shipped (2026-08-15, see
+  decisions.md, "the `okf lint` milestone" and "lint review flags").** `OKF0303` ships a
+  normalized title-or-filename collision — not shingling, not similarity scoring — and a
+  conventional filename (`about.md`) is exempt from both arms of it (AD-47). The id is
+  kept when the vectorization layer (#24) replaces the heuristic, so consumer configuration
+  survives the swap.
+- **Q9 — Detecting a CI-authored commit. RESOLVED by not shipping the rule (2026-08-15).**
+  No reliable signal was decided, so the "human actor on a CI commit" warning has no rule
+  id and no implementation; it is absent from the shipped catalog (`OKF0001`–`OKF0004`,
+  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0202`, `OKF0301`–`OKF0310`). CLI-7's table row records
+  the intent, not a rule that fires. Reopening it means picking a signal first.
 - **Q10 — .NET target and AOT viability. PARTIALLY RESOLVED (2026-08-14, see
   decisions.md).** Target framework is `net10.0` (mise pins `dotnet = "10"`). NativeAOT
   single-file is preferred; if it proves incompatible (e.g. Roslyn-based extensibility
   added later, or a reflection-heavy dependency), the toolset falls back to a trim-safe,
   self-contained non-AOT publish knowingly, per decisions §3. Distribution target is NuGet
   packages published to the self-hosted GitLab instance's built-in NuGet registry
-  (instance configuration to be verified at first publish). **Still open:** the
+  (instance configuration to be verified at first publish). ~~**Still open:** the
   AOT-compatible YAML serialization library choice — no packaging or publish job exists in
-  `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.
+  `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.~~
+  **The YAML half is RESOLVED (2026-08-15, see decisions.md, "YAML library"):** YamlDotNet
+  18.1.0, used through its representation model and event emitter only, never its
+  serializer — that path is reflection-free, so a real `PublishAot` publish of `Okf.Cli` is
+  zero-warning and AOT is achievable (AD-9, AD-10). **The RIDs are RESOLVED (2026-08-15,
+  work item #36):** three ship — `linux-x64` NativeAOT, `osx-arm64` and `win-x64` trim-safe
+  self-contained, because NativeAOT compiles through the host's toolchain and the only
+  runner is Linux. AOT for the other two needs a macOS and a Windows runner
+  ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38),
+  [#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)). **Still open:** the
+  `Okf.Core` NuGet package — no packaging step for it exists in `.gitlab-ci.yml`, and the
+  instance's registry configuration is still unverified. `osx-x64`, musl and `linux-arm64`
+  are each one line in the publish job and one case label in `install.sh`, and are not
+  built on speculation.
 - **Q11 — `okf verify` and `okf inbox` scope granularity. RESOLVED (2026-08-15, see
   decisions.md).** `okf inbox [path]` resolves its working set exactly as `okf lint` and
   `okf search` do (CLI-1), so the three never disagree about which bundles they are looking
