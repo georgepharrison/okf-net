@@ -218,18 +218,51 @@ violate OKF conformance):
 
 ## Status
 
-**Prerelease.** `Okf.Core`, the CLI's `init`, `lint`, `index`, `search`,
-`inbox`, `verify`, `bundle` and `site` commands, the MCP server and the agent
-skills are built and gated in CI; the registry (`okf register`) and the Pi
-shim are later milestones. Every merge to `main` cuts an `rc` tag, and from
-the first tag cut after the publishing job landed that tag also ships
-runnable binaries for Linux, macOS and Windows, this repo's own knowledge
-bundle, a release manifest and the two installers that read it — see
-[Install](#install-prerelease-binaries), which says plainly that no tag has
-produced any of it yet, and that the install one-liners resolve only inside
-Ringo's network
-([#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26)). Usable
-from source, deliberately not yet stable.
+**Prerelease, and feature-complete for 1.0.0.** What is built and gated in CI:
+
+- **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
+  site. Its public API was frozen by the 1.0.0 review.
+- **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `inbox`,
+  `verify`, `bundle`, `site`, `mcp`, plus `help` and `version`.
+- **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
+  `okf_search`, `okf_read`) over stdio.
+- **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`; see
+  [skills/README.md](skills/README.md).
+- **This repo's own knowledge bundle**, linted and index-checked by the
+  `dogfood` job on every push, and rendered to the Pages site below.
+
+Not built: the registry (`okf register` / `okf unregister`, so search is
+project-scoped full stop) and the Pi shim. Neither blocks 1.0.0.
+
+Every merge to `main` cuts an `rc` tag, and that tag's pipeline publishes
+seven assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
+`okf-osx-arm64` and `okf-win-x64.exe` (trim-safe self-contained, ~15 MB each,
+because NativeAOT compiles through the host's toolchain and the only runner
+here is Linux) — this repo's knowledge bundle as `okf-net-knowledge.tar.gz`,
+the `latest.json` release manifest, and the two installers that read it:
+
+```sh
+curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
+```
+
+```powershell
+irm https://get.okf.tychostation.dev/install.ps1 | iex
+```
+
+Two caveats, both deliberate stopping points rather than oversights. The
+artifact host **resolves only inside Ringo's network** — public exposure needs
+auth, rate limiting and a signed manifest, tracked in
+[#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26) — and until a
+tag pipeline has actually run the publishing job it has nothing to serve; see
+[Install](#install-prerelease-binaries), which says so plainly and gives the
+build-from-source path. The generated knowledge site publishes from `main` to
+[okf-net-28dd30.pages.tychostation.dev](https://okf-net-28dd30.pages.tychostation.dev),
+which is on the same internal network and behind this project's access
+control; `mise run site` renders the identical output locally, openable from
+`file://`.
+
+Usable from source, deliberately not yet stable: this is `1.0.0-rc.N`, and the
+`rc` is not decoration.
 
 ## Documentation
 
@@ -238,7 +271,11 @@ from source, deliberately not yet stable.
 - [Architecture decisions](docs/decisions.md) — the running decision log
   (the "why" behind everything above)
 - [Product requirements](docs/prd.md) — the requirement-shaped "what",
-  with numbered, testable requirements
+  with numbered, testable requirements, each marked BUILT or deferred
+- [Lessons learned](docs/lessons.md) — the non-obvious things this project
+  learned the hard way, so nobody relearns them
+- [Spikes](docs/spikes/) — dated investigations with their apparatus and
+  their numbers, kept whatever the recommendation was
 - [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
   — the upstream format this toolset implements
 - [Agent skills](skills/README.md) — the three skills and when each fires
