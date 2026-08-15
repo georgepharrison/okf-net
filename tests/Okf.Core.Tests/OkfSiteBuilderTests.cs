@@ -278,6 +278,28 @@ public class OkfSiteBuilderTests
         Assert.Contains($"\"{expected}\"", model.Pages.Single().BodyHtml, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ABrokenBundleRootRelativeLinkIsStillARelativeLink()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle.Add("deep/x.md", "---\ntype: Concept\n---\n\n[gone](/nope.md) and [out](/../secrets.md)\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        var body = model.Pages.Single().BodyHtml;
+
+        // A leading `/` left standing is the filesystem root under file:// and the domain
+        // root under Pages. §6.1 says mark a broken link rather than drop it — it does not
+        // say point it at the host.
+        Assert.DoesNotContain("href=\"/", body, StringComparison.Ordinal);
+        Assert.Contains("href=\"../nope.md\" class=\"broken\"", body, StringComparison.Ordinal);
+
+        // A destination that climbs out of the bundle names nowhere the site contains.
+        Assert.DoesNotContain("href=\"../../", body, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("index.html", "kb/hub.html", "kb/hub.html")]
     [InlineData("kb/hub.html", "kb/reviewed.html", "reviewed.html")]

@@ -315,15 +315,25 @@ public static class OkfSiteBuilder
 
         if (Normalize(basePath, Uri.UnescapeDataString(target.TrimStart('/'))) is not { } resolved)
         {
-            return new OkfSiteLink(null, null, "broken", false);
+            // A destination that climbs out of its own bundle names no place the site
+            // contains, and emitting it unchanged would point a page at whatever sits
+            // beside the output directory. Escaped, it is one inert relative segment.
+            return new OkfSiteLink(Uri.EscapeDataString(url), null, "broken", false);
         }
 
         var id = $"{page.BundleSlug}/{resolved[..^3]}";
         if (!pages.TryGetValue(id, out var destination))
         {
             // §6.1: "Consumers MUST tolerate broken links" — a link to knowledge that is
-            // not written yet is marked, never dropped.
-            return new OkfSiteLink(null, null, "broken", false);
+            // not written yet is marked, never dropped. It is still re-expressed relative
+            // to this page when it was written bundle-root-relative: a leading `/` left
+            // standing is a link to the filesystem root under file:// and to the domain
+            // root under Pages, which is the one thing the site's hrefs may never be.
+            return new OkfSiteLink(
+                target.StartsWith('/') ? RelativeHref(page.Path, resolved) + fragment : null,
+                null,
+                "broken",
+                false);
         }
 
         var href = singleFile
