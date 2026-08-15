@@ -200,8 +200,10 @@ source — `okf verify <concept-path> --by process:<id>` — and only whoever di
 the checking runs it. A human clears a concept with plain `okf verify`, which
 stamps `human:<id>`. Either form refuses an actor equal to the concept's
 `generated.by`, appends rather than replaces, and leaves the rest of the file
-byte-identical; a bare `{ by, at }` mapping is normalized into a one-element
-list on the way (§5.2).
+byte-identical — except on a frontmatter shape the line insertion cannot reach
+(`verified` written as a flow list, or as a block mapping), where the whole
+block is re-emitted and the content survives but the formatting moves. A bare
+`{ by, at }` mapping is normalized into a one-element list on the way (§5.2).
 
 Trust tier is derived from `verified` alone — no events is `unverified`, any
 `human:` event is `human-reviewed`, otherwise `machine-confirmed`. There is no
