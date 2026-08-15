@@ -19,13 +19,122 @@
       // OKF0307 missing-source-resource: provenance is the load-bearing half of
       // the trust model, so a `sources` entry recording something nobody can go
       // and check is a defect here, whatever it is elsewhere. Its companion
-      // OKF0308 (a path resolving to nothing) stays at info: this vault cites
-      // documents by pinned URL and has no in-bundle source paths to break.
-      "OKF0307": "error"
-    }
-    // Tag rules (OKF0304 missing-tags, OKF0305 unregistered-tag with
-    // `tagRegistry`) are deliberately left at their hidden defaults until the
-    // bundle has a settled tag vocabulary — Dogfood v2, alongside custodial
-    // activation.
+      // OKF0308 (a path resolving to nothing) stays at its `info` default: the
+      // vault now carries one in-bundle source path (the ingested reference
+      // cited from practices/custodian-model.md), which is too little exposure
+      // to justify a promotion the rest of the bundle would never exercise.
+      "OKF0307": "error",
+
+      // --- Tag governance, live as of Dogfood v2 (work item #20) -----------
+      //
+      // OKF0305 unregistered-tag: a tag absent from `tagRegistry` below.
+      //
+      // WARNING, not error, deliberately. The registry is one day old and was
+      // derived from the tags the bundle had already grown, not designed ahead
+      // of them — 54 tags across 19 concepts, 41 of them used exactly once (the
+      // audit is written up in practices/tagging-discipline.md). A vocabulary
+      // that green is not yet a vocabulary anyone should be blocked by, and an
+      // error here would mean the first author to reach for an obviously right
+      // new word gets a red pipeline instead of a review comment. What the
+      // warning DOES buy on day one is the whole point of the registry: the
+      // vocabulary can no longer grow by accident, because a new tag is now
+      // visible in CI output the moment it appears. Promote to error once the
+      // registry has survived a consolidation pass and a few real additions —
+      // that is a decision to take with evidence, not on the day it ships.
+      "OKF0305": "warning",
+      // OKF0304 missing-tags: a concept with no `tags` at all.
+      //
+      // WARNING for the same reason, and to close the hole OKF0305 would
+      // otherwise leave: a concept with no tags is trivially compliant with any
+      // registry, so promoting only the unregistered-tag rule would reward
+      // dropping the key. Every concept in the bundle carries tags today, so
+      // this costs nothing now and catches the omission the day it happens.
+      "OKF0304": "warning"
+    },
+
+    // The bundle's tag vocabulary. `okf lint` accepts a tag only if it appears
+    // here, spelled exactly this way (the comparison is ordinal).
+    //
+    // Its human face is bundles/okf-net/practices/tagging-discipline.md, which
+    // groups these into facets, says what each facet is for, and states how a
+    // new tag gets added: in the same change as the concept that needs it, with
+    // the concept as the argument for it. The two are edited together; a
+    // registry nobody can read is a spell-checker, not a vocabulary.
+    //
+    // Ordered by facet, then alphabetically within it, so a reviewer can see
+    // where a proposed tag would sit — and see when it does not sit anywhere.
+    "tagRegistry": [
+      // Scope: which project the concept is about. Every concept has one.
+      "okf",
+      "okf-net",
+
+      // Domain: the subject area, mirroring the directory tree.
+      "architecture",
+      "format",
+      "practices",
+      "references",
+
+      // Kind: what the concept is doing, rather than what it is about.
+      "domain",
+      "dogfood",
+      "meta",
+
+      // The format and its guarantees.
+      "acceptance",
+      "acknowledgment",
+      "bundle",
+      "compatibility",
+      "compliance",
+      "conformance",
+      "conventions",
+      "interop",
+      "layout",
+      "lifecycle",
+      "readme-trap",
+      "spec",
+      "trust",
+      "verification",
+
+      // Provenance and the capture path.
+      "capture",
+      "custodian",
+      "maintenance",
+      "provenance",
+      "skills",
+      "sources",
+
+      // The toolset's own machinery.
+      "bm25",
+      "cli",
+      "configuration",
+      "determinism",
+      "diagnostics",
+      "discovery",
+      "drift",
+      "generation",
+      "index",
+      "layering",
+      "lint",
+      "mcp",
+      "registry",
+      "search",
+      "severity",
+      "vault",
+
+      // Governance and the vocabulary itself.
+      "governance",
+      "tags",
+
+      // Project process.
+      "agents",
+      "ci",
+      "conventional-commits",
+      "dependencies",
+      "licensing",
+      "process",
+      "release",
+      "semantic-release",
+      "versioning"
+    ]
   }
 }

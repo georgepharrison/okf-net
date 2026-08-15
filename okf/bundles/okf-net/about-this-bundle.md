@@ -32,7 +32,8 @@ the project's reference example of documenting a code repository with OKF.
 
 Knowledge is organised **domain-first**: the directory tree follows the
 subject matter, the kind of document lives in frontmatter `type`, and
-anything cross-cutting is a `tag`.[^decisions] The specification itself
+anything cross-cutting is a `tag`, drawn from [a closed
+registry](practices/tagging-discipline.md).[^decisions] The specification itself
 leaves layout to the producer — domain-first is okf-net's choice on top of
 it, taken in preference to an epistemic-type folder layout.
 
@@ -42,7 +43,8 @@ it, taken in preference to an epistemic-type folder layout.
 - [The toolset](toolset/about.md) — how okf-net is built: layering, the lint
   severity model, search semantics, index generation, and vault resolution.
 - [Practices](practices/about.md) — how the project is run: the custodian
-  model, the dependency license gate, and the release scheme.
+  model, tagging discipline, the dependency license gate, and the release
+  scheme.
 - [References](references/about.md) — external material captured into the
   vault and rendered here, because its source could not be pinned and cited
   in place.

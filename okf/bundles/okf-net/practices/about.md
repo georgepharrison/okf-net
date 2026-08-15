@@ -1,9 +1,9 @@
 ---
 type: Guide
 title: About the Practices Domain
-description: How the okf-net project is run — custodianship, the dependency license gate, and the release scheme.
+description: How the okf-net project is run — custodianship, tagging discipline, the dependency license gate, and the release scheme.
 tags: [okf-net, practices, process, domain]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T00:12:00-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -23,6 +23,8 @@ governance — which is the reverse of everything in there.
 - [The custodian model](custodian-model.md) — the agent that maintains a
   bundle, where its machinery lives, and why it never ships inside the
   bundle.
+- [Tagging discipline](tagging-discipline.md) — the bundle's tag vocabulary,
+  what each facet is for, and how a new tag gets added.
 - [The dependency license gate](dependency-license-gate.md) — the
   Apache-2.0-compatibility rule and the CI job that enforces it.
 - [Release and versioning](release-and-versioning.md) — conventional

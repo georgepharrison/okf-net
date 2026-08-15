@@ -105,3 +105,5 @@ The bundle documents this model rather than repeating it:
 
 - [The custodian model](../bundles/okf-net/practices/custodian-model.md)
 - [Provenance — capture versus cite](../bundles/okf-net/format/provenance-capture-vs-cite.md)
+- [Tagging discipline](../bundles/okf-net/practices/tagging-discipline.md) —
+  the human face of `lint.tagRegistry` in `okf.json`
