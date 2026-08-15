@@ -53,6 +53,34 @@ lint:
   script:
     - mise run lint
 
+# The installer's acceptance suite (work item #25). install.sh is the one thing in this
+# repo a stranger runs before anything else exists on their machine, and the one thing the
+# .NET suite cannot reach: it is POSIX sh, it talks HTTP, and its failure mode is a
+# half-installed binary. tests/install-sh/run.sh serves a fake artifact host with
+# `python3 -m http.server` and runs the real installer against it as a subprocess.
+#
+# Neither of this pipeline's two existing images fits. The default (node:22-slim + mise)
+# would provision the whole dotnet 10 SDK in order to run a shell script, and the `.dotnet`
+# image ships no python3 (see the `licenses` job's note). So: a plain python image, no mise,
+# no .NET, `before_script: []` — the cheapest job in the pipeline by a wide margin.
+#
+# python:3.12-slim is Debian, which matters twice over. It carries no curl, hence the one
+# apt-get; and its /bin/sh is dash, with `dash` itself on PATH, so the harness's second
+# shell lane actually runs here instead of skipping. That lane is the point of running this
+# in CI at all: a bashism the developer's bash forgave is exactly what reaches a user's
+# Debian box. The `command -v dash` line makes the lane's absence loud rather than silent —
+# a skipped shell would otherwise look identical to a passing one.
+test-install:
+  stage: validate
+  image: python:3.12-slim
+  before_script: []
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null
+    - command -v dash >/dev/null || { echo "dash is missing — the POSIX lane would silently skip" >&2; exit 1; }
+    - tests/install-sh/run.sh
+
 # .NET jobs. These deliberately bypass the default image and before_script:
 # dotnet is the only tool they need and the SDK image already ships it, so
 # installing mise (whose sole job here is to provision that same SDK, plus
@@ -290,6 +318,13 @@ publish:
     # file under it — which is exactly what the generic registry's one-version-
     # many-files shape is for.
     OKF_KNOWLEDGE_FILE: okf-net-knowledge.tar.gz
+    # The third and fourth assets (issue #25), which together make a release
+    # self-describing: a manifest naming every asset with its sha256, and the
+    # installer that reads it. Uploading install.sh from the repo — rather than
+    # letting the artifact host serve whatever is on main — means the installer a
+    # release hands you is the one that release was cut with.
+    OKF_MANIFEST_FILE: latest.json
+    OKF_INSTALLER_FILE: install.sh
   script:
     - |
       # The tag is `vX.Y.Z-rc.N`; the package version is the same string without
@@ -301,6 +336,8 @@ publish:
       OKF_VERSION="${CI_COMMIT_TAG#v}"
       OKF_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_PACKAGE_FILE}"
       OKF_KNOWLEDGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_KNOWLEDGE_FILE}"
+      OKF_MANIFEST_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_MANIFEST_FILE}"
+      OKF_INSTALLER_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}/${OKF_INSTALLER_FILE}"
       OKF_RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}"
       # The job token authenticates both APIs. If the instance ever refuses it
       # for release asset links, set a project CI variable RELEASE_API_TOKEN
@@ -315,6 +352,8 @@ publish:
       echo "==> tag ${CI_COMMIT_TAG} -> version ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
       echo "    package:   ${OKF_PACKAGE_URL}"
       echo "    knowledge: ${OKF_KNOWLEDGE_URL}"
+      echo "    manifest:  ${OKF_MANIFEST_URL}"
+      echo "    installer: ${OKF_INSTALLER_URL}"
       echo "    release:   ${OKF_RELEASE_URL}"
 
     - |
@@ -390,6 +429,77 @@ publish:
       echo
 
     - |
+      # The release manifest (issue #25). This is what makes a release self-describing
+      # and what install.sh reads: a version, and per asset a location and a digest.
+      #
+      # The digests are computed HERE, from the exact files the two steps above just
+      # uploaded — not from a fresh build, and not from anything re-downloaded. That is
+      # the whole value of the manifest: install.sh trusts it, and it can only be trusted
+      # if it describes bytes this job saw.
+      #
+      # Two locations per asset, because there are two kinds of consumer:
+      #   path — relative to whatever base URL the installer was given. This is the one
+      #          install.sh uses, and it is what lets the same manifest describe the
+      #          release from the artifact host, from a laptop, or from wherever
+      #          issue #26 lands, without a rewrite.
+      #   url  — the canonical package-registry URL. Authenticated (the project is
+      #          private), and the thing the artifact host's sync.sh pulls from.
+      #
+      # `generatedAt` is the commit's timestamp normalised to UTC `Z`, NOT the job's
+      # clock — the same rule the bundler follows, and for the same reason: it is the
+      # only clock reading in the path, so pinning it keeps a rerun of a tag pipeline
+      # byte-identical. `date -u -d` is GNU date, which the Debian-based SDK image has.
+      #
+      # Written with printf and shell, deliberately: the SDK image has no python3 and no
+      # jq, and adding an apt-get to emit four scalars would be a dependency for nothing.
+      # The format that comes out is a contract with install.sh's sed-based reader — no
+      # whitespace inside any value, no object nested inside an asset. tests/install-sh
+      # holds a fixture written to match this block; change one and change the other.
+      echo "==> writing ${OKF_MANIFEST_FILE}"
+      OKF_GENERATED_AT="$(date -u -d "${CI_COMMIT_TIMESTAMP}" +%Y-%m-%dT%H:%M:%SZ)"
+      OKF_BINARY_SHA="$(sha256sum artifacts/aot/okf | cut -d' ' -f1)"
+      OKF_BINARY_SIZE="$(wc -c < artifacts/aot/okf | tr -d ' ')"
+      OKF_KNOWLEDGE_SHA="$(sha256sum "artifacts/${OKF_KNOWLEDGE_FILE}" | cut -d' ' -f1)"
+      OKF_KNOWLEDGE_SIZE="$(wc -c < "artifacts/${OKF_KNOWLEDGE_FILE}" | tr -d ' ')"
+
+      cat > "artifacts/${OKF_MANIFEST_FILE}" <<JSON
+      {
+        "version": "${OKF_VERSION}",
+        "tag": "${CI_COMMIT_TAG}",
+        "generatedAt": "${OKF_GENERATED_AT}",
+        "assets": {
+          "${OKF_PACKAGE_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_PACKAGE_FILE}",
+            "size": ${OKF_BINARY_SIZE},
+            "sha256": "${OKF_BINARY_SHA}",
+            "url": "${OKF_PACKAGE_URL}"
+          },
+          "${OKF_KNOWLEDGE_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_KNOWLEDGE_FILE}",
+            "size": ${OKF_KNOWLEDGE_SIZE},
+            "sha256": "${OKF_KNOWLEDGE_SHA}",
+            "url": "${OKF_KNOWLEDGE_URL}"
+          }
+        }
+      }
+      JSON
+      cat "artifacts/${OKF_MANIFEST_FILE}"
+
+      echo "==> uploading ${OKF_MANIFEST_FILE} and ${OKF_INSTALLER_FILE}"
+      # Same duplicate-tolerant upload as the two assets above, and the same documented
+      # failure mode if this project ever disallows duplicate generic package files.
+      curl --silent --show-error --fail-with-body \
+        --header "${OKF_AUTH_HEADER}" \
+        --upload-file "artifacts/${OKF_MANIFEST_FILE}" \
+        "${OKF_MANIFEST_URL}"
+      echo
+      curl --silent --show-error --fail-with-body \
+        --header "${OKF_AUTH_HEADER}" \
+        --upload-file "${OKF_INSTALLER_FILE}" \
+        "${OKF_INSTALLER_URL}"
+      echo
+
+    - |
       # semantic-release creates the GitLab release from the main-branch
       # pipeline that pushed this tag, so the two pipelines overlap: the
       # release usually exists well before the AOT compile finishes, but it is
@@ -420,7 +530,10 @@ publish:
       # Idempotent by construction: link names and URLs must be unique within a
       # release, so a blind POST would fail the second time a tag pipeline runs
       # (a rerun, or a retried job). Ask first — once per asset.
-      for asset in "${OKF_PACKAGE_FILE}|${OKF_PACKAGE_URL}" "${OKF_KNOWLEDGE_FILE}|${OKF_KNOWLEDGE_URL}"; do
+      for asset in "${OKF_PACKAGE_FILE}|${OKF_PACKAGE_URL}" \
+                   "${OKF_KNOWLEDGE_FILE}|${OKF_KNOWLEDGE_URL}" \
+                   "${OKF_MANIFEST_FILE}|${OKF_MANIFEST_URL}" \
+                   "${OKF_INSTALLER_FILE}|${OKF_INSTALLER_URL}"; do
         asset_name="${asset%%|*}"
         asset_url="${asset#*|}"
         if grep -qF "${asset_url}" release.json; then
@@ -447,6 +560,7 @@ publish:
     paths:
       - artifacts/aot/okf
       - artifacts/okf-net-knowledge.tar.gz
+      - artifacts/latest.json
 
 # ============================================================================
 # The custodian's scheduled inbox (issue #7). `okf inbox` derives, per concept,
