@@ -1145,15 +1145,29 @@ item; the shape of it:
   for an orphan; two boundary conditions where equality is not drift (a log entry on the
   same date as the one before it, a source last modified on the generation date); the
   layer name reported for `treatAllWarningsAsErrors`, which the old assertion checked
-  only by substring; and BM25's length normalization, which nothing constrained — three
-  separate arithmetic mutants survived in `Score`.
+  only by substring; and BM25's length normalization, which nothing constrained — nine
+  mutants survived in `Score`, seven of them arithmetic, and the new test kills three of
+  those (`K1 *` → `K1 /`, `B * concept.Length` → `B / concept.Length`, and the division by
+  `frequency + normalization` → multiplication).
 - **Equivalent or near-equivalent (documented, not chased).** The clearest specimen:
   `Array.IndexOf(SupportedProtocolVersions, requested) >= 0` → `> 0` in the MCP
   handshake. The two differ only when the index is 0 — i.e. when the client asks for
   the latest revision — and in that case both branches yield `LatestProtocolVersion`.
   No test can distinguish them. Same family: the `corpus.Count > 0 && total > 0`
   divide-by-zero guard in BM25 statistics, and the BM25 constants whose mutants scale
-  every score identically and so cannot change a ranking.
+  every score identically and so cannot change a ranking — `(K1 + 1)` → `(K1 - 1)` and
+  the `*` before it → `/` are both a constant factor on every term. Four of the six
+  mutants still alive in `Score` are this: those two, plus `frequency <= 0` → `< 0` and
+  the `continue` → `;` beside it, which between them only let a term with zero frequency
+  add a zero.
+- **Live and killable, recorded rather than chased: the other two in `Score`.**
+  `1 - B` → `1 + B` and `concept.Length / statistics.AverageLength` →
+  `concept.Length * statistics.AverageLength` both survive the new test, because both
+  keep the score *monotone* in document length and the test pins an ordering. Separating
+  them needs a fixture trading term frequency against length, where the true formula and
+  each mutant disagree by well under a percent of the score — numerology that would read
+  as a change-detector rather than as the contract the ordering test states. So: BM25's
+  length normalization now has a direction nothing can silently reverse, not a shape.
 - **String-literal mutants on diagnostic prose (136 survived, the largest single
   group).** These are only sometimes gaps. Where a message is a *contract* — OKF0102's
   "a definition is not a citation" — it is already pinned. Where it is wording, pinning
