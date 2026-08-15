@@ -153,13 +153,24 @@ without a process boundary.
   - Synthesis uses the same renderer as CORE-9, so a synthesized listing and a generated
     file are identical for the same tree.
   - Synthesis never writes into a bundle the tool does not own.
-- **CORE-11 — Search.** Search a bundle tree and return ranked concept matches.
-  - Matches over frontmatter (`title`, `description`, `tags`, `type`) and body text.
-  - Each result carries: concept ID (path minus `.md`, spec §2), bundle, title, type,
-    description, trust tier, stale flag, and a match snippet.
-  - Filterable by `type` and `tags`.
+- **CORE-11 — Search.** Search a bundle tree and return ranked concept matches (Q7,
+  resolved).
+  - Matches over frontmatter (`title`, `description`, `tags`, `type`) and body text, by
+    **token**, not substring: text is lowercased and split on non-alphanumerics, with no
+    stemming in v1.
+  - Only concepts are corpus entries. Reserved files (`index.md`, `log.md`) are excluded,
+    and `raw/` is outside every bundle root and therefore never reached.
+  - Ranking is BM25-style over field-weighted text — title ×3, `tags`/`type` ×2,
+    `description` ×2, body ×1 — and fully deterministic: no clock, no network, no model
+    call, ties broken by bundle then path.
+  - Query terms are AND-ed; when the AND set is empty the search falls back to OR and says
+    which mode produced the results.
+  - Each result carries: concept ID (path minus `.md`, spec §2), bundle-relative path,
+    absolute path, bundle, title, type, description, score, trust tier, stale flag, and a
+    bounded match snippet — never the full body.
+  - Filterable by `type` and `tags`; filters restrict candidates before scoring.
   - Results are returned as data, not formatted text, so the CLI and MCP render the same
-    result set differently. (Ranking/matching semantics are open — see Q7.)
+    result set differently.
 - **CORE-12 — Concept read.** Load a single concept by ID, returning frontmatter, body,
   derived trust tier, and stale flag.
   - IDs are validated and confined to the bundle root; `..` traversal and absolute paths
@@ -275,9 +286,15 @@ hook: single process, no daemon, no network, meaningful exit code.
     form of CLI-9).
   - Output is byte-stable across runs and across machines.
 - **CLI-11 — `okf search`.** Query resolved bundles from the command line.
-  - Supports `--type`, `--tag`, and a result limit.
-  - Human-readable default output; `--json` emits the full CORE-11 result records,
-    including trust tier and stale flag.
+  - Supports `--type`, `--tag` (both repeatable, and equivalent to the inline `type:`/
+    `tag:` filter syntax) and `--limit` (default 10).
+  - Resolves its working set exactly as `okf lint` does (CLI-1), so the two commands never
+    disagree about which bundles they are looking at.
+  - Human-readable default output is links-first — rank, score, path, title, type, trust
+    and stale markers, snippet — and never prints a full concept body.
+  - `--json` emits the full CORE-11 result records, including trust tier and stale flag, as
+    a stable sorted array. That array is the contract `okf mcp`'s `search` tool returns
+    (MCP-2, MCP-3).
   - Exits 0 with an empty result set (no matches is not an error).
 - **CLI-12 — `okf inbox`.** List unacknowledged concepts (CORE-15) across the resolved
   scope.
@@ -393,7 +410,7 @@ instructions for agents; they call the CLI rather than reimplementing anything.
 | --- | --- | --- | --- |
 | `okf lint [path]` | Validate §11 conformance plus the configured warning set | `--json`, per-rule severity override, `--treat-all-warnings-as-errors` | 0 clean · 1 errors present · 2 usage/environment |
 | `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift) | 0 written/no drift · 1 drift under `--check` · 2 usage |
-| `okf search <query>` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--json`, scope opt-in | 0 (including no matches) · 2 usage |
+| `okf search <query> [path]` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--format`, `--json`, scope opt-in | 0 (including no matches) · 2 usage |
 | `okf inbox` | List unacknowledged concepts (regenerated-since-verified or `draft`) | `--json` | 0 · 2 usage |
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | — | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage |
 | `okf register [path]` | Add a bundle/vault to the registry (idempotent) | — | 0 · 2 usage |
@@ -529,10 +546,29 @@ decision (and its rationale) is recorded in decisions.md.
   repo is the example: local `user.email` is `ringo.harrison+agent@gmail.com`). This
   replaces CLI-13's hard-refusal assumption with a fallback chain; refusal is now reserved
   for the case where both `verify.actor` and the global git email are unset.
-- **Q7 — Search semantics and output contract.** Substring versus tokenized matching,
-  whether frontmatter fields are weighted above body text, ranking, and snippet extraction
-  are all unspecified. MCP consumers depend on the structured shape, so the result record
-  should be fixed before `okf mcp` ships.
+- **Q7 — Search semantics and output contract. RESOLVED (2026-08-14, see decisions.md).**
+  Option B: **deterministic BM25-style lexical search** — tokenized (not substring)
+  matching, frontmatter weighted above body text (title ×3, tags/`type` ×2, `description`
+  ×2, body ×1), query terms AND-ed with an OR fallback when AND matches nothing, ties
+  broken by path so the same corpus always yields the same order. Four constraints come
+  with it, from the disclosure-versus-search research:
+  1. **Concepts only.** The corpus is concept documents inside bundle roots. `raw/` is
+     never searched (it sits outside every bundle root, Q3) and the reserved files
+     `index.md`/`log.md` are never corpus entries.
+  2. **Project scope by default** (CLI-3, the topic-6 determinism rule): the same vault
+     resolution `okf lint` performs, and nothing wider. Registry entries stay opt-in.
+  3. **Links-first results.** A result carries a path, a title, a type, a score and a
+     bounded snippet — never a full body. Reading a concept is `okf` `read`'s job
+     (CORE-12), so search stays a pointer into progressive disclosure rather than a
+     substitute for it.
+  4. **Trust-aware fields.** Every result carries its trust tier (CORE-6) and stale flag
+     (CORE-7), so a consuming agent can judge a hit before opening it.
+
+  Filter syntax is `tag:<x>` and `type:<y>`, repeatable and case-insensitive, applied
+  before scoring; `--tag`/`--type` flags are the same filters by another spelling. The
+  JSON result record is engine-agnostic — nothing in it names BM25 — so the deferred
+  vectorization spike (sqlite-vec, §5) can be slotted behind the same contract without a
+  breaking change for MCP consumers.
 - **Q8 — Near-duplicate detection in MVP.** With vectorization deferred, what heuristic
   backs the near-duplicate warning: title/description similarity, shingled body hashing, or
   drop the rule from MVP and reintroduce it with the vectorization spike.

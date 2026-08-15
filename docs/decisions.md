@@ -390,3 +390,123 @@ OSI-approved permissive license, ASF Category A (may be included in Apache
 products), and its one restriction (redistributed MS-PL *source* stays MS-PL)
 cannot bite here — both MS-PL packages (Xunit.SkippableFact, Validation) are
 test-only dependencies that never enter shipped binaries.
+
+### Q7 resolution: search semantics (2026-08-14)
+
+Ringo's ruling, recorded on work item #1 and mirrored at PRD §6 Q7.
+
+**Option B: deterministic BM25-style lexical search.** Tokenized matching, not
+substring; frontmatter weighted above body text; query terms AND-ed with an OR
+fallback; path tie-breaks. Rejected alternatives: substring/`grep` matching (no
+ranking, and a query for `metric` would hit `metrics` but not `Metric` unless the
+match is case-folded anyway, at which point tokens are simpler), and shipping the
+vectorization spike early (out of MVP scope by §1.3, needs a generated artifact
+the bundle must not depend on, and is not deterministic in the way a hook and CI
+need).
+
+Four constraints come with the ruling, from the disclosure-versus-search
+research:
+
+- **Corpus = concept documents only.** Never `raw/` — it lives outside every
+  bundle root by Q3, so bundle-scoped discovery cannot reach it, and this is
+  asserted by test rather than assumed. Never the spec §3.1 reserved files
+  (`index.md`, `log.md`): an index is a *view* of the concepts, so indexing it
+  would double-count every title and description and rank navigation above
+  content.
+- **Scope = the same vault resolution `okf lint` performs** (CLI-1, CLI-3):
+  project vault by walk-up, then the personal vault, and an explicit path
+  overrides both. The determinism rule from topic 6 is the reason — a query must
+  return the same results on every machine and in CI.
+- **Links-first results.** Path, title, type, score, bounded snippet. Never a
+  full body: search points *into* progressive disclosure and never replaces it.
+- **Trust-aware fields.** Every result carries its trust tier (CORE-6) and stale
+  flag (CORE-7) so an agent can judge a hit before spending a read on it.
+
+**Filter syntax** is `tag:<x>` and `type:<y>`, inline in the query and repeatable,
+with `--tag`/`--type` as the same filters spelled as flags. Comparison is
+case-insensitive on the whole value, not on tokens, so `type:Reference` and
+`type:reference` are one filter and `tag:cost-optimization` never matches a
+concept tagged `cost`. Repetition folds by arity of the field: repeated `type:`
+is **OR** (a concept has exactly one `type`, so AND-ing two would always return
+nothing), repeated `tag:` is **AND** (a concept has many tags, so AND-ing narrows,
+which is what a second filter is for). Filters restrict candidates *before*
+scoring; they never contribute score.
+
+**The JSON contract is engine-agnostic.** Nothing in a result record names BM25,
+tokens, or fields — `score` is an opaque, higher-is-better number and `matchMode`
+says only `all`/`any`/`filter`. The vectorization spike (§5, sqlite-vec; work
+item #8 confirms the sqlite direction) can therefore be slotted behind the same
+shape, and `okf mcp`'s `search` tool (MCP-2, MCP-3) can be written against it
+today.
+
+#### Scoring, as shipped
+
+- **BM25 with `k1 = 1.2`, `b = 0.75`** (the standard defaults; named constants in
+  `OkfSearchEngine`), over field-weighted term frequencies: title ×3, `tags` ×2,
+  `type` ×2, `description` ×2, body ×1. `type` is weighted with `tags` because
+  PRD CORE-11 requires `type` to be matchable and it is the same kind of
+  categorical metadata; the Q7 ruling's "title/tags/description over body" is
+  unchanged by where the categorical field sits.
+- **IDF** is the non-negative variant, `ln(1 + (N − df + 0.5) / (df + 0.5))`, so a
+  term present in most of the corpus can never subtract from a score.
+- **Collection statistics (N, df, average length) are computed over the whole
+  resolved corpus, not over the filtered candidate set.** A filter says which
+  concepts may be *returned*; it does not change what the collection is, so
+  `okf search widget tag:fixture` ranks the surviving concepts exactly as
+  `okf search widget` does.
+- **Deterministic by construction.** No clock (staleness takes an injected
+  `today`), no network, no model call, and a total order on results: score
+  descending, then bundle root, then bundle-relative path, both ordinal. Scores
+  are rounded to four decimals on output so a formatting difference can never
+  reorder or churn the JSON.
+- **Tokenization: lowercase, Unicode-aware, split on anything that is not a
+  letter or digit.** `Rune` enumeration, so surrogate pairs survive;
+  `ToLowerInvariant`, which is full Unicode simple case folding even under the
+  CLI's `InvariantGlobalization`. Hyphenated words split on both sides of the
+  hyphen, in the query and in the corpus alike, so `sqlite-vec` is the two terms
+  `sqlite` and `vec` and matches consistently.
+- **No stemming, no stopword list, no minimum token length in v1 — deliberate.**
+  A stemmer is per-language state a `cat`-readable format should not need, and
+  the first thing that would have to be reproduced by any other implementation of
+  the format's tooling (okf-gem, the reference agent). Field weighting recovers
+  most of what stemming would buy on a corpus this size. Revisit with the
+  vectorization spike, which is where fuzzy matching belongs.
+- **Snippets** are a single ~160-character window of the body chosen to cover the
+  most distinct matched terms, trimmed to word boundaries, whitespace collapsed to
+  one line, elided with `…` at either end, with matched terms marked `**like
+  this**` — markdown emphasis, because the payload is markdown and the same string
+  has to read well in a terminal and in an MCP client. A frontmatter-only match
+  snippets the `description` instead (then the head of the body, then nothing).
+- **A concept whose frontmatter does not parse is not a corpus entry.** It is
+  already an `OKF0001` error; `okf lint` is the surface that says so, and
+  inventing a title-less, type-less result for it would put the same complaint in
+  a second place.
+
+#### Exit codes: PRD wins over the grep convention
+
+`okf search` exits **0 when there are no results**, not 1. The grep convention (1
+= no matches) was considered and rejected: PRD CLI-11 and the §3 CLI-surface table
+both fix "0 (including no matches)", and CLI-14 reserves 1 for *diagnostics at
+error severity*. An empty result set is not a diagnostic — a hook that ran
+`okf search` to check whether a concept already exists (SKILL-2's search-before-
+create) would otherwise fail the commit for the normal case. Exit 2 keeps its
+usual meaning: usage or environment failure, including an empty query with no
+filters.
+
+#### Deferred out of this milestone, deliberately
+
+- **Registry scope (CLI-3's opt-in).** `okf register` does not exist yet, so
+  there is no registry to opt into and no `--scope`/`--all` flag is shipped.
+  Search is project-scoped, full stop, until CLI-2 lands; the working-set
+  resolution is already the shared one, so widening it is a change in
+  `OkfDiscovery`, not in the engine.
+- **`okf mcp`'s `search` tool.** The engine lives in `Okf.Core` and returns data,
+  never formatted text, precisely so the MCP adapter is a rendering change; the
+  server itself is the next milestone.
+- **Phrase queries, negation, field-qualified free text** (`"exact phrase"`,
+  `-term`, `title:foo`). None is needed by the capture skill's search-before-
+  create loop, and each is a new grammar to freeze in the JSON contract.
+- **An on-disk index.** Every search walks the resolved bundles and reads them.
+  Four reference bundles is milliseconds; when it stops being, the generated
+  artifact is the vectorization spike's, and the bundle must stay complete
+  without it.

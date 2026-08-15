@@ -21,7 +21,7 @@ public class ForeignBundleAcceptanceTests
     [InlineData("crypto_bitcoin")]
     public void ReferenceBundleLintsWithoutErrors(string name)
     {
-        var bundle = Path.Combine(ReferenceBundles(), name);
+        var bundle = ReferenceBundles.Bundle(name);
         Skip.IfNot(Directory.Exists(bundle), $"Reference bundle '{bundle}' is not present.");
 
         using var home = new TempTree();
@@ -45,7 +45,7 @@ public class ForeignBundleAcceptanceTests
     [SkippableFact]
     public void EveryReferenceBundleLintsAtOnceWithoutErrors()
     {
-        var bundles = ReferenceBundles();
+        var bundles = ReferenceBundles.Root;
         Skip.IfNot(Directory.Exists(bundles), $"Reference bundles directory '{bundles}' is not present.");
 
         using var home = new TempTree();
@@ -59,13 +59,4 @@ public class ForeignBundleAcceptanceTests
         Assert.Contains("in 4 bundles", run.Summary, StringComparison.Ordinal);
         Assert.Contains(": 0 errors,", run.Summary, StringComparison.Ordinal);
     }
-
-    private static string ReferenceBundles() =>
-        Environment.GetEnvironmentVariable("OKF_REFERENCE_BUNDLES")
-        ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "code",
-            "knowledge-catalog",
-            "okf",
-            "bundles");
 }

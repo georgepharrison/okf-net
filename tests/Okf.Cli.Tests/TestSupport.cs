@@ -17,7 +17,8 @@ internal sealed record CliRun(int ExitCode, string Output, string Error)
 
     /// <summary>
     /// The summary line: <c>okf lint</c>'s and <c>okf index --check</c>'s <c>Checked …</c>
-    /// line, or <c>okf index</c>'s <c>Generated …</c> line.
+    /// line, <c>okf index</c>'s <c>Generated …</c> line, or <c>okf search</c>'s
+    /// <c>Found …</c> line.
     /// </summary>
     public string Summary => OutputLines.LastOrDefault(IsSummary) ?? string.Empty;
 
@@ -30,7 +31,8 @@ internal sealed record CliRun(int ExitCode, string Output, string Error)
 
     private static bool IsSummary(string line) =>
         line.StartsWith("Checked ", StringComparison.Ordinal)
-        || line.StartsWith("Generated ", StringComparison.Ordinal);
+        || line.StartsWith("Generated ", StringComparison.Ordinal)
+        || line.StartsWith("Found ", StringComparison.Ordinal);
 }
 
 /// <summary>Runs the CLI in process, so tests are hermetic and fast.</summary>
@@ -79,6 +81,47 @@ internal static class Cli
 
         return new OkfEnvironment(workingDirectory, variables);
     }
+}
+
+/// <summary>
+/// Google's four reference bundles, read as-is from their upstream clone (PRD ACC-1).
+/// The location is <c>~/code/knowledge-catalog/okf/bundles</c> by default and can be
+/// pointed elsewhere with <c>OKF_REFERENCE_BUNDLES</c>; where the clone is absent (a CI
+/// runner without it) tests skip rather than passing vacuously.
+/// </summary>
+internal static class ReferenceBundles
+{
+    /// <summary>The environment variable that relocates the clone.</summary>
+    public const string Variable = "OKF_REFERENCE_BUNDLES";
+
+    /// <summary>The directory holding the four bundle roots.</summary>
+    public static string Root =>
+        Environment.GetEnvironmentVariable(Variable)
+        ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "code",
+            "knowledge-catalog",
+            "okf",
+            "bundles");
+
+    /// <summary>The path of one reference bundle.</summary>
+    /// <param name="name">The bundle directory's name.</param>
+    /// <returns>The absolute path.</returns>
+    public static string Bundle(string name) => Path.Combine(Root, name);
+
+    /// <summary>
+    /// A snapshot of every file in a tree — path, length, and last-write time — so a test
+    /// can prove it left the clone untouched.
+    /// </summary>
+    /// <param name="root">The directory to snapshot.</param>
+    /// <returns>The snapshot text.</returns>
+    public static string Snapshot(string root) =>
+        string.Join(
+            "\n",
+            new DirectoryInfo(root)
+                .EnumerateFiles("*", SearchOption.AllDirectories)
+                .OrderBy(file => file.FullName, StringComparer.Ordinal)
+                .Select(file => $"{file.FullName}|{file.Length}|{file.LastWriteTimeUtc:O}"));
 }
 
 /// <summary>The fixture bundles copied beside the test assembly.</summary>

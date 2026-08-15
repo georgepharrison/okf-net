@@ -63,6 +63,9 @@ internal static class CliApplication
             case "index":
                 return IndexCommand.Run(args[1..], environment, output, error);
 
+            case "search":
+                return SearchCommand.Run(args[1..], environment, output, error);
+
             default:
                 error.WriteLine($"okf: error: unknown command '{args[0]}'.");
                 WriteUsage(error);
@@ -84,6 +87,7 @@ internal static class CliApplication
             Usage:
               okf lint [path] [options]   Validate §11 conformance plus the configured warning set
               okf index [path] [options]  Generate the index.md files for a bundle (--check to verify)
+              okf search <query> [path]   Search the resolved bundles, ranked and links-first
               okf help                    Show this help
               okf version                 Show the version
 
