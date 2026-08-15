@@ -17,10 +17,16 @@ variables:
 # makes that intent explicit at the pipeline level (GitLab's own recommended
 # pattern for suppressing MR pipelines) rather than relying solely on every
 # job happening to omit an MR rule.
+#
+# `schedule` is named for the `mutation` job below. A scheduled pipeline also
+# sets $CI_COMMIT_BRANCH, so the branch rule already admits it; spelling it out
+# keeps the pipeline's legitimate entry points readable, and because the
+# never-rule stays first, adding one cannot turn MR pipelines back on.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
@@ -153,6 +159,44 @@ licenses:
     paths:
       - artifacts/sbom/bom.json
 
+# Mutation testing (Stryker.NET), the mechanical form of AGENTS.md's "tests must be
+# shown to constrain the code": every surviving mutant is a change to the source that
+# no test noticed. Deliberately NOT a per-push gate — a full solution run is ~3400
+# mutants and ~8 minutes of saturated CPU locally, which is not a price worth paying on
+# every commit for a signal that moves slowly.
+#
+# Two ways in, and no third:
+#   - a scheduled pipeline, where it is the point of the run and blocks on
+#     `thresholds.break` (60) from stryker-config.json;
+#   - `when: manual` on a branch push, so it can be reached for while working on tests
+#     without ever blocking a push. `allow_failure: true` there because a manual job
+#     defaults to blocking the stage, and a mutation score is a report, not a gate.
+# There is no rule for tags: a release should not wait on this.
+mutation:
+  extends: .dotnet
+  stage: validate
+  # ~8 minutes locally on 8 cores; a shared runner is slower and the default job
+  # timeout (1h) is uncomfortably close.
+  timeout: 2h
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - dotnet tool restore
+    - dotnet stryker --output artifacts/stryker --skip-version-check
+    # The markdown summary is a per-file table; putting it in the job log means the
+    # score is readable without downloading the artifact.
+    - cat artifacts/stryker/reports/mutation-report.md
+  artifacts:
+    # Published even when the score breaks the threshold: the run that failed is the
+    # one whose survivors are worth reading.
+    when: always
+    expire_in: 30 days
+    paths:
+      - artifacts/stryker/reports/
+
 commit-check:
   stage: validate
   rules:
@@ -185,6 +229,11 @@ commit-check:
 release:
   stage: release
   rules:
+    # A scheduled pipeline runs on a branch, so without this it would reach the release
+    # job on main. Schedules exist here to run `mutation`; cutting a release is a
+    # consequence of a push, never of a clock.
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates

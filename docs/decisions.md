@@ -1045,3 +1045,132 @@ that exists, on the only bundle we own. Everything below was taken while walking
   by this milestone with an `Initialization` entry back-dated to the bundle's creation
   day. `okf lint` checks the date ordering (`OKF0004`), which is the only thing about the
   log that is mechanically checkable.
+
+### Proposed decisions (pending review): mutation testing (work item #11, 2026-08-14)
+
+Work item #11 asked for the systematic control behind AGENTS.md's "tests must be shown
+to constrain the code" — the rule a reviewer had to enforce by hand after finding two
+vacuous assertions during the ACC-1 run. **Stryker.NET 4.16.0** is that control.
+
+- **It is a local `dotnet` tool, not a package reference.** `.config/dotnet-tools.json`
+  now pins `dotnet-stryker` beside `cyclonedx`. Apache-2.0, verified from the `LICENSE`
+  file inside the package (`dotnet-stryker.nuspec` declares `<license type="file">`, so
+  there is no SPDX id to read anywhere) — the same license okf-net ships under.
+- **Tool-manifest entries are invisible to the license gate, and that is now written
+  down.** `mise run licenses` builds the SBOM from `Okf.sln`'s *package graph*;
+  `dotnet-stryker` is not referenced by any project, so it does not appear in the SBOM
+  at all — with it pinned in the manifest, `mise run licenses` still reports the same
+  20 components, none of them Stryker. The gate
+  therefore cannot enforce AGENTS.md's dependency rule for tools. **The rule still
+  applies to them**: a tool that never enters a shipped binary is exactly the case the
+  MS-PL ruling turned on, and the reason given there — test-only, never redistributed —
+  is a reason to permit a *permissive* license, not a reason to skip the check.
+  **So: check a tool's license by hand when adding it to the manifest, and record the
+  finding in the commit.** Deliberately not automated: a second scanner over
+  `.config/dotnet-tools.json` would be a second thing to maintain for a file that
+  changes roughly once a milestone, and `dotnet tool install` already prints the package
+  it resolved.
+
+**Solution mode, one score.** `dotnet stryker` from the repo root discovers both
+`Okf.Core` and `Okf.Cli` from `Okf.sln` and mutates them in a single pass, so there is
+one number rather than two that have to be weighed against each other. `stryker-config.json`
+carries everything except the output path, which Stryker has no config-file key for
+(`output` is CLI-only) — hence the `--output artifacts/stryker` in the mise tasks and
+the CI job, pointing at the directory `.gitignore` already covers.
+
+**No exclusions.** `mutate` is left at its default (`**/*`). There is no generated code
+in `src/`, and the two categories that might have tempted one — `Program.cs` and the
+argument parsers — are exactly where an untested branch would hurt a CLI most.
+
+**The baseline, measured on the tip of `main` (1f334c9), 8 cores, 7m27s:**
+
+| Project  | Score  | Killed | Survived | Timeout | No coverage | Ignored | Compile error | Total |
+| -------- | ------ | ------ | -------- | ------- | ----------- | ------- | ------------- | ----- |
+| Okf.Core | 70.49% | 907    | 313      | 8       | 70          | 294     | 501           | 2093  |
+| Okf.Cli  | 71.22% | 635    | 190      | 1       | 67          | 149     | 278           | 1320  |
+| Solution | 70.79% | 1542   | 503      | 9       | 137         | 443     | 779           | 3413  |
+
+The two projects landing within 0.8 points of each other is the useful part: there is no
+weak half to attack, and 70.79% is an ordinary first mutation score for a suite written
+without one.
+
+**Thresholds: `break` 60, `low` 70, `high` 85 — each chosen against that baseline.**
+
+- `break: 60` is the only number with teeth (below it Stryker exits non-zero). Set ~11
+  points under the measured 70.79% so that ordinary churn — a refactor that adds
+  branches ahead of the tests for them — cannot turn a scheduled run red for a reason
+  nobody would act on. A gate that flakes gets disabled, and a disabled gate is worse
+  than a low one.
+- `low: 70` sits *at* the baseline on purpose. It colors the report the moment the suite
+  regresses below where it stands today, which is the signal actually worth having, and
+  it costs nothing when it fires because it does not affect the exit code.
+- `high: 85` is the target, not a claim. It is where the survivor analysis says the
+  suite could get without writing tests for equivalent mutants.
+
+**`mise run mutate` and `mise run mutate-quick`.** The second uses Stryker's `--since`
+against `origin/main`, and it needed one thing to be useful at all. Stryker's diff filter
+is conservative: a change to *any* non-C# file in scope makes it abandon the filter and
+test every mutant ("Non-CSharp files in test project were changed"). Measured on this
+branch, which touches `mise.toml`, `.gitlab-ci.yml` and several markdown files, `--since`
+first ran the full 2055 mutants in 6m51s — it saved nothing. `since.ignore-changes-in`
+in stryker-config.json fixes it by naming the paths that cannot affect a test (docs, the
+dogfood bundle, the skills, CI and mise config, the tool manifest, this file); the same
+branch then narrows to 1210 mutants for the right reason, "One or more covering tests
+changed". **`tests/**/fixtures/**` is deliberately not on that list** — fixture bundles
+are test inputs, and ignoring a change to one would be a wrong answer rather than a fast
+one. Two sharp edges found the hard way: the patterns need a `**/` prefix (anchored forms
+like `docs/**` silently match nothing), and a `since` block in the config file *enables*
+the feature, so `since.enabled: false` has to be written explicitly or `mise run mutate`
+tries to diff against Stryker's default target `master` and aborts. Even so, a `--since` score is not comparable to a full run (mutants outside the
+diff are reported with no result): read it as "did my change arrive with tests that kill
+its mutants", never as the project's score.
+
+**CI: scheduled or manual, never a push gate.** A `mutation` job in `validate` runs on
+`$CI_PIPELINE_SOURCE == "schedule"` (blocking, on `break`) and is `when: manual` +
+`allow_failure: true` on a branch push. The manual variant needs `allow_failure`
+explicitly: a manual job blocks its stage by default, which is the opposite of the
+intent. `schedule` is added to the top-level `workflow:` rules — after the
+`merge_request_event: never` rule, so MR pipelines stay off — and the `release` job gains
+a `schedule: never` rule of its own, because a scheduled pipeline runs on a branch and
+would otherwise reach semantic-release on `main` on a timer. Artifacts: the HTML, JSON
+and markdown reports, 30 days, `when: always`, on the same reasoning as the SBOM.
+
+**The survivors, classified.** 503 survived. The full classification is in the work
+item; the shape of it:
+
+- **Genuine gaps worth fixing now (fixed).** Six sites, nine mutants, killed with six
+  new tests — chosen for being contracts rather than details: `HasDrift` as *any* rather
+  than *all* index (`Indexes.Any` → `Indexes.All` survived because no test ever had a
+  drifted index next to a clean one); the `okf index --check` hint that must stay off
+  for an orphan; two boundary conditions where equality is not drift (a log entry on the
+  same date as the one before it, a source last modified on the generation date); the
+  layer name reported for `treatAllWarningsAsErrors`, which the old assertion checked
+  only by substring; and BM25's length normalization, which nothing constrained — three
+  separate arithmetic mutants survived in `Score`.
+- **Equivalent or near-equivalent (documented, not chased).** The clearest specimen:
+  `Array.IndexOf(SupportedProtocolVersions, requested) >= 0` → `> 0` in the MCP
+  handshake. The two differ only when the index is 0 — i.e. when the client asks for
+  the latest revision — and in that case both branches yield `LatestProtocolVersion`.
+  No test can distinguish them. Same family: the `corpus.Count > 0 && total > 0`
+  divide-by-zero guard in BM25 statistics, and the BM25 constants whose mutants scale
+  every score identically and so cannot change a ranking.
+- **String-literal mutants on diagnostic prose (136 survived, the largest single
+  group).** These are only sometimes gaps. Where a message is a *contract* — OKF0102's
+  "a definition is not a citation" — it is already pinned. Where it is wording, pinning
+  it verbatim buys a change-detector test, which is the vacuity this whole exercise is
+  against. Not chased on purpose.
+- **Dead-or-defensive code candidates — recorded for work item #13, deleted here:
+  nothing.** 137 mutants have no test coverage at all, concentrated in
+  `IndexArguments.cs` (9), `IndexCommand.cs` (15), `OkfLinter.cs` (13), `OkfValue.cs`
+  (11) and `McpToolset.cs` (9), and `Program.cs` is 0% with its single mutant
+  uncovered. Uncovered is not the same as dead, and mutation testing cannot tell them
+  apart — that is #13's job. The no-coverage list is the input it should start from.
+
+**Where the branch leaves it.** Re-running the full suite after the six new tests:
+Okf.Core 71.19%, Okf.Cli 71.44%, solution **71.29%** (1553 killed, 493 survived, 9
+timeout, 136 no-coverage), 6m58s. The nine mutants aimed at are dead, plus one more the
+BM25 test caught for free. Half a point for six tests is the honest exchange rate, and it
+is why the follow-up is a survivor-reading habit rather than a campaign.
+
+**Not adopted:** the Stryker dashboard and `--with-baseline` (both want hosted storage;
+the artifact is enough), and any per-push gate.

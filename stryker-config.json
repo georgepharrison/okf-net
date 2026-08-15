@@ -1,0 +1,30 @@
+{
+  "stryker-config": {
+    "solution": "Okf.sln",
+    "reporters": ["progress", "html", "markdown", "json"],
+    "thresholds": {
+      "high": 85,
+      "low": 70,
+      "break": 60
+    },
+    "mutation-level": "Standard",
+    "since": {
+      "enabled": false,
+      "target": "origin/main",
+      "ignore-changes-in": [
+        "**/docs/**",
+        "**/okf/**",
+        "**/skills/**",
+        "**/scripts/**",
+        "**/.githooks/**",
+        "**/.config/**",
+        "**/AGENTS.md",
+        "**/README.md",
+        "**/.gitlab-ci.yml",
+        "**/mise.toml",
+        "**/.markdownlint.yaml",
+        "**/stryker-config.json"
+      ]
+    }
+  }
+}

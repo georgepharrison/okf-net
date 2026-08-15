@@ -30,4 +30,6 @@ implementation choices in this repo.
   spec text) rather than from the code under test. State which in the commit
   or report. Assertions must not be satisfiable vacuously (e.g.
   `Contains("0 errors")` also matches `"10 errors"`). Reviewers: spot-check by
-  mutating the code under test and confirming tests go red.
+  mutating the code under test and confirming tests go red. `mise run mutate`
+  does that spot-check mechanically and exhaustively: Stryker.NET rewrites the
+  source thousands of ways and reports every mutation no test noticed.
