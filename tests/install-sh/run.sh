@@ -69,7 +69,7 @@ VERSION_NEW="1.0.0-rc.16"
 VERSION_OLD="1.0.0-rc.15"
 
 make_release() { # make_release <version>
-  local v="$1" dir="$www/v$1" sha_bin sha_bundle
+  local v="$1" dir="$www/v$1" sha_bin sha_bundle sha_installer
   mkdir -p "$dir"
 
   # A stand-in for the NativeAOT binary: a script that answers `okf version` the way the
@@ -87,10 +87,17 @@ EOF
 
   sha_bin="$(sha256sum "$dir/okf-linux-x64" | cut -d' ' -f1)"
   sha_bundle="$(sha256sum "$dir/okf-net-knowledge.tar.gz" | cut -d' ' -f1)"
+  sha_installer="$(sha256sum "$dir/install.sh" | cut -d' ' -f1)"
 
   # Written the way .gitlab-ci.yml's `publish` job writes it — same key order, same
   # indentation, same relative `path`. If that job's layout drifts from this fixture, the
   # sed-based reader in install.sh is the thing that breaks, and this is where it shows.
+  #
+  # Three assets, with the binary FIRST and two entries after it. That ordering is the
+  # regression guard on the reader: its asset lookup anchors on a greedy `.*`, so an asset
+  # map that grows past the one entry the installer cares about is exactly how a naive
+  # reader starts returning the last asset's digest for the first asset's name. Every
+  # digest assertion below runs against this shape.
   cat >"$dir/latest.json" <<EOF
 {
   "version": "$v",
@@ -108,6 +115,12 @@ EOF
       "size": $(wc -c <"$dir/okf-net-knowledge.tar.gz"),
       "sha256": "$sha_bundle",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz"
+    },
+    "install.sh": {
+      "path": "v$v/install.sh",
+      "size": $(wc -c <"$dir/install.sh"),
+      "sha256": "$sha_installer",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.sh"
     }
   }
 }

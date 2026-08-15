@@ -82,7 +82,10 @@ The other two make a release **self-describing**. `latest.json` names the
 version and, per asset, a relative path, a size and a `sha256` computed in the
 job from the exact bytes it uploaded. `install.sh` is the installer that reads
 it, uploaded from the repository so that the installer a release hands you is
-the one that release was cut with, rather than whatever is on `main` today.
+the one that release was cut with, rather than whatever is on `main` today. The
+installer is itself in the asset map: it cannot use its own digest, but a host
+that republishes a release can, which is the only check the file people pipe
+into `sh` would otherwise have.
 
 # Installing
 

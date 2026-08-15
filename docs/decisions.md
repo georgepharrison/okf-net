@@ -2062,10 +2062,22 @@ the moment #26 opens the host, it is not, and #26 owns both halves.
       "sha256": "8ba4dc…",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/7/packages/generic/okf/1.0.0-rc.24/okf-linux-x64"
     },
-    "okf-net-knowledge.tar.gz": { "path": "…", "size": 0, "sha256": "…", "url": "…" }
+    "okf-net-knowledge.tar.gz": { "path": "…", "size": 0, "sha256": "…", "url": "…" },
+    "install.sh": { "path": "…", "size": 0, "sha256": "…", "url": "…" }
   }
 }
 ```
+
+**The installer is in its own manifest, and that entry is the one that matters most.**
+`install.sh` is the single file in a release that a stranger pipes into `sh`. It cannot use
+its own digest — by the time it runs it has already run — so the entry buys nothing for the
+one-liner itself. What it buys is a check for everyone who republishes a release: the
+artifact host pulls the installer over TLS with a token and then serves it to the network,
+and without a digest it has nothing to compare those bytes against. With one, `sync.sh` can
+verify the installer the same way it already verifies the binary and the bundle, and so can
+any future mirror. It is not a signature and it does not pretend to be; it closes the gap
+between the bytes the `publish` job published and the bytes a host serves, which is a
+different gap from the one #26 owns.
 
 `path` is relative to whatever base URL the installer was handed; `url` is the canonical,
 authenticated package-registry URL. Both, rather than one, because there are two consumers
@@ -2141,5 +2153,5 @@ asserts the two digests themselves.
 checksum file, and a second one is a second thing to keep in step). No `--prefix` flag —
 `OKF_INSTALL_DIR` is the same capability and composes with `curl … | sh`, where argument
 passing needs `sh -s --`. No uninstall: the installer writes exactly one file, and `rm` is
-the uninstaller. No non-linux-x64 assets, so the manifest's asset map has two entries and
+the uninstaller. No non-linux-x64 assets, so the manifest's asset map has three entries and
 room for more; that is PRD Q10's problem, not this one's.

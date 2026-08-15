@@ -432,10 +432,19 @@ publish:
       # The release manifest (issue #25). This is what makes a release self-describing
       # and what install.sh reads: a version, and per asset a location and a digest.
       #
-      # The digests are computed HERE, from the exact files the two steps above just
-      # uploaded — not from a fresh build, and not from anything re-downloaded. That is
-      # the whole value of the manifest: install.sh trusts it, and it can only be trusted
-      # if it describes bytes this job saw.
+      # The digests are computed HERE, from the exact files this job uploads — not from a
+      # fresh build, and not from anything re-downloaded. That is the whole value of the
+      # manifest: install.sh trusts it, and it can only be trusted if it describes bytes
+      # this job saw.
+      #
+      # install.sh is in the map too, and it is the entry that matters most. It is the one
+      # file in a release that a stranger pipes into `sh`, and without a digest it is the
+      # one file the artifact host republishes with nothing to check it against — the host
+      # pulls it over TLS with a token and then has to take it on faith. A digest here
+      # gives the host, and anyone re-hosting a release, something to compare. It does not
+      # let the installer verify itself (by the time it runs, it has already run) and it is
+      # not a signature; what it closes is the gap between the bytes this job published and
+      # the bytes a mirror serves.
       #
       # Two locations per asset, because there are two kinds of consumer:
       #   path — relative to whatever base URL the installer was given. This is the one
@@ -461,6 +470,8 @@ publish:
       OKF_BINARY_SIZE="$(wc -c < artifacts/aot/okf | tr -d ' ')"
       OKF_KNOWLEDGE_SHA="$(sha256sum "artifacts/${OKF_KNOWLEDGE_FILE}" | cut -d' ' -f1)"
       OKF_KNOWLEDGE_SIZE="$(wc -c < "artifacts/${OKF_KNOWLEDGE_FILE}" | tr -d ' ')"
+      OKF_INSTALLER_SHA="$(sha256sum "${OKF_INSTALLER_FILE}" | cut -d' ' -f1)"
+      OKF_INSTALLER_SIZE="$(wc -c < "${OKF_INSTALLER_FILE}" | tr -d ' ')"
 
       cat > "artifacts/${OKF_MANIFEST_FILE}" <<JSON
       {
@@ -479,6 +490,12 @@ publish:
             "size": ${OKF_KNOWLEDGE_SIZE},
             "sha256": "${OKF_KNOWLEDGE_SHA}",
             "url": "${OKF_KNOWLEDGE_URL}"
+          },
+          "${OKF_INSTALLER_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_INSTALLER_FILE}",
+            "size": ${OKF_INSTALLER_SIZE},
+            "sha256": "${OKF_INSTALLER_SHA}",
+            "url": "${OKF_INSTALLER_URL}"
           }
         }
       }
