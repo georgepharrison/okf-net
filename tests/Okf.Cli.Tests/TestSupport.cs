@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Tests;
@@ -81,6 +82,151 @@ internal static class Cli
 
         return new OkfEnvironment(workingDirectory, variables);
     }
+}
+
+/// <summary>What one <c>okf mcp</c> session produced.</summary>
+/// <param name="ExitCode">The process exit code the invocation would have returned.</param>
+/// <param name="Output">Everything written to stdout — JSON-RPC and nothing else.</param>
+/// <param name="Error">Everything written to stderr.</param>
+internal sealed record McpRun(int ExitCode, string Output, string Error)
+{
+    /// <summary>The response messages, one per line, in the order the server wrote them.</summary>
+    public string[] Responses =>
+        [.. Output.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0)];
+
+    /// <summary>Parses one response.</summary>
+    /// <param name="index">Its zero-based position in <see cref="Responses" />.</param>
+    /// <returns>The parsed message; the caller disposes it.</returns>
+    public JsonDocument Response(int index) => JsonDocument.Parse(Responses[index]);
+
+    /// <summary>Parses the <c>result</c> of one response, failing the test when it is an error.</summary>
+    /// <param name="index">Its zero-based position in <see cref="Responses" />.</param>
+    /// <returns>The parsed message, whose root is the result; the caller disposes it.</returns>
+    public JsonDocument Result(int index)
+    {
+        using var message = Response(index);
+        Assert.False(
+            message.RootElement.TryGetProperty("error", out var failure),
+            $"expected a result, got error {failure}");
+        return JsonDocument.Parse(message.RootElement.GetProperty("result").GetRawText());
+    }
+
+    /// <summary>
+    /// The text content of a <c>tools/call</c> response, with whether the call reported a
+    /// tool-level failure.
+    /// </summary>
+    /// <param name="index">Its zero-based position in <see cref="Responses" />.</param>
+    /// <returns>The text block and the <c>isError</c> flag.</returns>
+    public (string Text, bool IsError) Content(int index)
+    {
+        using var result = Result(index);
+        var content = result.RootElement.GetProperty("content");
+        return (content[0].GetProperty("text").GetString()!, result.RootElement.GetProperty("isError").GetBoolean());
+    }
+
+    /// <summary>The error code of one response.</summary>
+    /// <param name="index">Its zero-based position in <see cref="Responses" />.</param>
+    /// <returns>The JSON-RPC error code.</returns>
+    public int ErrorCode(int index)
+    {
+        using var message = Response(index);
+        return message.RootElement.GetProperty("error").GetProperty("code").GetInt32();
+    }
+
+    /// <summary>The error message of one response.</summary>
+    /// <param name="index">Its zero-based position in <see cref="Responses" />.</param>
+    /// <returns>The JSON-RPC error message.</returns>
+    public string ErrorMessage(int index)
+    {
+        using var message = Response(index);
+        return message.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+    }
+}
+
+/// <summary>
+/// Drives <c>okf mcp</c> in process over its real stdio path: the requests go in as the
+/// text stdin would carry, the responses come back as the bytes stdout would.
+/// </summary>
+internal static class Mcp
+{
+    /// <summary>The protocol revision the tests speak.</summary>
+    public const string ProtocolVersion = "2025-06-18";
+
+    /// <summary>The <c>initialize</c> request every real client sends first.</summary>
+    public static string Initialize(int id = 1, string version = ProtocolVersion) =>
+        Request(
+            id,
+            "initialize",
+            $$$"""{"protocolVersion":"{{{version}}}","capabilities":{},"clientInfo":{"name":"tests","version":"1"}}""");
+
+    /// <summary>Builds a request message.</summary>
+    /// <param name="id">The request id.</param>
+    /// <param name="method">The method name.</param>
+    /// <param name="parameters">The <c>params</c> value as raw JSON, or null to omit it.</param>
+    /// <returns>The message.</returns>
+    public static string Request(int id, string method, string? parameters = null) =>
+        parameters is null
+            ? $$"""{"jsonrpc":"2.0","id":{{id}},"method":"{{method}}"}"""
+            : $$"""{"jsonrpc":"2.0","id":{{id}},"method":"{{method}}","params":{{parameters}}}""";
+
+    /// <summary>Builds a <c>tools/call</c> request.</summary>
+    /// <param name="id">The request id.</param>
+    /// <param name="tool">The tool's name.</param>
+    /// <param name="arguments">The arguments object as raw JSON.</param>
+    /// <returns>The message.</returns>
+    public static string Call(int id, string tool, string arguments = "{}") =>
+        Request(id, "tools/call", $$"""{"name":"{{tool}}","arguments":{{arguments}}}""");
+
+    /// <summary>Runs a session against a vault.</summary>
+    /// <param name="environment">The environment to resolve vaults against.</param>
+    /// <param name="path">The path argument, or null to let the server discover one.</param>
+    /// <param name="requests">The messages to write to stdin, one per line.</param>
+    /// <returns>The exit code and the responses.</returns>
+    public static McpRun Session(OkfEnvironment environment, string? path, params string[] requests) =>
+        Run(environment, path is null ? [] : [path], requests);
+
+    /// <summary>Runs a session with explicit command-line arguments.</summary>
+    /// <param name="environment">The environment to resolve vaults against.</param>
+    /// <param name="args">The arguments after <c>mcp</c>.</param>
+    /// <param name="requests">The messages to write to stdin, one per line.</param>
+    /// <returns>The exit code and the responses.</returns>
+    public static McpRun Run(OkfEnvironment environment, string[] args, params string[] requests)
+    {
+        var input = new StringReader(string.Concat(requests.Select(request => request + "\n")));
+        var output = new StringWriter { NewLine = "\n" };
+        var error = new StringWriter { NewLine = "\n" };
+        var exitCode = CliApplication.Run(["mcp", .. args], environment, output, error, input);
+        return new McpRun(exitCode, output.ToString(), error.ToString());
+    }
+}
+
+/// <summary>
+/// This repository, located by walking up for the solution file. It carries okf-net's own
+/// dogfood bundle at <c>okf/</c> (PRD ACC-5), which the acceptance tests read as-is.
+/// </summary>
+internal static class Repository
+{
+    /// <summary>The repository root, or <see langword="null" /> when the tests run outside a checkout.</summary>
+    public static string? Root
+    {
+        get
+        {
+            for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+                 directory is not null;
+                 directory = directory.Parent)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "Okf.sln")))
+                {
+                    return directory.FullName;
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>The dogfood vault, <c>okf/</c>.</summary>
+    public static string? DogfoodVault => Root is { } root ? Path.Combine(root, "okf") : null;
 }
 
 /// <summary>

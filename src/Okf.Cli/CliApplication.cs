@@ -30,8 +30,17 @@ internal static class CliApplication
     /// <param name="environment">The environment to resolve vaults and configuration against.</param>
     /// <param name="output">Where results go.</param>
     /// <param name="error">Where errors and <c>--verbose</c> notes go.</param>
+    /// <param name="input">
+    /// The input stream, used only by <c>okf mcp</c>, which reads JSON-RPC requests from it.
+    /// Unset means no input: every other command reads files, never stdin.
+    /// </param>
     /// <returns>The process exit code.</returns>
-    public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
+    public static int Run(
+        string[] args,
+        OkfEnvironment environment,
+        TextWriter output,
+        TextWriter error,
+        TextReader? input = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(environment);
@@ -66,6 +75,9 @@ internal static class CliApplication
             case "search":
                 return SearchCommand.Run(args[1..], environment, output, error);
 
+            case "mcp":
+                return McpCommand.Run(args[1..], environment, input ?? TextReader.Null, output, error);
+
             default:
                 error.WriteLine($"okf: error: unknown command '{args[0]}'.");
                 WriteUsage(error);
@@ -88,6 +100,7 @@ internal static class CliApplication
               okf lint [path] [options]   Validate §11 conformance plus the configured warning set
               okf index [path] [options]  Generate the index.md files for a bundle (--check to verify)
               okf search <query> [path]   Search the resolved bundles, ranked and links-first
+              okf mcp [path]              Run the read-only MCP server over stdio
               okf help                    Show this help
               okf version                 Show the version
 

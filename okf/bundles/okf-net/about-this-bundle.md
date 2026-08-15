@@ -3,7 +3,7 @@ type: Guide
 title: About This Bundle
 description: What the okf-net bundle covers, who maintains it, and how to consume it.
 tags: [okf-net, bundle, meta, dogfood]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T21:42:00-05:00 }
 sources:
   - id: prd
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/prd.md
@@ -21,8 +21,8 @@ This is the knowledge bundle for **okf-net**, a .NET toolset for producing,
 validating, and consuming OKF v0.2 knowledge bundles.[^prd] It is designed to
 ship as a library (`Okf.Core`), a single self-contained CLI binary (`okf`)
 that also hosts an MCP server (`okf mcp`), and a pair of agent skills. Of
-those, `Okf.Core` and the CLI's `lint`, `index`, and `search` commands are
-built today; the MCP server and the skills are later milestones.
+those, `Okf.Core`, the CLI's `lint`, `index`, and `search` commands, and the
+MCP server are built today; the skills are a later milestone.
 
 The bundle is the toolset's own dogfood: okf-net's knowledge, kept in
 okf-net's format, validated by okf-net in okf-net's pipeline. It doubles as
@@ -85,11 +85,11 @@ Beyond that:
 - **The CLI.** `okf search <query>` returns ranked, links-first results with
   a trust tier and stale flag on each hit; `okf lint` reports on the bundle
   without modifying it.
-- **MCP — not yet built.** `okf mcp` will expose `search`, `read`, and `list`
-  over stdio from the same binary, read-only, resolving vaults and scope by
-  exactly the CLI's rules so the two never disagree about what they are
-  looking at. It is the milestone after search; until it lands, the CLI is
-  the only programmatic surface.
+- **MCP.** `okf mcp [path]` runs a read-only server over stdio from the same
+  binary, exposing `okf_list`, `okf_search`, and `okf_read`. It resolves
+  vaults and scope by exactly the CLI's rules, so the two never disagree
+  about what they are looking at — `okf_search` returns the same JSON array
+  `okf search --json` prints, from the same writer.
 
 [^prd]: okf-net — Product Requirements, §1.
 [^decisions]: okf-net — Architecture Decisions, "Vision".
