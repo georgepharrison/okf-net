@@ -26,6 +26,18 @@ run = "dotnet build Okf.sln"
 description = "Run the test suite"
 run = "dotnet test Okf.sln"
 
+[tasks.test-install]
+description = "Acceptance-test the repo-root install.sh against a fake artifact host (work item #25)"
+# Deliberately NOT folded into `mise run test`: that task is `dotnet test`, and this one
+# needs python3 and a free TCP port rather than the SDK. Keeping them apart keeps the CI
+# jobs apart too — `test` runs on the .NET SDK image, `test-install` on a python image with
+# no .NET in it at all, which is the cheaper of the two by a wide margin.
+#
+# The harness runs install.sh under `sh`, and under `dash` as well when dash is installed
+# (it is on Debian, so CI always covers both). A bashism that only bash forgives is the
+# class of bug this exists to catch, so the second shell is the point, not a bonus.
+run = "tests/install-sh/run.sh"
+
 [tasks.licenses]
 description = "Generate a CycloneDX SBOM of the solution and check every dependency license against scripts/licenses-allowed.json (AGENTS.md: dependencies must be Apache-2.0-compatible)"
 # The CycloneDX tool is pinned in .config/dotnet-tools.json; the command it
