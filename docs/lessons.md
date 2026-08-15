@@ -73,6 +73,13 @@ future session (human or agent) relearns them. Newest first within sections.
   Reproducibility and interoperability are two claims: byte-comparing two of
   your own archives proves the first and says nothing about the second, so
   read one back with a *different* implementation.
+- **`TarEntry.DataStream` is null for a zero-length file**, because tar stores
+  one as a header with no data section. Reading null as "not a file" makes an
+  empty file vanish from anything that reads the archive back — here
+  `okf bundle --verify` reported the bundler's own tar.gz as *missing* a file
+  it had just written, while the zip and directory shapes passed. Switch on
+  `EntryType`, and read a null `DataStream` on a regular-file entry as
+  `Stream.Null`.
 
 ## Testing
 

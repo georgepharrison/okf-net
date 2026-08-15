@@ -1572,24 +1572,24 @@ lets two people confirm they received the same knowledge.
     silently, so no test written through the reader can see an entry the writer invented —
     which is exactly how a byte comparison inside one process passes while two release
     builds disagree.
-  - **GNU's `atime`/`ctime` are deliberately left unset, and that correction is the second
-    half of the lesson.** They were first pinned to `ArchiveTimestamp` "like every other
-    timestamp here", which was reasoning by analogy rather than by measurement: unset,
-    `System.Formats.Tar` writes those two fields as NUL bytes, so they were already
+  - **GNU's `atime`/`ctime` are deliberately left unset, and that correction is the
+    second half of the lesson.** They were first pinned to `ArchiveTimestamp` "like every
+    other timestamp here", which was reasoning by analogy rather than by measurement:
+    unset, `System.Formats.Tar` writes those two fields as NUL bytes, so they were already
     constant and pinning them bought no determinism at all. What it cost was
     *interoperability*. GNU puts atime/ctime at byte 345 of the header block, which in
     ustar is where the `prefix` field begins, and CPython's `tarfile` joins `prefix` onto
     the entry name for every non-GNU-typed entry without first checking the archive's
     magic. So `tar -xzf` and libarchive read the archive correctly while Python's standard
-    library — the module a large share of consumers will reach for, and the language of the
-    reference implementation this repo checks itself against — extracted it into a
+    library — the module a large share of consumers will reach for, and the language of
+    the reference implementation this repo checks itself against — extracted it into a
     directory named after the octal timestamp: `02263523000/bundles/okf-net/…`. Writing
     NULs is what GNU tar's own writer does for a non-incremental entry, and it costs
     nothing. **The generalizable half:** reproducibility and interoperability are two
     different claims, and byte-comparing two of your own archives establishes only the
     first. The archive is now read back by a second implementation, and the test asserts
-    that the whole 155-byte ustar `prefix` window is empty — a byte range POSIX defines,
-    not a constant read back out of the code.
+    the whole 155-byte ustar `prefix` window is empty — a byte range POSIX defines, not a
+    constant read back out of the code.
 - **`generatedAt` is the only clock reading anywhere in the packaging path**, and
   `--generated-at <instant>` pins it. This is the reproducible-builds `SOURCE_DATE_EPOCH`
   problem in miniature and it gets the same answer: an honest timestamp by default, an
@@ -1643,6 +1643,30 @@ and carries `manifestVersion`, `okfVersion`, `generator`, `sourceVault`, `genera
   attack the check is easiest to write wrongly. An archive is identified by its **magic
   bytes** rather than by its name, because a downloaded artifact may have been renamed and
   the bytes are what has to be read.
+  - **An entry that is not a file is *unlisted*, not skipped.** A tar symlink, hard link,
+    or device node carries no bytes, so it can never fail a digest comparison — which
+    means passing over it let one join a downloaded archive and still verify clean, in the
+    shape (tar.gz) that is the default. A planted symlink is the entry that matters, since
+    extracting it writes a path into somebody else's filesystem, and it is precisely the
+    *unlisted* tamper this rule exists to catch. Directory entries stay skipped: the
+    bundler writes none, and every extractor creates the directories a file's path implies.
+  - **Nothing is ever extracted.** `--verify` streams each entry and hashes it in memory,
+    so a hostile archive carrying `../../x`, an absolute path, or a symlink entry is
+    *reported* and never written anywhere — there is no extraction directory to escape
+    from. `--lint` does materialize a directory, but it materializes the *plan* through
+    the same writer that produces the `dir` format, never an archive's own paths, so no
+    path from an untrusted archive reaches the filesystem either.
+  - **A zero-length file must survive the round trip.** tar stores an empty file as a
+    header with no data section, which `TarReader` surfaces as a null `DataStream`;
+    reading that as "not a file" made `--verify` call the bundler's own output *missing*
+    a file it had just written. Zip and the directory shape were correct all along, which
+    is why a per-format verification test is worth the three lines it costs.
+  - **A truncated archive is a finding, not an exit 2.** A cut-off download is the exact
+    failure the digests exist for, and `EndOfStreamException` — unlike the
+    `InvalidDataException` a not-an-archive raises — *is* an `IOException`, so it did not
+    crash: it fell through to the command's environment-failure handler and came out as
+    exit 2 with a bare "Unable to read beyond the end of the stream" naming no file. Both
+    now render as *unreadable* and exit 1.
 - **A distribution with no manifest is *unreadable*, not valid.** "Nothing to check" must
   never render as a pass; `okf bundle --verify` on a directory the bundler never wrote
   exits 1 and says so.

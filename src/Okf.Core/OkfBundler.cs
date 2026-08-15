@@ -255,23 +255,27 @@ public static class OkfBundler
 
         string? manifestText;
         Dictionary<string, string> digests;
+        List<string> foreign;
 
         if (Directory.Exists(full))
         {
-            (manifestText, digests) = ReadDirectory(full);
+            (manifestText, digests, foreign) = ReadDirectory(full);
         }
         else if (File.Exists(full))
         {
             try
             {
-                (manifestText, digests) = ReadArchive(full);
+                (manifestText, digests, foreign) = ReadArchive(full);
             }
-            catch (InvalidDataException exception)
+            catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException)
             {
-                // A file that is not an archive at all — someone verified the wrong path,
-                // or a download landed as an error page. It is reported, never thrown:
-                // `InvalidDataException` is not an `IOException`, so letting it escape
-                // would crash the process rather than exit 1 with a sentence.
+                // A file that is not an archive at all, or one that stops in the middle:
+                // someone verified the wrong path, a download landed as an error page, or
+                // — the case these hashes exist for — the transfer was cut short. Both are
+                // reported, never thrown. `InvalidDataException` is not an `IOException`,
+                // so letting it escape would crash the process; `EndOfStreamException` IS
+                // one, so letting it escape merely turned a bad download into exit 2 and
+                // a stray "Unable to read beyond the end of the stream" that names no file.
                 return Unreadable(full, $"'{full}' is not a readable archive: {exception.Message}");
             }
         }
@@ -322,6 +326,19 @@ public static class OkfBundler
                 OkfDistributionIssue.Unlisted,
                 extra,
                 "present and recorded nowhere in the manifest."));
+        }
+
+        // Entries that are not files at all. The bundler writes regular files and nothing
+        // else, so every one of these joined the archive after it was written — and a
+        // symlink is the one an attacker would add, because extracting it plants a path
+        // into somebody else's filesystem. They carry no bytes to hash, so they can never
+        // match a recorded digest and are always unlisted.
+        foreach (var link in foreign.Order(StringComparer.Ordinal))
+        {
+            findings.Add(new OkfDistributionFinding(
+                OkfDistributionIssue.Unlisted,
+                link,
+                "present as a link or device entry; the bundler writes regular files only."));
         }
 
         return new OkfDistributionVerification(full, manifest, findings, manifest.Files.Count);
@@ -634,7 +651,8 @@ public static class OkfBundler
         }
     }
 
-    private static (string? Manifest, Dictionary<string, string> Digests) ReadDirectory(string root)
+    private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadDirectory(
+        string root)
     {
         string? manifest = null;
         var digests = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -651,10 +669,11 @@ public static class OkfBundler
             digests[path] = OkfCaptureManifest.Sha256Of(file);
         }
 
-        return (manifest, digests);
+        return (manifest, digests, []);
     }
 
-    private static (string? Manifest, Dictionary<string, string> Digests) ReadArchive(string archive)
+    private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadArchive(
+        string archive)
     {
         return IsZip(archive) ? ReadZip(archive) : ReadTarGz(archive);
     }
@@ -670,7 +689,7 @@ public static class OkfBundler
         return file.ReadAtLeast(magic, 2, throwOnEndOfStream: false) == 2 && magic[0] == 'P' && magic[1] == 'K';
     }
 
-    private static (string? Manifest, Dictionary<string, string> Digests) ReadZip(string archive)
+    private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadZip(string archive)
     {
         string? manifest = null;
         var digests = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -693,13 +712,15 @@ public static class OkfBundler
             digests[entry.FullName] = Digest(content);
         }
 
-        return (manifest, digests);
+        return (manifest, digests, []);
     }
 
-    private static (string? Manifest, Dictionary<string, string> Digests) ReadTarGz(string archive)
+    private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadTarGz(
+        string archive)
     {
         string? manifest = null;
         var digests = new Dictionary<string, string>(StringComparer.Ordinal);
+        var foreign = new List<string>();
 
         using var file = File.OpenRead(archive);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
@@ -707,12 +728,32 @@ public static class OkfBundler
 
         while (reader.GetNextEntry() is { } entry)
         {
-            if (entry.DataStream is not { } content)
+            var path = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
+
+            if (entry.EntryType is TarEntryType.Directory or TarEntryType.DirectoryList)
             {
+                // The bundler writes none, and every extractor makes the directories a
+                // file's path implies, so a directory entry carries nothing to check.
                 continue;
             }
 
-            var path = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
+            if (entry.EntryType is not (TarEntryType.RegularFile
+                or TarEntryType.V7RegularFile
+                or TarEntryType.ContiguousFile))
+            {
+                // A symlink, a hard link, a device node. Reported rather than skipped:
+                // `entry.DataStream` is null for all of them, so reading the stream to
+                // decide what an entry is would let one join a distribution unnoticed.
+                foreign.Add(Path.TrimEndingDirectorySeparator(path));
+                continue;
+            }
+
+            // A zero-length file has no data section at all, so `DataStream` is null for
+            // it — which means "empty", not "absent". Reading it as absent made `--verify`
+            // report the bundler's OWN output as missing a file the moment a bundle held
+            // one, which the zip and directory shapes handled correctly all along.
+            var content = entry.DataStream ?? Stream.Null;
+
             if (string.Equals(path, OkfDistributionManifest.FileName, StringComparison.Ordinal))
             {
                 manifest = Read(content);
@@ -722,7 +763,7 @@ public static class OkfBundler
             digests[path] = Digest(content);
         }
 
-        return (manifest, digests);
+        return (manifest, digests, foreign);
     }
 
     private static string Read(Stream stream)

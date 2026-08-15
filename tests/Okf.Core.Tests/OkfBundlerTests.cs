@@ -610,6 +610,89 @@ public class OkfBundlerTests
     }
 
     /// <summary>
+    /// A bundle may hold an empty file — a placeholder, a truncated capture, a
+    /// deliberately blank fixture — and the round trip has to survive it in every shape.
+    /// tar stores such a file as a header with no data section at all, which
+    /// <see cref="TarReader" /> surfaces as a null <c>DataStream</c>; reading that as
+    /// "the entry is not a file" made <c>--verify</c> report the bundler's own tar.gz as
+    /// missing a file it had just written, while zip and the directory shape passed.
+    /// </summary>
+    [Theory]
+    [InlineData(OkfDistributionFormat.TarGz, "bundle.tar.gz")]
+    [InlineData(OkfDistributionFormat.Zip, "bundle.zip")]
+    [InlineData(OkfDistributionFormat.Directory, "dist")]
+    public void Verify_accepts_a_zero_length_file_the_bundler_packaged(
+        OkfDistributionFormat format,
+        string name)
+    {
+        using var tree = new BundlerVault();
+        tree.Write("bundles/alpha/references/placeholder.txt", string.Empty);
+        var output = Path.Combine(tree.Output, name);
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+        OkfBundler.Write(plan, output, format);
+
+        var result = OkfBundler.Verify(output);
+
+        // The empty file is genuinely in the plan — otherwise this would pass by
+        // packaging nothing — and the distribution verifies clean with it there.
+        Assert.Contains("bundles/alpha/references/placeholder.txt", plan.Entries.Select(entry => entry.Path));
+        Assert.Empty(result.Findings);
+        Assert.True(result.IsValid);
+    }
+
+    /// <summary>
+    /// A tar entry that is not a file — a symlink, a hard link, a device node — carries no
+    /// bytes, so it can never fail a digest comparison; skipping it therefore let one join
+    /// a downloaded archive and still verify clean. A planted symlink is the interesting
+    /// case, because extracting it writes a path into somebody else's filesystem, and it is
+    /// exactly the "a file the distribution carries that the manifest never listed" tamper
+    /// <c>--verify</c> exists to catch.
+    /// </summary>
+    [Theory]
+    [InlineData(TarEntryType.SymbolicLink)]
+    [InlineData(TarEntryType.HardLink)]
+    public void Verify_reports_a_tar_entry_that_is_not_a_file(TarEntryType type)
+    {
+        using var tree = new BundlerVault();
+        var output = Path.Combine(tree.Output, "bundle.tar.gz");
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), output, OkfDistributionFormat.TarGz);
+        Smuggle(output, "bundles/alpha/smuggled.md", type, "../../../../etc/passwd");
+
+        var result = OkfBundler.Verify(output);
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal(OkfDistributionIssue.Unlisted, finding.Issue);
+        Assert.Equal("bundles/alpha/smuggled.md", finding.Path);
+        Assert.False(result.IsValid);
+    }
+
+    /// <summary>
+    /// A cut-off download is the failure the digests exist for, so it must land as a
+    /// finding and exit 1 rather than as an escaping <see cref="EndOfStreamException" />.
+    /// That one is an <see cref="IOException" />, so unlike the not-an-archive case it did
+    /// not crash — it fell through to the command's environment-failure handler and came
+    /// out as exit 2 with a sentence naming no file.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Verify_reports_a_truncated_archive_rather_than_throwing(int divisor)
+    {
+        using var tree = new BundlerVault();
+        var output = Path.Combine(tree.Output, "bundle.tar.gz");
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), output, OkfDistributionFormat.TarGz);
+        var whole = File.ReadAllBytes(output);
+        File.WriteAllBytes(output, whole[..(divisor == 0 ? 0 : whole.Length / (divisor + 1))]);
+
+        var result = OkfBundler.Verify(output);
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal(OkfDistributionIssue.Unreadable, finding.Issue);
+        Assert.False(result.IsValid);
+    }
+
+    /// <summary>
     /// GNU's <c>atime</c> and <c>ctime</c> sit at byte 345 of a header block, which in
     /// ustar is where the <c>prefix</c> field begins — and CPython's <c>tarfile</c> joins
     /// <c>prefix</c> onto the entry name for every non-GNU-typed entry without checking the
@@ -627,12 +710,27 @@ public class OkfBundlerTests
 
         OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), archive, OkfDistributionFormat.TarGz);
 
-        var blocks = RawTarHeaderBlocks(archive);
+        var blocks = RawTarHeaderBlocks(archive).ToList();
         Assert.NotEmpty(blocks);
         foreach (var block in blocks)
         {
             Assert.Equal(new byte[155], block[345..500]);
         }
+    }
+
+    /// <summary>Appends one entry that is not a file to a written tar.gz.</summary>
+    private static void Smuggle(string archive, string name, TarEntryType type, string linkName)
+    {
+        var entries = TarEntries(archive);
+        using var file = File.Create(archive);
+        using var gzip = new GZipStream(file, CompressionLevel.Optimal);
+        using var writer = new TarWriter(gzip, TarEntryFormat.Gnu);
+        foreach (var entry in entries)
+        {
+            writer.WriteEntry(entry);
+        }
+
+        writer.WriteEntry(new GnuTarEntry(type, name) { LinkName = linkName });
     }
 
     /// <summary>The options every test uses, with the clock and the version pinned.</summary>
