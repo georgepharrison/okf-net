@@ -14,6 +14,7 @@ standing on the same sentence:
 | [`okf-vault`](okf-vault/SKILL.md) | a question could be answered from the vault — *what do we know about X* — or the human asks what needs attention |
 
 Getting knowledge in is `okf-capture`'s; keeping it alive is
-`okf-custodian`'s; getting it back out is `okf-vault`'s. Each hands off to the
-others at its boundary, so loading the nearest one is enough to arrive at the
-right one.
+`okf-custodian`'s; getting it back out is `okf-vault`'s. The two producers
+hand off to each other — capture drops the artifact, the custodian ingests it
+— and `okf-vault` hands back to both at its write boundary, so a reading
+session that turns up something worth keeping arrives at the right skill.
