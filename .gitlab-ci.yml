@@ -359,14 +359,14 @@ publish:
         echo "==> authenticating with the CI job token"
       fi
       echo "==> tag ${CI_COMMIT_TAG} -> version ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
-      echo "    linux-x64:  ${OKF_LINUX_URL}"
-      echo "    osx-arm64:  ${OKF_OSX_URL}"
-      echo "    win-x64:    ${OKF_WIN_URL}"
-      echo "    knowledge:  ${OKF_KNOWLEDGE_URL}"
-      echo "    manifest:   ${OKF_MANIFEST_URL}"
-      echo "    install.sh: ${OKF_INSTALLER_URL}"
+      echo "    linux-x64:   ${OKF_LINUX_URL}"
+      echo "    osx-arm64:   ${OKF_OSX_URL}"
+      echo "    win-x64:     ${OKF_WIN_URL}"
+      echo "    knowledge:   ${OKF_KNOWLEDGE_URL}"
+      echo "    manifest:    ${OKF_MANIFEST_URL}"
+      echo "    install.sh:  ${OKF_INSTALLER_URL}"
       echo "    install.ps1: ${OKF_INSTALLER_PS_URL}"
-      echo "    release:    ${OKF_RELEASE_URL}"
+      echo "    release:     ${OKF_RELEASE_URL}"
 
     - |
       # NativeAOT needs a C toolchain and zlib headers, which the SDK image does
@@ -471,7 +471,7 @@ publish:
       done
 
     - |
-      # The second asset (issue #5): okf-net's own knowledge bundle, packaged by
+      # The knowledge asset (issue #5): okf-net's own knowledge bundle, packaged by
       # the binary that was just published — so the toolset's release carries the
       # toolset's knowledge as an installable OKF bundle, and the bundler is
       # exercised by every release rather than only by the test suite.
