@@ -5,7 +5,7 @@ namespace Okf.Core.Tests;
 /// precision. Expected values come from the reference bundles' own stamps
 /// (<c>2026-06-30T14:00:00Z</c>) and from RFC 3339, not from the formatter under test.
 /// </summary>
-public class OkfTimestampTests
+public class OkfCanonicalTimestampTests
 {
     [Theory]
     [InlineData("2026-08-14T20:41:50-05:00", "2026-08-15T01:41:50Z")]
@@ -13,7 +13,7 @@ public class OkfTimestampTests
     [InlineData("2026-01-01T00:00:00+09:00", "2025-12-31T15:00:00Z")]
     public void AnyOffsetRendersAsTheSameInstantInUtc(string input, string expected)
     {
-        Assert.Equal(expected, OkfTimestamp.ToCanonical(DateTimeOffset.Parse(input, null)));
+        Assert.Equal(expected, OkfCanonicalTimestamp.ToCanonical(DateTimeOffset.Parse(input, null)));
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public class OkfTimestampTests
     {
         var instant = new DateTimeOffset(2026, 8, 15, 14, 0, 0, 999, TimeSpan.Zero);
 
-        Assert.Equal("2026-08-15T14:00:00Z", OkfTimestamp.ToCanonical(instant));
+        Assert.Equal("2026-08-15T14:00:00Z", OkfCanonicalTimestamp.ToCanonical(instant));
     }
 
     [Fact]
@@ -37,10 +37,10 @@ public class OkfTimestampTests
             new DateTimeOffset(2025, 12, 31, 20, 0, 0, TimeSpan.Zero),
         };
 
-        var canonical = instants.Select(OkfTimestamp.ToCanonical).ToArray();
+        var canonical = instants.Select(OkfCanonicalTimestamp.ToCanonical).ToArray();
 
         Assert.Equal(
-            instants.OrderBy(instant => instant).Select(OkfTimestamp.ToCanonical),
+            instants.OrderBy(instant => instant).Select(OkfCanonicalTimestamp.ToCanonical),
             canonical.Order(StringComparer.Ordinal));
     }
 
@@ -76,7 +76,7 @@ public class OkfTimestampTests
         // The consequence is the argument for having a canonical form at all: these two
         // stamps are the same instant, and only one of them shares a calendar day with the
         // source. Nothing here is a defect to fix in the comparison; it is why `okf init`
-        // and every stamp okf-net writes go through OkfTimestamp.
+        // and every stamp okf-net writes go through OkfCanonicalTimestamp.
         using var sameDay = new TempBundle();
         sameDay.Add("concept.md", Concept("2026-01-01T00:00:00+09:00", lastModified: "2026-01-01"));
 
@@ -111,7 +111,7 @@ public class OkfTimestampTests
     [InlineData(null, false)]
     public void OnlyTheCanonicalSpellingIsRecognizedAsCanonical(string? text, bool expected)
     {
-        Assert.Equal(expected, OkfTimestamp.IsCanonical(text));
+        Assert.Equal(expected, OkfCanonicalTimestamp.IsCanonical(text));
     }
 
     private static string Concept(string generatedAt, string lastModified) => $$"""

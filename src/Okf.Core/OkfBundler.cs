@@ -204,7 +204,7 @@ public static class OkfBundler
         var manifest = new OkfDistributionManifest(
             options.Generator,
             VaultName(workingSet.VaultRoot),
-            OkfTimestamp.ToCanonical(options.GeneratedAt),
+            OkfCanonicalTimestamp.ToCanonical(options.GeneratedAt),
             [.. bundles.Select(bundle => bundle.Name)],
             DanglingLinks(entries, workingSet.VaultRoot),
             [.. entries.Select(entry => new OkfDistributionFile(entry.Path, entry.Sha256))]);

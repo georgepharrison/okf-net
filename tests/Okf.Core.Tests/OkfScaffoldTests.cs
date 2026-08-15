@@ -130,7 +130,7 @@ public class OkfScaffoldTests
         // The clock handed in sits at -05:00; what lands on disk is the same instant as
         // RFC 3339 UTC, which is the point of having a canonical form at all.
         Assert.Equal("2026-08-16T00:30:45Z", at);
-        Assert.True(OkfTimestamp.IsCanonical(at));
+        Assert.True(OkfCanonicalTimestamp.IsCanonical(at));
     }
 
     [Fact]

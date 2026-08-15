@@ -106,7 +106,7 @@ future session (human or agent) relearns them. Newest first within sections.
 - A stalled subagent can be resumed with its on-disk work intact — check
   `git status` first, then resume it with a summary of confirmed state.
 - Parallel builders on separate branches independently created the same type
-  name (`Okf.Core.OkfTimestamp`, in work items #4 and #7) with different
+  name in `Okf.Core` (work items #4 and #7) with different
   meanings — a write-form renderer and a comparison type. File-level
   conflict-minimization cannot prevent this: neither branch's file existed in
   the other, so git had nothing to conflict on and the collision only surfaced
