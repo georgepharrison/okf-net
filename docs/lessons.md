@@ -87,6 +87,16 @@ future session (human or agent) relearns them. Newest first within sections.
 
 ## Testing
 
+- **A local acceptance matrix can silently halve.** `tests/install-sh/run.sh`
+  runs the installer under `sh` and, *if it is installed*, under `dash` — the
+  shell that catches a bashism `sh` would forgive. Arch does not ship `dash`,
+  so a local run exercises one shell and reports a green that means half of
+  what a CI green means. CI has both (the `test-install` job fails outright if
+  `dash` is missing, rather than skipping the lane). The harness now prints
+  `shells under test: …` before the first case, so the halving is visible in
+  the output instead of inferred from a suspiciously round assertion count.
+  Any harness whose coverage depends on what is installed should say what it
+  actually ran.
 - Two vacuous-assertion cases shipped and were caught only by adversarial
   review (`Contains("0 errors")` matches `"10 errors"`; a test that couldn't
   distinguish a clean bundle from an empty directory). Hence the
@@ -116,3 +126,32 @@ future session (human or agent) relearns them. Newest first within sections.
 - Repo-local git identity may be an *agent* identity
   (`ringo.harrison+agent@gmail.com`) — anything deriving a human identity
   (e.g. `okf verify`) must read **global** git config, never local.
+
+## Operations / local environment
+
+- **Docker's default address pools exhaust `172.16/12` at sixteen networks and
+  then roll into `192.168.0.0/16` — straight through a home LAN.** Each user
+  network takes a whole `/16` by default, so the sixteenth compose stack on a
+  host lands on `192.168.x.x` and the host starts routing the LAN's own subnet
+  into a bridge. Two things make it worse than a one-off: the networks
+  **persist across reboots**, so the collision comes back after every restart
+  until they are removed, and Tailscale keeps working throughout (it is on
+  `100.x`), so the box stays reachable and the failure looks like "the LAN is
+  broken" rather than "Docker took the LAN". Mitigations, both needed: set
+  `default-address-pools` in `/etc/docker/daemon.json` on **every** Docker host
+  (tycho uses `10.60.0.0/16` carved into `/24`s, which is 256 networks in the
+  space one default network used to take), and pin an explicit subnet on any
+  stack whose compose file you do not control or cannot inspect (tycho pins
+  those in `10.61+`). Auditing after the fact is `docker network ls` plus
+  `docker network inspect` — the pool setting only governs networks created
+  *after* it, so existing ones must be recreated.
+- **Do not run a Windows-installer harness under `pwsh` on a Linux desktop
+  without sealing it off first.** `install.ps1`'s error and success paths do
+  things a browser is registered for, and under `pwsh` on Linux those resolve
+  through `xdg-open` — which does not care that it was invoked from a test:
+  it reaches the running desktop session and opens tabs and applications while
+  the suite runs. Run such a harness with `BROWSER=/bin/true` and no `DISPLAY`
+  in its environment, and shim the target binary as an **executable stub** on
+  `PATH` rather than letting the script find a real one. The general rule: a
+  test that exercises a script written for another OS inherits that script's
+  side effects on *this* one, and the desktop session is the blast radius.

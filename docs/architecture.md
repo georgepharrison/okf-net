@@ -687,22 +687,32 @@ flowchart TB
 
 ### AD-42 — Every hop of the release chain re-verifies the bytes, and the host pulls
 
-- **Binds:** the `publish` job, `latest.json`, `install.sh`, and the artifact host's
-  `sync.sh` (which lives on the host, not in this repository)
+- **Binds:** the `publish` job, `latest.json`, `install.sh`, `install.ps1`, and the artifact
+  host's `sync.sh` (which lives on the host, not in this repository)
 - **Prevents:** a package whose name lies about its contents, and an SSH credential on a
   shared runner that can write to the box serving the install script.
-- **Rule:** CI stamps from the tag, never from `git describe`, and the job compares
-  `okf version` from the freshly compiled binary against `<tag minus the leading v>+<short
-  sha>` before uploading anything.
-  `latest.json` is the release contract and carries both a relative `path` (resolved
+- **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform; the
+  single-binary wording this replaces was true when written.)* One tag pipeline publishes
+  **seven** assets under one package version: three binaries (`okf-linux-x64`,
+  `okf-osx-arm64`, `okf-win-x64.exe`), the knowledge bundle
+  (`okf-net-knowledge.tar.gz`), `latest.json`, and both installers. CI stamps from the tag,
+  never from `git describe`, and the job compares `okf version` from the freshly compiled
+  binary against `<tag minus the leading v>+<short sha>` before uploading anything — a
+  runnable check for `linux-x64` only, because a Linux runner cannot execute the other two,
+  which get a grepped `file` assertion instead so a mislabelled image cannot reach a tester.
+  `latest.json` is the release contract, a map keyed by asset name, and carries both a
+  relative `path` (resolved
   against the installer's base URL) and the absolute registry `url`, because the installer
   must not know about GitLab and the host's `sync.sh` needs a URL it can pull with a token.
   Nothing pushes into the artifact host: by design it holds a read-only registry token and
   re-verifies each asset on the way in, publishing version directories by rename — a claim
-  about the host, which this repository cannot check. The installer
+  about the host, which this repository cannot check. Each installer
   downloads to a temp directory, compares digests, prints both on a mismatch, and only then
-  stages and renames within the install directory. An `https` base URL is followed only to
-  `https`, on the first hop and every redirect after it.
+  stages and renames within the install directory — `~/.local/bin/okf` for `install.sh`,
+  `%LOCALAPPDATA%\okf\bin\okf.exe` for `install.ps1`, neither needing root or
+  Administrator. `install.sh` follows an `https` base URL only to `https`, on the first hop
+  and every redirect after it; `install.ps1` cannot make that promise — PowerShell has no
+  `--proto-redir` — so it requires an `https` base URL and says so in the file.
 - **Source:** [version stamping](decisions.md#proposed-decisions-decided-2026-08-15-review-9-version-stamping-and-tag-pipelines-work-item-10-2026-08-14),
   [self-hosted install](decisions.md#proposed-decisions-decided-2026-08-15-review-9-self-hosted-install-work-item-25-2026-08-15)
 
@@ -807,7 +817,7 @@ flowchart TB
 | Actors | SPEC §7: `<producer>/<version>` (`okf/1.0.0-rc.24`, `claude-fable/5`), `human:<id>`, `process:<id>`. Validated before it is written. |
 | Machine-maintained JSON | `okf.json` and `recipe.json` are **JSONC** — comments and trailing commas — because the reason for a promotion is the half a reviewer needs. `raw/manifest.json`, `okf-bundle.json` and `latest.json` are strict JSON with **camelCase** keys; okf reads the first two with `JsonDocument` rather than a deserializer, and `latest.json` is deliberately shallow enough that `install.sh` parses it in POSIX shell without one. |
 | Markdown | `markdownlint-cli2`, `MD013` off repo-wide; the vault adds `MD025: false` via an `extends` line, because a nested config replaces the parent rather than merging. `mise run lint` is the gate. |
-| File layout | `src/Okf.Core` (all logic) · `src/Okf.Cli` (verbs, args, JSON writers, MCP) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests`, `tests/install-sh` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, `decisions.md`, `prd.md`, `lessons.md`, and `spikes/`) · `scripts/`, `.githooks/`, `.config/` (the dotnet tool manifest), `spikes/` (outside `Okf.sln`), and `install.sh` at the root. |
+| File layout | `src/Okf.Core` (all logic) · `src/Okf.Cli` (verbs, args, JSON writers, MCP) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests`, `tests/install-sh` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, `decisions.md`, `prd.md`, `lessons.md`, and `spikes/`) · `scripts/`, `.githooks/`, `.config/` (the dotnet tool manifest), `spikes/` (outside `Okf.sln`), and `install.sh` and `install.ps1` at the root. |
 | Skills | One directory per skill, frontmatter of `name` and `description` only, body plain markdown. Nothing host-specific: no tool names, no `allowed-tools`, no slash commands. Every step ends on a checkable, environment-verified completion criterion. |
 
 ## Stack
@@ -892,14 +902,14 @@ flowchart TB
     merge["merge to main"] --> rel["release job<br/>semantic-release"]
     rel --> tag["tag vX.Y.Z-rc.N<br/>+ GitLab Release"]
     tag --> pub["publish job<br/>tag pipeline only"]
-    pub --> aot["AOT publish<br/>stamped from the tag"]
-    aot --> gate{"okf version matches<br/>tag plus short sha?"}
+    pub --> build["publish 3 RIDs<br/>linux-x64 AOT · osx-arm64<br/>win-x64 · stamped from the tag"]
+    build --> gate{"okf version matches<br/>tag plus short sha?"}
     gate -- no --> stop["fail · upload nothing"]
-    gate -- yes --> reg["generic package registry<br/>okf/VERSION/okf-linux-x64"]
-    reg --> man["latest.json<br/>path · size · sha256 · url"]
+    gate -- yes --> reg["generic package registry<br/>okf/VERSION · 7 assets<br/>3 binaries · knowledge bundle"]
+    reg --> man["latest.json<br/>per asset: path · size · sha256 · url"]
     man --> sync["sync.sh on the host<br/>pull · re-verify · rename"]
     sync --> host["get.okf.tychostation.dev"]
-    host --> inst["install.sh<br/>download · sha256 · atomic mv"]
+    host --> inst["install.sh (Linux · macOS)<br/>install.ps1 (Windows)<br/>read latest.json · sha256 · atomic mv"]
 ```
 
 ### Search and MCP request path
@@ -947,7 +957,7 @@ flowchart TB
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40 | PRD §5 (post-MVP roadmap) |
 | Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI | AD-1, AD-6, AD-16, AD-18, AD-20 | SKILL-1 … SKILL-8 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32 | SKILL-7, ACC-5, ACC-6 |
-| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43 | CLI-17, Q10 |
+| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43 | CLI-17, Q10 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 
 `okf register` / `okf unregister` (PRD CLI-2, CLI-3's opt-in) are specified and **not
@@ -984,7 +994,7 @@ not fix. Board:
 | Q8's near-duplicate heuristic, Q9's CI-commit signal | `OKF0303` ships a normalized title-or-filename collision and keeps its id when #24 replaces the heuristic. The "human actor on a CI commit" warning has no reliable signal decided, so it has no rule id. |
 | An extractor (`okf bundle --extract`) | Reading an archive is needed for `--verify` and writing one for packaging; unpacking is `tar -xzf`'s job and a consumer already has it. |
 | Branch review environments on Pages | Built, tried against the real instance, and removed: `pages.path_prefix` and `pages.expire_in` are Premium/Ultimate keywords silently ignored on GitLab CE 19.0.1, so a feature branch published over the production site. Reviewers run `mise run site` locally. |
-| Non-`linux-x64` targets | No musl, arm64 or macOS build exists; `latest.json`'s asset map has three entries and room for more. That is Q10's problem. |
+| NativeAOT beyond `linux-x64`, and the targets nobody has asked for | *(updated 2026-08-15 after #36.)* Three RIDs ship: `linux-x64` is NativeAOT, `osx-arm64` and `win-x64` are trim-safe self-contained, because NativeAOT compiles through the host's toolchain and the only runner here is Linux (AD-8). Still deferred: NativeAOT for those two, which needs a macOS runner ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38)) and a Windows runner ([#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)) and buys back ~9 MB and the cold start and nothing else; and `osx-x64`, musl and `linux-arm64`, each one line in the publish job and one case label in `install.sh`, not built on speculation. `latest.json`'s asset map carries the release's seven assets and has room for more. |
 
 Several milestone items whose work has landed (#2 – #7) are still open on the board; they
 are execution bookkeeping, not deferrals.

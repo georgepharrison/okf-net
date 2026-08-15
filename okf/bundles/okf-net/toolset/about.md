@@ -3,7 +3,7 @@ type: Guide
 title: About the Toolset Domain
 description: How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, and distribution.
 tags: [okf-net, architecture, domain]
-generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -20,6 +20,9 @@ They are curated knowledge, not a specification: `docs/decisions.md` and
 `docs/prd.md` in this repository stay authoritative, and each concept here
 cites them.[^decisions]
 
+- [The architecture spine](architecture-spine.md) — what `docs/architecture.md`
+  is for, the shape of an `AD` rule, and the conventions that keep the
+  document safe to regenerate.
 - [Library, CLI, MCP layering](library-cli-mcp-layering.md) — why the library
   is the core and both adapters are thin.
 - [The lint severity model](lint-severity-model.md) — four severities,
