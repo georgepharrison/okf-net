@@ -51,17 +51,24 @@ consume.
 stable channel yet, and the `rc` is not decoration — the API, the CLI surface
 and the diagnostic set can all still move.
 
+> **No binary is downloadable yet.** The publishing job is new and has never
+> run: nothing runs it but a tag pipeline, and no tag has been cut since it
+> landed. Every release before that one carries no binary, and the job itself
+> is unproven until the first tag exercises it. Until then, build from source:
+> `mise run publish-aot` leaves the same binary in `artifacts/aot/okf`.
+
 The download URL is stable and predictable: the package version is the release
-tag without its leading `v`. Pick a version from the
+tag without its leading `v`. Take a version from the
 [releases page](https://gitlab.tychostation.dev/ringo/okf-net/-/releases) —
-each release links its binary directly — and:
+once a release carries a binary, it links it directly — and:
 
 ```bash
+# <version> is a release tag minus its leading `v`, e.g. 1.0.0-rc.15.
 curl --fail --location --output okf \
   --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/1.0.0-rc.14/okf-linux-x64"
+  "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/<version>/okf-linux-x64"
 chmod +x okf
-./okf version   # 1.0.0-rc.14+<short-sha> — the tag, and the commit it was built from
+./okf version   # <version>+<short-sha> — the tag, and the commit it was built from
 ```
 
 The `PRIVATE-TOKEN` header is needed only because the project is private
@@ -113,9 +120,10 @@ violate OKF conformance):
 
 **Prerelease.** `Okf.Core`, the CLI's `lint`, `index` and `search` commands
 and the MCP server are built and gated in CI; `okf inbox`/`okf verify` and the
-agent skills are later milestones. Every merge to `main` cuts an `rc` tag and
-publishes a binary you can actually run — see
-[Install](#install-prerelease-binaries). Usable, deliberately not yet stable.
+agent skills are later milestones. Every merge to `main` cuts an `rc` tag, and
+from the first tag cut after the publishing job landed that tag also ships a
+runnable binary — see [Install](#install-prerelease-binaries), which says
+plainly that none exists yet. Usable from source, deliberately not yet stable.
 
 ## Documentation
 

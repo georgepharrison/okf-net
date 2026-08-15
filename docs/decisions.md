@@ -880,9 +880,13 @@ the `stable` placeholder — waits for an actual 1.0.0 and stays open.
   version from `git describe --tags --always --dirty`; no target in this repo shells out
   to git, so a build from a source archive with no `.git` still works. `git describe`'s
   output is normalized rather than passed through, because two of its three shapes are not
-  versions: a `-<n>-g<sha>` distance trailer becomes build metadata (where semver §10 puts
-  it, and where it cannot be mistaken for a prerelease ranking *above* the tag it
-  followed), and a bare sha from an untagged tree becomes `0.0.0-dev`.
+  versions: a `-<n>-g<sha>` distance trailer is dropped and the commit it named is carried
+  separately as build metadata from `git rev-parse` (where semver §10 puts a commit; the
+  distance itself is not preserved), and a bare sha from an untagged tree becomes
+  `0.0.0-dev`. Dropping the trailer is not cosmetic — left in the version it is *legal*
+  semver that sorts **above** the tag it followed, because `rc.14-3-g1f334c9` compares as
+  an alphanumeric identifier and alphanumerics outrank numerics. A build three commits
+  past `v1.0.0-rc.14` would claim to be newer than `1.0.0-rc.15`.
   - **The SDK does query git, and that is fine.** Its built-in source-control support
     fills `SourceRevisionId` from the working tree when a `.git` is present, so a plain
     `dotnet build` already yields `0.0.0-dev+<40-char sha>`. Passing the property
@@ -913,8 +917,18 @@ the `stable` placeholder — waits for an actual 1.0.0 and stays open.
   - **The job waits for the release rather than racing it.** semantic-release creates the
     release from the main-branch pipeline that pushed the tag, so the two pipelines
     overlap. The AOT compile makes the release near-certain to exist by the time the link
-    step runs, but "near-certain" is not a schedule; it retries, then fails loudly naming
-    semantic-release as the suspect.
+    step runs, but "near-certain" is not a schedule; it retries, then fails loudly with the
+    last response body, because a 404 accuses semantic-release and a 401 accuses the job's
+    own token, and those are opposite repairs.
+  - **The job refuses to publish a binary that disagrees with the tag.** It compares
+    `okf version` from the freshly compiled binary against `<tag minus v>+<short sha>`
+    before uploading anything. Printing the version and reading it by eye is not a check:
+    a build that lost its stamp answers `0.0.0-dev`, which prints into a green log and gets
+    uploaded under the tag's coordinates regardless. The one failure this whole change
+    exists to prevent is a package whose name lies about its contents.
+  - **Every artifact of a failed publish is kept.** The job's `artifacts:` block uses
+    `when: always`, like `licenses` does for its SBOM: an artifact retained only on success
+    is discarded in precisely the case it was retained for.
 - **What is untestable until a real tag exists, and what was done instead.** No amount of
   local work exercises a tag pipeline. Mitigations: `glab ci lint` is green; the merged
   YAML was read back from the instance's `/ci/lint` endpoint to confirm that `extends`

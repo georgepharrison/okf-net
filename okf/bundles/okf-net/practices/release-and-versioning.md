@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, and main ships release candidates until the toolset reaches 1.0.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits]
-generated: { by: claude-fable/5, at: 2026-08-14T23:24:35-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T23:41:35-05:00 }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,11 +67,19 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces one artifact today: a self-contained NativeAOT
+The `publish` job produces one artifact: a self-contained NativeAOT
 `linux-x64` binary, of the kind described in [library, CLI, MCP
 layering](../toolset/library-cli-mcp-layering.md). It goes to the project's
 generic package registry as `okf/<version>/okf-linux-x64`, and the release
 gains an asset link pointing at it.
+
+**Written, not yet run.** Only a tag pipeline runs the job, and no tag has
+been cut since it was written, so nothing below is observed behaviour — it is
+what the job is built to do. No release published so far carries a binary.
+What the local evidence does cover: the pipeline is valid against the
+instance, the merged YAML confirms the job is tag-only and every other job
+branch-only, and the API endpoints it calls were probed read-only. What it
+cannot cover is the job end to end. Treat the first tag as the test.
 
 The version is the tag without its leading `v`, so a downloaded binary answers
 `okf version` with the package version it came from, plus the short commit sha

@@ -52,9 +52,13 @@ description = "Publish the NativeAOT linux-x64 binary to artifacts/aot, version-
 #   v1.0.0-rc.14              exact tag       ->  1.0.0-rc.14
 #   v1.0.0-rc.14-3-g1f334c9   3 commits past  ->  1.0.0-rc.14  (+ sha metadata)
 #   1f334c9                   no tags at all  ->  0.0.0-dev    (+ sha metadata)
-# The distance/sha trailer becomes build metadata rather than part of the version,
-# where semver §10 puts it and where it cannot be mistaken for a prerelease ranking
-# above the tag it followed.
+# The distance/sha trailer is DROPPED from the version rather than carried into it;
+# the commit it named travels separately as build metadata, taken from
+# `git rev-parse --short HEAD`, which is where semver §10 puts a commit. (The
+# distance itself is not preserved — the sha is what identifies the build.) Left in
+# the version the trailer would be legal semver that sorts ABOVE the tag it followed
+# — `1.0.0-rc.14-3-g1f334c9` > `1.0.0-rc.14`, because an alphanumeric prerelease
+# identifier outranks a numeric one. That inversion is the trap being avoided.
 run = """
 set -eu
 
