@@ -3,7 +3,7 @@ type: Playbook
 title: Tagging Discipline
 description: The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.
 tags: [okf-net, tags, governance, lint, conventions]
-generated: { by: claude-fable/5, at: 2026-08-15T00:17:55-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
 sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/3fcbb9f828c2f23d109c855ee403c3a4c81f3a96/okf/SPEC.md
@@ -61,9 +61,17 @@ sit — and sees when it sits nowhere.
 | Kind | What is the concept doing? | `domain`, `dogfood`, `meta` |
 | The format | Which guarantee of OKF? | `acceptance`, `acknowledgment`, `bundle`, `compatibility`, `compliance`, `conformance`, `conventions`, `interop`, `layout`, `lifecycle`, `readme-trap`, `spec`, `trust`, `verification` |
 | Provenance | Which part of the capture path? | `capture`, `custodian`, `maintenance`, `provenance`, `skills`, `sources` |
-| Machinery | Which part of the toolset? | `bm25`, `cli`, `configuration`, `determinism`, `diagnostics`, `discovery`, `drift`, `generation`, `index`, `layering`, `lint`, `mcp`, `registry`, `search`, `severity`, `vault` |
+| Machinery | Which part of the toolset? | `bm25`, `cli`, `configuration`, `determinism`, `diagnostics`, `discovery`, `distribution`, `drift`, `generation`, `index`, `layering`, `lint`, `mcp`, `registry`, `search`, `severity`, `vault` |
 | Governance | Which rule about the knowledge itself? | `governance`, `tags` |
 | Process | How is the project run? | `agents`, `ci`, `conventional-commits`, `dependencies`, `licensing`, `process`, `release`, `semantic-release`, `versioning` |
+
+The first word added after the registry closed is `distribution`, in the
+Machinery facet, arriving with [bundling and
+distribution](../toolset/bundling-and-distribution.md) — the rule working as
+written: a concept needed a word the vocabulary did not have, and the concept
+came in the same diff as the word. It sits in Machinery rather than Process
+because `release` answers *how a version is cut* and `distribution` answers
+*what a consumer receives*; it joins the two concepts that describe each half.
 
 **Scope is not optional.** Every concept in this bundle carries `okf` or
 `okf-net`, because the single most useful filter over a bundle that documents

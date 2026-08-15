@@ -1,9 +1,9 @@
 ---
 type: Guide
 title: About the Toolset Domain
-description: How okf-net is built — layering, lint severities, search semantics, index generation, and vault resolution.
+description: How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, and distribution.
 tags: [okf-net, architecture, domain]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -30,5 +30,8 @@ cites them.[^decisions]
   files, the marker that makes them claimable, and the five drift states.
 - [Vaults, registry, and config](vault-registry-and-config.md) — where
   bundles are found and which layer wins.
+- [Bundling and distribution](bundling-and-distribution.md) — what a consumer
+  receives, why the archive is byte-reproducible, and what becomes of a link
+  that leaves the bundle.
 
 [^decisions]: okf-net — Architecture Decisions, "Repo layout".
