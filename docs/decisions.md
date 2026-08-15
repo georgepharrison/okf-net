@@ -2229,3 +2229,195 @@ dotfiles checkout, and in both cases a string comparison prints an `export PATH=
 directory that is already on `PATH`. Wrong advice is worse than none — the reader follows
 it, it does not help, and the rest of the output is now suspect. `cd -P && pwd -P` resolves
 one in POSIX sh; `readlink -f` is GNU.
+
+### Proposed decisions (decided 2026-08-15, review #9): multi-platform releases (work item #36, 2026-08-15)
+
+The install story was one platform wide, and the alpha testers are not on it. #25 shipped a
+manifest, an installer and a host; what it shipped them for was `linux-x64`, and the friends
+who agreed to try okf are on macOS and Windows. That is the whole of #36: a 1.0.0 blocker,
+because there are no alpha testers without an installer they can run.
+
+**Three builds, two build modes, and the second one is Q10's fallback clause being cashed.**
+Q10 chose NativeAOT and wrote down what to do if it ever stopped fitting: *fall back to
+trim-safe self-contained non-AOT, at the cost of size and cold start only*. The clause was
+written expecting Roslyn extensibility to trigger it. What triggered it is geography.
+NativeAOT compiles through the **host's** native toolchain — ILC emits object code and hands
+it to the platform linker — so `dotnet publish -r osx-arm64 -p:PublishAot=true` cannot run
+on a Linux runner, and this instance has no macOS or Windows runner attached. So:
+
+| RID | Mode | Size | Format |
+| --- | --- | --- | --- |
+| `linux-x64` | NativeAOT | 6,321,048 B | ELF x86-64 |
+| `osx-arm64` | trimmed self-contained, single file | 15,386,260 B | Mach-O arm64 |
+| `win-x64` | trimmed self-contained, single file | 14,713,366 B | PE32+ x86-64 |
+
+The issue budgeted 60–80 MB for the two self-contained builds. They came in at ~15 MB,
+because `PublishTrimmed`, `PublishSingleFile` and `InvariantGlobalization` were all already
+on and the trimmer had a small closure to work with. The cold-start cost is real and
+unmeasured here — a JIT warm-up instead of native code — and the README says so rather than
+implying three equal binaries.
+
+**The trim-safety finding was re-verified per RID rather than assumed to travel.** Q10's
+evidence was an AOT publish for `linux-x64`. `PublishTrimmed` runs the same IL trim analyzer
+without the native compile, so each new RID re-runs it: both publish with **zero warnings
+and zero errors** under `-p:TrimmerSingleWarn=false -p:SuppressTrimAnalysisWarnings=false`,
+which is the setting that expands per-assembly summaries into individual findings. Nothing
+was suppressed, because nothing needed suppressing — the YamlDotNet-through-the-
+representation-model decision is what keeps this true, and it keeps being true per platform.
+
+`-p:PublishAot=false` on those two publishes is load-bearing rather than tidy. `Okf.Cli`
+sets `PublishAot=true` in the csproj *specifically* so the analyzers run on every build;
+left on, the publish tries to invoke ILC for a foreign OS.
+
+**What a Linux runner can honestly claim about a Mach-O binary.** Nothing about its
+behaviour. The self-version assertion — publish, run the binary, compare what it reports
+against the version the package will claim, refuse to publish a mis-stamped one — is
+unchanged and still covers `linux-x64` alone. For the other two the manifest records size
+and `sha256` of bytes the job produced, and claims nothing further. The one static check
+worth having is `file`, and the job **greps** its output rather than printing it: a publish
+that produced an ELF for `-r win-x64` prints into a green log and installs onto a tester's
+machine, so `Mach-O.*arm64` and `PE32+` are asserted and a mismatch fails the job. That is
+the honest ceiling, and it is written into the job so nobody has to remember it.
+
+**The manifest did not need a schema change, which is the payoff for having written it as a
+map.** `assets` has been keyed by asset name since #25 with two locations and a digest per
+entry. Six entries now — three binaries, the knowledge bundle, and both installers — and the
+readers did not move: `install.sh` looks up exactly the one asset its platform detection
+selected, `install.ps1` looks up `okf-win-x64.exe`, and the `path`/`url` split still serves
+the installer and the artifact host's `sync.sh` respectively. Adding a RID is adding an
+entry.
+
+**`install.sh` decides the platform once, and refuses the rest by name.** A single
+`case "${os}/${arch}"` sets `$OKF_ASSET`; everything downstream reads it, so a fourth RID is
+a case label rather than an edit spread through the script. Two refusals are worth the words
+they take:
+
+- **Darwin/x86_64** is refused with somewhere to go. Rosetta translates x86_64 to arm64 and
+  not the reverse, so "use the other build" would be wrong advice; an `osx-x64` asset is one
+  more line in the publish job, so the truthful answer is that it is a question of demand,
+  and the message names #36 as where to answer it. Following the issue, it is not built:
+  building an asset nobody has asked for is a release artifact to maintain forever on a
+  guess.
+- **Anything else** points at `install.ps1` by name. A reader on Windows who found the `sh`
+  one-liner first should not have to go looking for the other one.
+
+**macOS Gatekeeper, and why the installer strips the quarantine attribute.** `curl` tags
+everything it downloads with `com.apple.quarantine`, and Gatekeeper refuses to run a
+quarantined binary that is neither signed nor notarised: the user gets a dialog about an
+unverifiable developer, for a command-line tool they installed on purpose, with no way past
+it from the terminal short of removing the attribute. So `install.sh` removes it — on Darwin
+only, only when `xattr` exists, never fatally, and *before* the version check, which a
+quarantined binary would otherwise fail.
+
+That is not a security bypass smuggled into an installer, and the argument is written into
+the file rather than left to a reviewer's charity. The user has already piped this script
+into `sh`. The attribute is being removed from a file this same script downloaded, verified
+against the manifest's `sha256`, and wrote itself; the digest comparison is untouched and
+still happens before anything is written outside the temp directory. What is being skipped
+is Apple's check that *someone paid Apple*, which okf-net has not done. Code signing and
+notarisation need an Apple Developer account and are post-1.0; until then the README says
+plainly that the binary is unsigned, and says it where a Mac user will hit it.
+
+**`install.ps1` is a sibling, not a port.** Same manifest, same order of operations
+(resolve, verify, stage, rename), same flag names — `-Version`, `-InstallDir`, `-DryRun`,
+`$env:OKF_INSTALL_URL`. Five places where Windows made a different answer correct:
+
+- **JSON is read with `Invoke-RestMethod`.** `install.sh` hand-rolls a `sed` reader because a
+  fresh Linux box may have neither `jq` nor `python3`. A machine with PowerShell on it has a
+  JSON parser by definition, so the reason does not carry and neither should the technique.
+  Lookups still go through `PSObject.Properties`, so a manifest missing an asset says *that*
+  instead of raising a `StrictMode` error about PowerShell.
+- **The user `PATH` is written through the registry**, not through
+  `[Environment]::SetEnvironmentVariable(..., 'User')`. That call is the obvious one and is
+  lossy: it always writes `REG_SZ`, so a user whose `Path` is `REG_EXPAND_SZ` — the default,
+  and why `%JAVA_HOME%\bin` works — has every such entry frozen to whatever it expanded to at
+  that moment. Reading with `DoNotExpandEnvironmentNames` and writing back the kind it
+  already had preserves both. Per-user, never machine-wide: this installs under
+  `%LOCALAPPDATA%` and an installer that quietly asks for Administrator has changed what it
+  is.
+- **The file is pure ASCII.** Windows PowerShell 5.1 decodes a BOM-less file using the system
+  ANSI code page, and a script fetched with `Invoke-RestMethod` has no BOM to offer, so one
+  typographic dash in a comment is mojibake on a machine whose code page is not 1252.
+- **TLS 1.2 is OR-ed into `ServicePointManager` on 5.1 only**, because an un-patched box
+  still negotiates TLS 1.0 and fails with "the underlying connection was closed", which
+  names nothing a user can act on.
+- **`$ProgressPreference = 'SilentlyContinue'`**, because `Invoke-WebRequest`'s progress bar
+  redraws the console per chunk and on 5.1 costs more wall-clock time than the 15 MB download
+  it is reporting on.
+
+One gap is stated rather than papered over: PowerShell has no equivalent of curl's
+`--proto-redir`, so a hostile `https` → `http` redirect is not blocked the way `install.sh`
+blocks it. The base URL must still be `https` (loopback excepted, so an acceptance harness
+remains possible). The host issues no redirects today, and closing it properly means
+following redirects by hand — which belongs with manifest signing in #26, and not in front of
+it.
+
+**`install.ps1` has no test, and that is named rather than hidden.** There is no Windows
+runner in this pipeline and standing one up is not this work item. `mise run lint-ps1` runs
+PSScriptAnalyzer over it at Error, Warning **and** Information severity and reports zero
+findings — PSScriptAnalyzer parses and rule-checks rather than interprets, so it catches an
+unapproved verb or a cmdlet given a parameter it does not have, and nothing whatsoever about
+Gatekeeper-shaped runtime behaviour. It is deliberately a local task and not a CI job:
+provisioning PowerShell in the pipeline to check one file is the worse trade, and the first
+real run is a tester's either way. The README says so where a Windows reader will hit it.
+
+`install.sh` by contrast grew from 46 assertions per shell to **73** — a Darwin happy path
+asserted against bytes (the fixture's two stand-in binaries differ and print their own asset
+name, so "picked the right asset" is answerable rather than inferred), a Darwin `sha256`
+mismatch proving the verification path survives the platform branch, the quarantine call
+recorded through an `xattr` shim on `PATH` including that it names the installed binary and
+not the staging copy, Darwin/x86_64 refused with #36 in the message, and FreeBSD refused with
+`install.ps1` in the message. Per AGENTS.md the additions were shown to constrain the code:
+deleting the quarantine block fails 2, removing the Darwin cases from the platform switch
+fails 13.
+
+**Shipping a Windows binary made a latent path question worth answering.** OKF bundle-relative
+paths are `/`-separated by spec, and they are not internal: they are `okf search --format
+json`'s `path`, every `files[].path` in `okf-distribution.json`, the entry names inside the
+distribution tar, every generated index `link`, and every href `okf site` writes. On Windows
+`Path.DirectorySeparatorChar` is `\`, and every `Path.Combine` and `Path.GetRelativePath` in
+the codebase produces it.
+
+An audit of every construction and emission site found **no leak**. `OkfBundle.RelativePath`
+is the sole producer of these strings and has always normalised; every downstream `/`
+operation is strictly downstream of it, and the reverse conversion is applied at exactly the
+filesystem-write points. Two things would still have differed on Windows, and both are fixed:
+
+- **The walk's order was the host's, not the spec's.** `MarkdownFiles`/`ContentFiles` sorted
+  on the absolute path. Under `/` (0x2F) a subdirectory sorts below a sibling file that
+  continues past it; under `\` (0x5C) it sorts above — so `topics/deep/widgets.md` and
+  `topicsZ.md` come out in opposite orders on the two platforms, and that order is `okf
+  lint`'s diagnostic order and `okf index --json`'s entry order. Both walks and the index
+  plan now sort on the bundle-relative form. The bundler was already immune because it
+  re-sorts by `/`-path, which is exactly why it should not have been the only thing that was.
+- **`OkfBundle.TryResolve` treated a backslash as data on POSIX and as a separator on
+  Windows.** One bundle-relative string, two resolutions, and the containment argument had to
+  be made twice. `OkfConceptReader.Normalize` and the MCP directory normaliser already
+  refused it; now the containment primitive itself does, so a caller reaching `TryResolve`
+  directly cannot be the one that gets it wrong. Every current caller pre-validates, so this
+  refuses nothing that used to be accepted.
+
+The new tests are honest about which half they can prove. The backslash cases genuinely
+constrain — `..\outside.md` resolves today on Linux, because `\` is an ordinary filename
+character there — and fail without the fix. The ordering assertion pins the intended order
+and its Windows half is unexercised until a Windows runner exists. Two things are knowingly
+left: `DiagnosticWriter.Display` returns a native absolute path when a file sits outside the
+base directory, which is its documented contract and gives the `path` field two grammars on
+Windows; and `Path.GetRelativePath` across two Windows volumes would return a qualified path,
+reachable only through a symlink the bundle walk already refuses.
+
+**Deliberately not done, and what stays post-1.0.**
+
+- **NativeAOT for macOS and Windows**, which needs a Mac and a Windows runner (Tailscale-
+  attached is the sketch). That buys back ~9 MB and the cold start, and nothing else — the
+  binaries are correct as they are.
+- **Code signing and notarisation** (Apple Developer account; Authenticode for Windows). The
+  quarantine strip is a workaround for not having done this, and it is labelled as one.
+- **`brew` and `winget` formulas.** Both want a stable public download URL, which is #26's
+  to provide, and a signed artifact, which is the item above. Doing either now would mean
+  publishing a formula that points at a host that does not resolve.
+- **`osx-x64`, musl, `linux-arm64`.** Each is one line in the publish job and one case label
+  in `install.sh`. Not built on speculation; #36 is where to ask.
+- **A Windows CI job.** The tests that would catch a Windows path regression are written and
+  passing on Linux; what is missing is a runner to run them on the platform where the bug
+  would appear.

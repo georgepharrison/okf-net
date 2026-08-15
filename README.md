@@ -57,19 +57,28 @@ consume.
 ## Install (prerelease binaries)
 
 `main` ships **release candidates**, not releases: every merge cuts a
-`vX.Y.Z-rc.N` tag, and that tag's pipeline publishes a self-contained
-`linux-x64` binary to this project's generic package registry. There is no
+`vX.Y.Z-rc.N` tag, and that tag's pipeline publishes self-contained binaries
+for three platforms to this project's generic package registry. There is no
 stable channel yet, and the `rc` is not decoration — the API, the CLI surface
 and the diagnostic set can all still move.
+
+**Linux and macOS:**
 
 ```sh
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 ```
 
-That fetches the newest release's manifest, verifies the binary's `sha256`
-against it, and installs to `~/.local/bin/okf`. Pin a version with
-`--version`, install somewhere else with `OKF_INSTALL_DIR`, or look before
-you leap with `--dry-run`:
+**Windows** (PowerShell 5.1 or 7+):
+
+```powershell
+irm https://get.okf.tychostation.dev/install.ps1 | iex
+```
+
+Either one fetches the newest release's manifest, verifies its binary's
+`sha256` against it, and installs atomically — to `~/.local/bin/okf` on Linux
+and macOS, to `%LOCALAPPDATA%\okf\bin\okf.exe` on Windows, where it also adds
+that directory to your user `PATH`. Neither needs root or Administrator. Pin a
+version, install somewhere else, or look before you leap:
 
 ```sh
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0-rc.15
@@ -77,22 +86,66 @@ curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/lo
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 ```
 
-The script is [`install.sh`](install.sh) in this repository, and every release
-ships the copy it was cut with.
+```powershell
+# `iex` is handed a string, not a command, so arguments need the script-block form.
+& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Version 1.0.0-rc.15
+& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -InstallDir C:\tools\okf
+& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
+```
+
+The scripts are [`install.sh`](install.sh) and [`install.ps1`](install.ps1) in
+this repository, and every release ships the copies it was cut with.
 
 > **`get.okf.tychostation.dev` resolves only inside Ringo's network today.** The
 > host is an internal nginx behind the internal Caddy; there is no public DNS
-> record and no public route, so the one-liner above will not resolve for
+> record and no public route, so the one-liners above will not resolve for
 > anyone else. Public availability — and the auth, rate limiting and
 > **manifest signing** that have to come with it — is tracked in
 > [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26). The
 > manifest is unsigned until then: the `sha256` check proves the bytes match
 > the manifest, and nothing yet proves the manifest came from us.
 >
-> **The publishing job is also still unproven.** `latest.json` and the
-> installer are uploaded by a tag pipeline, and until a tag has run one, the
-> artifact host has nothing to serve. Until then, build from source:
-> `mise run publish-aot` leaves the same binary in `artifacts/aot/okf`.
+> **The publishing job is also still unproven.** `latest.json`, the binaries
+> and the installers are uploaded by a tag pipeline, and until a tag has run
+> one, the artifact host has nothing to serve. Until then, build from source:
+> `mise run publish-all` leaves all three binaries under `artifacts/<rid>/`
+> (`mise run publish-aot` still builds `linux-x64` alone into
+> `artifacts/aot/okf`).
+
+### What ships, and what it costs
+
+| Platform | Asset | Build | Size |
+| --- | --- | --- | --- |
+| Linux x86_64 | `okf-linux-x64` | NativeAOT | ~6.0 MB |
+| macOS Apple Silicon | `okf-osx-arm64` | trimmed self-contained | ~14.7 MB |
+| Windows x64 | `okf-win-x64.exe` | trimmed self-contained | ~14.0 MB |
+
+The difference is worth being plain about. NativeAOT compiles ahead of time to
+a native image with no runtime inside it, and it compiles through the *host's*
+toolchain — so it can only be produced on the platform it targets. The only CI
+runner this project has is Linux, so `linux-x64` is AOT and the other two are
+trim-safe self-contained: the IL is trimmed, then bundled with a .NET runtime
+into a single file. They are larger and they start slower (JIT warm-up instead
+of native code), and they are honest binaries otherwise — same source, same
+version stamp, no runtime for you to install, no trim warnings on either.
+Moving them to AOT needs a macOS and a Windows runner, which is post-1.0.
+
+There is no Intel Mac (`osx-x64`), musl, or Linux arm64 build. Each is one more
+runtime identifier in the same publish job, so if you need one, say so on
+[#36](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/36).
+
+> **macOS: the binary is unsigned.** Gatekeeper refuses to run a downloaded
+> binary that is neither code-signed nor notarised, and `curl` marks everything
+> it downloads. `install.sh` clears that mark for you — the equivalent of
+> `xattr -d com.apple.quarantine ~/.local/bin/okf`. If you download the asset by
+> hand instead, run that yourself, or macOS refuses with "cannot be opened
+> because the developer cannot be verified". Signing and notarisation need an
+> Apple Developer account and are post-1.0.
+>
+> **Windows: `install.ps1` has never been run on Windows by CI.** There is no
+> Windows runner in this pipeline. The script is static-analysed with
+> PSScriptAnalyzer (`mise run lint-ps1`) and reviewed; its first real run is a
+> tester's. If it breaks, that is a bug worth reporting rather than a surprise.
 
 ### From the package registry, by hand
 
@@ -104,10 +157,12 @@ once a release carries a binary, it links it directly — and:
 
 ```bash
 # <version> is a release tag minus its leading `v`, e.g. 1.0.0-rc.15.
+# <asset> is okf-linux-x64, okf-osx-arm64 or okf-win-x64.exe.
 curl --fail --location --output okf \
   --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/<version>/okf-linux-x64"
+  "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/<version>/<asset>"
 chmod +x okf
+xattr -d com.apple.quarantine okf   # macOS only; see the Gatekeeper note above
 ./okf version   # <version>+<short-sha> — the tag, and the commit it was built from
 ```
 
@@ -121,11 +176,13 @@ at all: the artifact host holds the read token so a consumer does not have to.
 
 Two caveats worth stating plainly:
 
-- **linux-x64, glibc.** The binary is compiled ahead of time against the
+- **glibc, on Linux.** `okf-linux-x64` is compiled ahead of time against the
   Debian userland of the .NET SDK image, so it runs on that glibc version or
-  newer. There is no musl, arm64 or macOS build yet.
+  newer. There is no musl build, and no Linux arm64 build.
 - **No runtime to install.** That is the point (PRD CLI-17): consuming an OKF
-  bundle must never require knowing the tool is written in C#.
+  bundle must never require knowing the tool is written in C#. That holds for
+  all three assets — the self-contained ones carry their runtime inside the
+  single file rather than asking you for one.
 
 ## Architecture
 
@@ -165,11 +222,12 @@ violate OKF conformance):
 `inbox`, `verify`, `bundle` and `site` commands, the MCP server and the agent
 skills are built and gated in CI; the registry (`okf register`) and the Pi
 shim are later milestones. Every merge to `main` cuts an `rc` tag, and from
-the first tag cut after the publishing job landed that tag also ships a
-runnable binary, this repo's own knowledge bundle, a release manifest and the
-installer that reads it — see [Install](#install-prerelease-binaries), which
-says plainly that no tag has produced any of it yet, and that the install
-one-liner resolves only inside Ringo's network
+the first tag cut after the publishing job landed that tag also ships
+runnable binaries for Linux, macOS and Windows, this repo's own knowledge
+bundle, a release manifest and the two installers that read it — see
+[Install](#install-prerelease-binaries), which says plainly that no tag has
+produced any of it yet, and that the install one-liners resolve only inside
+Ringo's network
 ([#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26)). Usable
 from source, deliberately not yet stable.
 
