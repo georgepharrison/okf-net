@@ -34,8 +34,14 @@ internal static class DiagnosticWriter
         var errors = result.Count(OkfSeverity.Error);
         var warnings = result.Count(OkfSeverity.Warning);
         var infos = result.Count(OkfSeverity.Info);
+
+        // What ran is part of the result: "0 errors" from a run with every rule hidden
+        // reads exactly like "0 errors" from a run with all of them live, and a
+        // misconfiguration that silences the gate should not look like a passing gate.
         output.WriteLine(
-            $"Checked {Plural(result.FileCount, "file")} in {Plural(result.Bundles.Count, "bundle")}: " +
+            $"Checked {Plural(result.FileCount, "file")} in {Plural(result.Bundles.Count, "bundle")} " +
+            $"({Plural(OkfRules.All.Count, "rule")}: {result.ActiveRuleCount.ToString(CultureInfo.InvariantCulture)} " +
+            $"active, {result.HiddenRuleCount.ToString(CultureInfo.InvariantCulture)} hidden): " +
             $"{Plural(errors, "error")}, {Plural(warnings, "warning")}, {Plural(infos, "info", "infos")}.");
     }
 

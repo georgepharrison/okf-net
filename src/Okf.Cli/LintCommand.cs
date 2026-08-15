@@ -127,6 +127,16 @@ internal static class LintCommand
             DiagnosticWriter.WriteText(reported, result, environment.CurrentDirectory, output);
         }
 
+        if (arguments.Verbose)
+        {
+            // The run metadata goes to stderr, not into the JSON. `--json` emits a bare
+            // array (PRD CLI-11/CLI-15, and MCP-3 pins the same shape for search), so
+            // wrapping it in an envelope to carry counts would break every consumer that
+            // reads element 0 as a diagnostic. stderr is already where `--verbose` speaks
+            // and is never part of the machine-readable contract.
+            WriteRunMetadata(error, result);
+        }
+
         return result.HasErrors ? CliApplication.ExitDiagnostics : CliApplication.ExitSuccess;
     }
 
@@ -151,14 +161,30 @@ internal static class LintCommand
             ? $"okf: project config: none{(projectPath is null ? string.Empty : $" (looked for {projectPath})")}"
             : $"okf: project config: {project.Source}");
 
+        // Every rule, not only the reconfigured ones: a rule sitting at a default the
+        // reader did not expect is exactly as surprising as one a config layer moved, and
+        // "which rules are live" is the question a clean run raises (friction #11).
         foreach (var rule in OkfRules.All)
         {
             var (severity, source) = severities.ResolveWithSource(rule.Id);
-            if (severity != rule.DefaultSeverity)
-            {
-                error.WriteLine($"okf: severity {rule.Id} = {severity.ToConfigString()} (from {source})");
-            }
+            error.WriteLine(
+                $"okf: severity {rule.Id} = {severity.ToConfigString()} (from {source}) {rule.Nickname}");
         }
+    }
+
+    private static void WriteRunMetadata(TextWriter error, OkfLintResult result)
+    {
+        error.WriteLine(
+            $"okf: checked {DiagnosticWriter.Plural(result.FileCount, "file")} in " +
+            $"{DiagnosticWriter.Plural(result.Bundles.Count, "bundle")}");
+        error.WriteLine(
+            $"okf: {DiagnosticWriter.Plural(OkfRules.All.Count, "rule")}: " +
+            $"{result.ActiveRuleCount} active, {result.HiddenRuleCount} hidden");
+        error.WriteLine(
+            $"okf: diagnostics {DiagnosticWriter.Plural(result.Count(OkfSeverity.Error), "error")}, " +
+            $"{DiagnosticWriter.Plural(result.Count(OkfSeverity.Warning), "warning")}, " +
+            $"{DiagnosticWriter.Plural(result.Count(OkfSeverity.Info), "info", "infos")}, " +
+            $"{result.Count(OkfSeverity.Hidden)} at hidden severity");
     }
 
     private static void WriteRules(TextWriter output)

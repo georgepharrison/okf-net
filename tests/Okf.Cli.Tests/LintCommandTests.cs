@@ -15,8 +15,36 @@ public class LintCommandTests
         var run = Cli.RunIn(home.Root, home.Root, "lint", Fixtures.Bundle("conformant"));
 
         Assert.Empty(run.DiagnosticLines);
-        Assert.Equal("Checked 5 files in 1 bundle: 0 errors, 0 warnings, 0 infos.", run.Summary);
+        Assert.Equal(
+            "Checked 5 files in 1 bundle (18 rules: 16 active, 2 hidden): 0 errors, 0 warnings, 0 infos.",
+            run.Summary);
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+    }
+
+    [Fact]
+    public void TheSummaryLineSaysHowManyRulesWereLive()
+    {
+        using var home = new TempTree();
+        var defaults = Cli.RunIn(home.Root, home.Root, "lint", Fixtures.Bundle("conformant"));
+        var enabled = Cli.RunIn(
+            home.Root, home.Root, "lint", Fixtures.Bundle("conformant"), "--severity", "OKF0304=warning");
+        var silenced = Cli.RunIn(
+            home.Root,
+            home.Root,
+            "lint",
+            Fixtures.Bundle("conformant"),
+            "--severity",
+            "OKF0001=hidden",
+            "--severity",
+            "OKF0002=hidden");
+
+        // Friction #11: "0 errors" from a run with the gate switched off has to read
+        // differently from "0 errors" with the gate on. The counts move with the
+        // configuration, in both directions.
+        Assert.Equal(18, Okf.Core.OkfRules.All.Count);
+        Assert.Contains("(18 rules: 16 active, 2 hidden)", defaults.Summary, StringComparison.Ordinal);
+        Assert.Contains("(18 rules: 17 active, 1 hidden)", enabled.Summary, StringComparison.Ordinal);
+        Assert.Contains("(18 rules: 14 active, 4 hidden)", silenced.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -165,7 +193,47 @@ public class LintCommandTests
         Assert.Contains("okf: resolved bundle", run.Error, StringComparison.Ordinal);
         Assert.Contains("okf: global config: none", run.Error, StringComparison.Ordinal);
         Assert.Contains("okf: severity OKF0302 = error (from command line)", run.Error, StringComparison.Ordinal);
-        Assert.DoesNotContain("OKF0301", run.Error, StringComparison.Ordinal);
+
+        // Every rule is listed with its effective severity and the layer that decided it,
+        // not only the ones a layer moved: an unexpected default is as surprising as an
+        // unexpected override.
+        Assert.Contains(
+            "okf: severity OKF0301 = warning (from built-in defaults) missing-description",
+            run.Error,
+            StringComparison.Ordinal);
+        Assert.All(
+            Okf.Core.OkfRules.All,
+            rule => Assert.Contains($"okf: severity {rule.Id} = ", run.Error, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void JsonStaysABareArrayAndRunMetadataGoesToStderr()
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(
+            home.Root,
+            home.Root,
+            "lint",
+            Fixtures.Bundle("warnings-only"),
+            "--json",
+            "--verbose",
+            "--severity",
+            "OKF0301=hidden");
+
+        // PRD CLI-15's contract is the array itself, so the counts cannot ride along in an
+        // envelope; stderr carries them instead and stdout parses exactly as before. The
+        // demoted rule is the point: its finding is missing from the array, and only the
+        // stderr metadata says a rule was silenced rather than clean.
+        using var document = JsonDocument.Parse(run.Output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal("OKF0302", Assert.Single(document.RootElement.EnumerateArray()).GetProperty("id").GetString());
+
+        Assert.Contains("okf: checked 2 files in 1 bundle", run.Error, StringComparison.Ordinal);
+        Assert.Contains("okf: 18 rules: 15 active, 3 hidden", run.Error, StringComparison.Ordinal);
+        Assert.Contains(
+            "okf: diagnostics 0 errors, 0 warnings, 1 info, 1 at hidden severity",
+            run.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
