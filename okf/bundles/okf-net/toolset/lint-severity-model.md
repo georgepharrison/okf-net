@@ -3,7 +3,7 @@ type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 tags: [okf-net, lint, diagnostics, severity, configuration]
-generated: { by: claude-fable/5, at: 2026-08-15T00:12:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -68,15 +68,25 @@ are never valid configuration keys — configuration references the number.
 | `OKF0307` | missing-source-resource | A `sources[]` entry carries no `resource` | warning |
 | `OKF0308` | unresolvable-source-resource | A `sources[].resource` written as a path names nothing in the bundle | info |
 | `OKF0309` | link-leaves-bundle | A link resolves outside the bundle root | info |
+| `OKF0310` | raw-item-mutated | An ingested `raw/` item no longer matches its recorded `sha256` | warning |
 
 Two rules default to **hidden** rather than off: hidden is a severity, so
 enabling a tag policy is a configuration edit rather than a feature flag.
+
+`OKF0310` is the one rule scoped to the **vault** rather than to a bundle
+root, because `raw/` sits outside every bundle root by construction. It follows
+the vault a command resolved — the same vault whose `okf.json` decides these
+severities — and a bundle handed over by path with no vault around it leaves the
+rule inapplicable rather than failing. Detection is the manifest's recorded
+`sha256` rather than git: the hash is the format-level record, it works in a
+vault that is not a work tree, and it needs no process launched from a library
+that is offline by contract.
 
 A run says how many of those rules were live, because a clean report and a
 silenced one are otherwise the same sentence:
 
 ```text
-Checked 21 files in 1 bundle (18 rules: 16 active, 2 hidden): 0 errors, 0 warnings, 0 infos.
+Checked 26 files in 1 bundle (19 rules: 19 active, 0 hidden): 0 errors, 0 warnings, 0 infos.
 ```
 
 `--verbose` expands that to one line per rule — effective severity and the
@@ -94,12 +104,19 @@ because those default to info. An **unknown rule id in configuration is
 itself reported** — a typo that silently disabled a rule would be the worst
 possible failure mode for a linter.
 
-This vault's own `okf/okf.json` promotes exactly three rules to error:
+This vault's own `okf/okf.json` promotes exactly four rules to error:
 `OKF0306`, because nothing here is hand-edited that `okf index` owns;
 `OKF0301`, because a concept with no description renders as a bare link in
-its index and a snippet-less hit in search; and `OKF0307`, because provenance
+its index and a snippet-less hit in search; `OKF0307`, because provenance
 is the load-bearing half of the trust model and a source entry with no
-`resource` records something nobody can go and check.
+`resource` records something nobody can go and check; and `OKF0310`, because
+an ingested artifact that changed is a concept citing something that is no
+longer there.
+
+Those four are the promotions `okf init` writes into every vault it
+scaffolds, with the reasons beside them in the file — see [vaults, registry,
+and config](vault-registry-and-config.md) for why a config named `.json` is
+parsed as JSONC precisely so those reasons can be there.
 
 It also lifts the two tag rules off their hidden defaults to **warning**,
 because the bundle now has a registry for them to check against. Warning
