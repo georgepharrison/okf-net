@@ -68,8 +68,9 @@ decidable today:
    `captures` array. **A manifest that does not parse is reported and left as
    found** — never rewritten to make it parse.
 2. Every entry carries `id`, `form`, `files`, `capturedAt`, `capturedBy` and
-   an `ingestion` key; the `id` is a unique `<YYYY-MM-DD>-<slug>`, the `form`
-   is `flat` or `packet`, and the timestamps are ISO 8601 with an offset.
+   an `ingestion` key; the `id` is a unique `<YYYY-MM-DD>-<slug>` opening on a
+   day that exists, the `form` is `flat` or `packet`, and the timestamps are
+   ISO 8601 with an offset.
 3. Every `files[].path` stays inside `raw/`, exists on disk, and **hashes to
    its recorded `sha256`**. This is the immutability check: an ingested
    artifact that changed is the one failure the whole capture convention
@@ -77,7 +78,10 @@ decidable today:
 4. A `flat` capture is one file named `<id>.<ext>`; a `packet` capture's files
    all live under `<id>/`.
 5. **Nothing sits in `raw/` unrecorded.** A file no entry claims has no
-   original URL, no hash, and no place in the custodian's work queue.
+   original URL, no hash, and no place in the custodian's work queue. A
+   symbolic link is reported for the same reason and never followed: a link is
+   not the bytes that were retrieved, and a linked directory is a whole tree
+   the walk cannot see into.
 6. An entry whose `ingestion` is not `null` carries `at`, `by`, and a
    non-empty `concepts` array, and **every path in it names a file that
    exists** — vault-root-relative, not `raw/`-relative, because one capture may

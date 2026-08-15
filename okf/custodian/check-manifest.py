@@ -63,24 +63,59 @@ def sha256_of(path: str) -> str:
     return digest.hexdigest()
 
 
-def is_iso_with_offset(value: str) -> bool:
-    """True for `date -Iseconds` output — ISO 8601 carrying a UTC offset."""
+def is_iso_with_offset(value) -> bool:
+    """True for `date -Iseconds` output — ISO 8601 carrying a UTC offset.
+
+    The type guard is load-bearing: a missing or non-string timestamp is an
+    ordinary hostile-manifest case, and `str.replace` on `None` would raise
+    out of the report rather than into it.
+    """
+    if not isinstance(value, str):
+        return False
     try:
         parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
+    except ValueError:
         return False
     return parsed.tzinfo is not None
 
 
-def raw_files(raw_dir: str) -> set[str]:
-    """Every file under `raw/`, relative to it, except the manifest itself."""
-    found = set()
-    for directory, _, filenames in os.walk(raw_dir):
-        for filename in filenames:
-            relative = os.path.relpath(os.path.join(directory, filename), raw_dir)
-            if relative != "manifest.json":
-                found.add(relative.replace(os.sep, "/"))
-    return found
+def is_calendar_date(value: str) -> bool:
+    """True when `YYYY-MM-DD` names a day that exists — `2026-13-45` does not."""
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def raw_entries(raw_dir: str) -> tuple[set[str], set[str]]:
+    """Every file under `raw/` and every symlink in it, relative to `raw/`.
+
+    Symlinks are surfaced separately and never descended. `os.walk` does not
+    walk into a symlinked directory, so an unrecorded tree would otherwise sit
+    in `raw/` completely invisible to the "nothing here is unclaimed" check —
+    and a link is not a retrieved artifact in any case: what a recorded sha256
+    measures has to be the bytes that were captured, not a pointer that can be
+    repointed.
+    """
+    files: set[str] = set()
+    links: set[str] = set()
+
+    def relative(path: str) -> str:
+        return os.path.relpath(path, raw_dir).replace(os.sep, "/")
+
+    for directory, dirnames, filenames in os.walk(raw_dir):
+        for name in list(dirnames):
+            if os.path.islink(os.path.join(directory, name)):
+                links.add(relative(os.path.join(directory, name)))
+                dirnames.remove(name)
+        for name in filenames:
+            full = os.path.join(directory, name)
+            if os.path.islink(full):
+                links.add(relative(full))
+            elif relative(full) != "manifest.json":
+                files.add(relative(full))
+    return files, links
 
 
 def check_entry(entry, position: int, raw_dir: str, vault: str, seen_ids: dict,
@@ -102,10 +137,15 @@ def check_entry(entry, position: int, raw_dir: str, vault: str, seen_ids: dict,
     # --- id: unique, and the dated slug the skill names ------------------
     if not isinstance(entry_id, str) or not ID_PATTERN.match(entry_id or ""):
         report.fail(where, "`id` must be `<YYYY-MM-DD>-<slug>` (lowercase).")
-    elif entry_id in seen_ids:
-        report.fail(where, f"`id` duplicates captures[{seen_ids[entry_id]}].")
     else:
-        seen_ids[entry_id] = position
+        # The pattern fixes the shape; only the calendar rejects `2026-13-45`,
+        # and an id nobody can read as a date is not a capture date.
+        if not is_calendar_date(entry_id[:10]):
+            report.fail(where, f"`id` opens with `{entry_id[:10]}`, which is not a date.")
+        if entry_id in seen_ids:
+            report.fail(where, f"`id` duplicates captures[{seen_ids[entry_id]}].")
+        else:
+            seen_ids[entry_id] = position
 
     # --- form ------------------------------------------------------------
     form = entry.get("form")
@@ -234,7 +274,8 @@ def main(argv: list[str]) -> int:
         # The skill's own reading: no manifest at all means nothing is waiting.
         # An empty `raw/` beside it is the ordinary state of a vault that has
         # captured nothing; a populated one is not.
-        stray = raw_files(raw_dir) if os.path.isdir(raw_dir) else set()
+        found, links = raw_entries(raw_dir) if os.path.isdir(raw_dir) else (set(), set())
+        stray = found | links
         if stray:
             for path in sorted(stray):
                 print(f"check-manifest: raw/{path}: present in raw/ with no manifest "
@@ -275,8 +316,15 @@ def main(argv: list[str]) -> int:
 
     # Nothing sits in raw/ unrecorded: an artifact with no manifest entry has
     # no original URL, no hash, and no place in the custodian's work queue.
-    for path in sorted(raw_files(raw_dir) - set(claimed)):
+    found, links = raw_entries(raw_dir)
+    for path in sorted(found - set(claimed)):
         report.fail(f"raw/{path}", "no manifest entry claims this file.")
+    for path in sorted(links):
+        report.fail(
+            f"raw/{path}",
+            "is a symbolic link, not a captured artifact. raw/ holds the bytes "
+            "that were retrieved; a link points at bytes that can be repointed, "
+            "and a linked directory is a tree this check cannot walk.")
 
     for violation in report.violations:
         print(f"check-manifest: {violation}", file=sys.stderr)
