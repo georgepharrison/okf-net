@@ -182,13 +182,24 @@ public static class OkfStamp
     /// </summary>
     private static string? TryInsert(string text, string entry)
     {
-        var newline = text.Contains('\r', StringComparison.Ordinal) ? "\r\n" : "\n";
-        var lines = text.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
+        // Each line keeps its own carriage return: split on '\n' and joined back with
+        // '\n', the pieces reproduce the file byte for byte, so a line the insertion did
+        // not touch keeps the ending its author gave it. Deciding one ending for the whole
+        // file from "is there a '\r' anywhere in it" would rewrite every line of an
+        // LF-terminated concept that happens to carry one stray carriage return in its
+        // body — an acknowledgment arriving as a whole-file diff, which is the thing this
+        // path exists to avoid. Every read below either trims or only inspects a prefix,
+        // so the retained '\r' changes no decision.
+        var lines = text.Split('\n').ToList();
 
         if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
         {
             return null;
         }
+
+        // The ending the inserted lines get: the one the opening fence carries, which is
+        // the frontmatter's own convention rather than the file's most common one.
+        var carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
 
         var fence = -1;
         for (var i = 1; i < lines.Count; i++)
@@ -212,9 +223,9 @@ public static class OkfStamp
 
         if (key < 0)
         {
-            lines.Insert(fence, $"{VerifiedKey}:");
-            lines.Insert(fence + 1, $"  - {entry}");
-            return string.Join(newline, lines);
+            lines.Insert(fence, $"{VerifiedKey}:{carriage}");
+            lines.Insert(fence + 1, $"  - {entry}{carriage}");
+            return string.Join('\n', lines);
         }
 
         var inline = lines[key][(VerifiedKey.Length + 1)..].Trim();
@@ -242,17 +253,17 @@ public static class OkfStamp
                 return null;
             }
 
-            lines[key] = $"{VerifiedKey}:";
-            lines.Insert(key + 1, $"  - {inline}");
-            lines.Insert(key + 2, $"  - {entry}");
-            return string.Join(newline, lines);
+            lines[key] = $"{VerifiedKey}:{carriage}";
+            lines.Insert(key + 1, $"  - {inline}{carriage}");
+            lines.Insert(key + 2, $"  - {entry}{carriage}");
+            return string.Join('\n', lines);
         }
 
         if (region.Count == 0)
         {
             // `verified:` with no value: a null the spec reads as no events.
-            lines.Insert(key + 1, $"  - {entry}");
-            return string.Join(newline, lines);
+            lines.Insert(key + 1, $"  - {entry}{carriage}");
+            return string.Join('\n', lines);
         }
 
         var first = lines[region[0]];
@@ -268,7 +279,7 @@ public static class OkfStamp
         // continuation of one — so the new item goes after the last of them, at the
         // indentation the author gave the first.
         var indent = first[..(first.Length - first.TrimStart().Length)];
-        lines.Insert(region[^1] + 1, $"{indent}- {entry}");
-        return string.Join(newline, lines);
+        lines.Insert(region[^1] + 1, $"{indent}- {entry}{carriage}");
+        return string.Join('\n', lines);
     }
 }

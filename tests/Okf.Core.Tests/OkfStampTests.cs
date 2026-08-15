@@ -283,6 +283,63 @@ public class OkfStampTests
             stamped);
     }
 
+    [Fact]
+    public void AStrayCarriageReturnInTheBodyDoesNotRewriteEveryLineEnding()
+    {
+        // The whole argument for editing text rather than re-emitting is that an
+        // acknowledgment is one line of diff. Reading one '\r' anywhere in the file as
+        // "this file is CRLF" would hand back a file whose every line moved — the
+        // whole-file diff, arriving from the path that exists to prevent it.
+        var source = "---\ntype: Concept\n---\n\nA body with a lone \r carriage return.\n";
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n---"
+            + "\n\nA body with a lone \r carriage return.\n",
+            stamped);
+    }
+
+    [Fact]
+    public void ACrlfConceptWhoseBodyHoldsALfOnlyLineKeepsBothEndings()
+    {
+        // The mirror image: the inserted lines take the fence's ending, and every other
+        // line — including the odd one out — keeps its own.
+        var source = "---\r\ntype: Concept\r\n---\r\n\r\nCRLF body.\r\nLF line.\nEnd.\r\n";
+
+        var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+        Assert.Equal(
+            "---\r\ntype: Concept\r\nverified:\r\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\r\n---"
+            + "\r\n\r\nCRLF body.\r\nLF line.\nEnd.\r\n",
+            stamped);
+    }
+
+    [Fact]
+    public void EveryInsertionShapeKeepsTheFilesOwnLineEndings()
+    {
+        // Each of the three shapes the insertion reaches, in CRLF: the inserted lines must
+        // carry the fence's ending or the result is a mixed-ending frontmatter.
+        string[] sources =
+        [
+            "---\r\ntype: Concept\r\n---\r\n\r\nBody.\r\n",
+            "---\r\ntype: Concept\r\nverified:\r\n  - { by: \"process:x\", at: 2026-08-01 }\r\n---\r\n\r\nBody.\r\n",
+            "---\r\ntype: Concept\r\nverified: { by: \"process:x\", at: 2026-08-01 }\r\n---\r\n\r\nBody.\r\n",
+            "---\r\ntype: Concept\r\nverified:\r\n---\r\n\r\nBody.\r\n",
+        ];
+
+        foreach (var source in sources)
+        {
+            var stamped = OkfStamp.VerifyText(source, "human:ringo", At);
+
+            Assert.DoesNotContain("Z }\n ", stamped, StringComparison.Ordinal);
+            Assert.Contains("\r\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\r\n", stamped, StringComparison.Ordinal);
+            Assert.Equal(
+                "human:ringo",
+                Text(OkfDocument.NormalizeVerified(OkfDocument.Parse(stamped).Frontmatter)[^1], "by"));
+        }
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
