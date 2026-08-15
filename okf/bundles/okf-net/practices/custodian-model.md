@@ -78,23 +78,42 @@ already provide — no new frontmatter field, no bespoke review queue:
    itself](../format/trust-tiers-and-acknowledgment.md).
 2. Uncertain output carries `status: draft`, which makes the concept
    unacknowledged by definition.
-3. `okf inbox` lists everything unacknowledged; `okf verify` clears an item
-   with a human stamp.
+3. `okf inbox` lists everything waiting on a person — unacknowledged, stale,
+   or citing a source that moved — grouped by reason, one row per concept.
+   `okf verify <concept-path>` clears the first of those with a human stamp.
 4. A custodian running in CI opens a merge request. **The merge request is
    the inbox** for machine-derived insight — reviewable, and, importantly,
    ignorable.
 5. `log.md` records notable updates, newest first.
 
-The staleness-refresh loop is the same chain with a different trigger: when a
-version-pinned source's `stale_after` expires, the custodian fetches release
-notes from the pinned version to current, updates or drafts the affected
-concept with a derived impact analysis, and surfaces it exactly as above.
+# The staleness-refresh loop
 
-That loop is post-MVP, and so is most of the chain it rides on: of the five
-steps, only the staleness trigger is implemented today, reported by
-`okf lint` as `OKF0202`. `okf inbox` and `okf verify` are designed and not
-yet built. The chain is the contract the custodian is being built to, not a
-description of what runs on this repository now.
+The same chain with a different trigger. When `okf inbox` lists a concept as
+stale or drifted, the custodian fetches what changed — release notes from the
+pinned version through to current for a version-pinned source, the current
+content for a living URL — drafts an updated body carrying an explicit *what
+changed since the old pin* section and its impact on the concepts that cite
+this one, sets `status: draft`, restamps `generated`, moves `stale_after` out
+**in the draft**, and surfaces the result as a merge request.
+
+It never lands. Automated content refresh is an explicit non-goal:[^prd] the
+custodian's product is a draft and an explanation, and the judgement about
+whether the draft is right is the part a person is for. Landing is two acts,
+not one — remove `status: draft`, then `okf verify` — because a verification
+on a document still marked draft leaves it on the inbox, which is the marker
+working as intended.
+
+The procedure lives in `skills/okf-custodian/SKILL.md`, where the agent that
+runs it will read it. There is no refresh script beside it, deliberately:
+`okf inbox --format json` is the machine interface, and a second program that
+re-derived the same rows in Python would be a copy of the thing to keep in
+step with.
+
+Of the five steps of the chain, four are now mechanical. `okf inbox` derives
+the acknowledgment, staleness, and drift state; `okf verify` stamps; `okf lint`
+reports staleness (`OKF0202`) and drift (`OKF0203`) against the bundle's
+conformance; `log.md` is checked for ordering. The fetch-and-draft step in the
+middle is an agent's work and stays that way.
 
 # Search before create
 
@@ -149,7 +168,8 @@ that means concretely, and only what it means:
 | `okf/custodian/recipe.json` | Names the two skills by repo path, the search seeds an enrichment pass starts from, the exact commands, and the triggers. | — |
 | `pre-commit` hook | `markdownlint-cli2` on staged markdown; `check-manifest.py` when anything under `okf/raw/` is staged. | Nothing. Both report. |
 | CI `dogfood` job | `okf lint okf/`, `okf index --check`, and `okf/custodian/check-manifest.py`. | Nothing. All three report. |
-| A session with the skills | Capture, ingestion, enrichment, indexes, `log.md`. | A person, deliberately. |
+| CI `custodian-inbox` job | `okf inbox okf/`, on a schedule, publishing the JSON as an artifact. | Nothing. It surfaces and exits 0 whatever it finds. |
+| A session with the skills | Capture, ingestion, enrichment, refresh drafts, indexes, `log.md`. | A person, deliberately. |
 
 `okf/raw/` exists and holds its first capture, ingested into
 [`references/`](../references/about.md) and closed in the manifest. Two gates
@@ -167,14 +187,15 @@ the record cannot claim the artifact changed. Neither ever repairs anything.
 What is **not** running, stated plainly because a custodian that overstates
 itself is worse than none:
 
-- **No scheduled agent, and no automated staleness refresh.** Nothing watches
-  `stale_after`; nothing fetches release notes; nothing opens a merge request
-  on its own. Steps 3 and 4 of the chain above are still designed rather than
-  built, and the refresh loop is its own milestone.
+- **No agent on a schedule.** The `custodian-inbox` job *reports* on a
+  schedule; nothing fetches release notes and nothing opens a merge request on
+  its own. The refresh procedure is a session a person starts, and the job
+  exists to tell them there is one worth starting.
 - **No verification.** Every concept here remains `unverified` — no `verified`
-  events at all, so the bundle sits at the lowest trust tier by construction.
-  That is accuracy, not modesty: an actor cannot verify its own work, and no
-  second actor has come through.
+  events at all, so the bundle sits at the lowest trust tier by construction
+  and every concept in it is on the inbox. That is accuracy, not modesty: an
+  actor cannot verify its own work, and no second actor has come through. The
+  first `okf verify` on this bundle is a person's to run.
 - **Enrichment is human-initiated.** The gates are mechanical; the writing
   they gate begins when someone opens a session and loads a skill.
 

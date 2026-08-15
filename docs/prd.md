@@ -596,10 +596,16 @@ decision (and its rationale) is recorded in decisions.md.
   (instance configuration to be verified at first publish). **Still open:** the
   AOT-compatible YAML serialization library choice — no packaging or publish job exists in
   `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.
-- **Q11 — `okf verify` and `okf inbox` scope granularity.** Whether they operate per bundle,
-  per vault, or across the registry by default, and whether `verify` accepts a directory or
-  glob rather than one concept at a time.
-- **Q12 — Machine verification surface.** decisions §7 allows non-generating agents to
-  record machine-confirmed verifications, but no command exposes it (CLI-13 is human-only).
-  Whether that is a flag on `okf verify`, a separate command, or deliberately left to the
-  custodian writing frontmatter directly is unsettled.
+- **Q11 — `okf verify` and `okf inbox` scope granularity. RESOLVED (2026-08-15, see
+  decisions.md).** `okf inbox [path]` resolves its working set exactly as `okf lint` and
+  `okf search` do (CLI-1), so the three never disagree about which bundles they are looking
+  at; the default is therefore the project vault. `okf verify` takes concept paths, one or
+  many, because a verification stamp names a document a person actually read — no directory
+  and no glob. Neither reaches the registry, for the same reason `okf search` does not:
+  `okf register` does not exist yet.
+- **Q12 — Machine verification surface. RESOLVED (2026-08-15, see decisions.md).** A
+  `--by <actor>` flag on `okf verify`, not a separate command: the refusals a machine
+  confirmation needs — a well-formed §7 actor, never the concept's own `generated.by` —
+  are the ones `okf verify` already performs, so a second command would be the same code
+  behind another name. Plain `okf verify` remains human-only, and a `verify.actor` that
+  names a process or a tool is a configuration error rather than a coerced `human:` stamp.

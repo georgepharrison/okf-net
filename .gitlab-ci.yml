@@ -407,3 +407,44 @@ publish:
     expire_in: 30 days
     paths:
       - artifacts/aot/okf
+
+# ============================================================================
+# The custodian's scheduled inbox (issue #7). `okf inbox` derives, per concept,
+# whether anything is waiting on a person: unacknowledged content, an expired
+# `stale_after`, or a cited source that moved after the concept was written.
+#
+# It SURFACES and never gates. `--fail-if-any` exists and is deliberately not
+# used here: PRD §1.3 makes automated content refresh a non-goal, the custodian
+# drafts and a human lands, and an inbox that turns a pipeline red is an inbox
+# people learn to route around. The job therefore publishes the JSON as an
+# artifact and exits 0 whatever it finds — including on a vault where every
+# concept is unverified, which is this one's honest state.
+#
+# Schedule-only, like `mutation`: the inbox answers a question about elapsed
+# time, so running it on every push would re-report the same rows all day and
+# find something new roughly never. The `workflow:` block at the top already
+# admits scheduled pipelines. Add it to an existing schedule or give it its own;
+# with no schedule configured the job simply never runs, which is a visible
+# absence rather than a silent one.
+#
+# Both formats, on purpose: the text report is what a person reads in the job
+# log without downloading anything, and the JSON is the machine interface the
+# okf-custodian skill's refresh procedure starts from (`okf inbox --format
+# json`). There is no reporting script here and there should not be — the CLI
+# is the machine interface, and the skill is the procedure.
+custodian-inbox:
+  extends: .dotnet
+  stage: validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - dotnet run --project src/Okf.Cli -- inbox okf/
+    - mkdir -p artifacts/custodian
+    - dotnet run --project src/Okf.Cli -- inbox okf/ --format json > artifacts/custodian/inbox.json
+  artifacts:
+    # Kept whatever the scan found: an empty array is as much a result as a full
+    # one, and the run that reported it is the one worth having.
+    when: always
+    expire_in: 30 days
+    paths:
+      - artifacts/custodian/inbox.json
