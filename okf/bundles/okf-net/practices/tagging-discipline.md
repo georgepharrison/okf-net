@@ -3,7 +3,7 @@ type: Playbook
 title: Tagging Discipline
 description: The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.
 tags: [okf-net, tags, governance, lint, conventions]
-generated: { by: claude-fable/5, at: 2026-08-15T00:12:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T00:17:55-05:00 }
 sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/3fcbb9f828c2f23d109c855ee403c3a4c81f3a96/okf/SPEC.md
@@ -122,8 +122,12 @@ true:
 - **It is the subject.** Then it belongs in the directory tree, and the tree is
   what a reader navigates. A tag that duplicates its own directory name adds
   nothing to a search.
-- **It is the kind of document.** Then it is `type`, which the format already
-  fixes: `Concept`, `Guide`, `Playbook`, `Reference`.
+- **It is the kind of document.** Then it is `type`, not a tag. The format
+  registers no `type` values centrally — producers pick them, and consumers
+  must tolerate ones they have never seen.[^okf-spec] This bundle uses four,
+  `Concept`, `Guide`, `Playbook` and `Reference`, and that list is short on
+  purpose: a fifth is a decision about the bundle, taken the same way a new
+  tag is.
 - **It cuts across both.** Then it is a tag, and it should already join at
   least two concepts — a tag on exactly one concept is a note to self, and
   forty-one of them are the state this bundle is climbing out of.
