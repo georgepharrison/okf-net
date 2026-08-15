@@ -78,6 +78,23 @@ public class OkfSeverityResolverTests
     }
 
     [Fact]
+    public void ThePromotionNamesTheLayerThatTurnedItOnRatherThanTheDefaults()
+    {
+        var global = new OkfSeverityLayer("global");
+        var project = new OkfSeverityLayer("project") { TreatAllWarningsAsErrors = true };
+        var resolver = new OkfSeverityResolver([global, project]);
+
+        // PRD CLI-6: the source is what sends a consumer to the file they can edit, so it
+        // has to be the layer that set the flag — never the built-in defaults, which set
+        // nothing and cannot be edited.
+        Assert.Equal("project", resolver.TreatAllWarningsAsErrorsSource);
+        Assert.NotEqual(OkfSeverityResolver.DefaultsLayerName, resolver.TreatAllWarningsAsErrorsSource);
+        Assert.Equal(
+            "project (treatAllWarningsAsErrors)",
+            resolver.ResolveWithSource(OkfRules.MissingDescription).Source);
+    }
+
+    [Fact]
     public void ALaterLayerCanTurnTreatAllWarningsAsErrorsBackOff()
     {
         var global = new OkfSeverityLayer("global") { TreatAllWarningsAsErrors = true };

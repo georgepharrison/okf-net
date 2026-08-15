@@ -282,6 +282,27 @@ public class OkfIndexGeneratorTests
     }
 
     [Fact]
+    public void OneDriftedIndexAmongCleanOnesIsStillDrift()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"))
+            .Add("topics/widgets.md", Concept("Reference", "Widgets"));
+        OkfIndexGenerator.Apply(OkfIndexGenerator.Plan(bundle.Bundle));
+
+        bundle.Add(
+            "topics/index.md",
+            $"{OkfIndexGenerator.GeneratedMarker}\n\n# Reference\n\n* [Widgets](widgets.md) - edited by hand\n");
+
+        var plan = OkfIndexGenerator.Plan(bundle.Bundle);
+
+        // `HasDrift` is "any", not "all": PRD CLI-14 fails the whole run on one stale
+        // index, so a plan whose other indexes are byte-identical must still report drift.
+        Assert.Equal(OkfIndexStatus.Drifted, Assert.Single(plan.Indexes, index => index.IsDrift).Status);
+        Assert.Equal(OkfIndexStatus.Unchanged, Assert.Single(plan.Indexes, index => !index.IsDrift).Status);
+        Assert.True(plan.HasDrift);
+    }
+
+    [Fact]
     public void AGeneratedIndexLeftInAnEmptiedDirectoryIsAnOrphan()
     {
         using var bundle = new TempBundle();

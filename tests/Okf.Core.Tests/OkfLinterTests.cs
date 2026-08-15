@@ -187,6 +187,34 @@ public class OkfLinterTests
     }
 
     [Fact]
+    public void OKF0004AcceptsTwoLogEntriesBearingTheSameDate()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "log.md",
+            """
+            # History
+
+            ## 2026-02-01
+
+            - **Update**: the second thing that happened that day.
+
+            ## 2026-02-01
+
+            - **Update**: the first thing that happened that day.
+
+            ## 2026-01-01
+
+            - **Initialization**: created.
+            """);
+
+        // §9 asks for newest first, and a bundle that logged twice in one day still is:
+        // only a *later* date following an earlier one breaks the order. Equal dates are
+        // in order, so the check is strict `>` rather than `>=`.
+        Assert.Empty(bundle.Lint());
+    }
+
+    [Fact]
     public void ReservedFilesAreNotHeldToTheConceptRules()
     {
         using var bundle = new TempBundle();
@@ -347,6 +375,36 @@ public class OkfLinterTests
 
         Assert.Contains("moved", diagnostic.Message, StringComparison.Ordinal);
         Assert.Equal(OkfSeverity.Warning, diagnostic.Severity);
+    }
+
+    [Fact]
+    public void OKF0103IsSilentWhenASourceWasLastModifiedOnTheGenerationDate()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "same-day.md",
+            """
+            ---
+            type: Reference
+            title: Same day
+            description: d
+            tags: [t]
+            generated: { by: okf-net/tests, at: 2026-01-01T00:00:00Z }
+            sources:
+              - id: same
+                resource: https://example.invalid/one
+                last_modified: 2026-01-01
+            ---
+
+            # Same day
+
+            Claims.[^same]
+            """);
+
+        // PRD CORE-8 compensates for a source that moved *after* the concept was written.
+        // A source last modified on the generation date has not moved past it, so the same
+        // date is not drift — the comparison is strict `>`, not `>=`.
+        Assert.DoesNotContain(OkfRules.SourceDrift, bundle.LintIds());
     }
 
     [Fact]

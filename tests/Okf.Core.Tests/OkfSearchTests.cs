@@ -84,6 +84,26 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void ABriefConceptOutranksALongOneThatMentionsTheTermJustAsOften()
+    {
+        using var bundle = new TempBundle();
+
+        // BM25's length normalization (Robertson & Zaragoza, "The Probabilistic Relevance
+        // Framework", §3.1 — the ranking function decisions.md Q7 commits to): with the
+        // same term frequency the shorter document is the better match, because the term
+        // makes up more of it. The expectation is the published formula's, not okf-net's
+        // arithmetic. `long.md` sorts before `short.md`, so the path tiebreak would put it
+        // first if document length did not enter the score at all.
+        bundle.Add("long.md", "---\ntype: Reference\ntitle: Alpha\n---\n\nwidget " + Filler())
+            .Add("short.md", "---\ntype: Reference\ntitle: Beta\n---\n\nwidget\n");
+
+        var results = Search(bundle, "widget").Results;
+
+        Assert.Equal(["short.md", "long.md"], results.Select(result => result.Path));
+        Assert.True(results[0].Score > results[1].Score);
+    }
+
+    [Fact]
     public void TagsAndTypeAreMatchableText()
     {
         using var bundle = new TempBundle();
