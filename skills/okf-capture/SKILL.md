@@ -29,7 +29,8 @@ so nothing indexes it, searches it, or ships it.
 `okf <command> --help` for a command's options. Search is tokenized,
 field-weighted, and returns a trust tier and a stale flag per hit, so a hit can
 be judged before it is opened — reach for it in place of a text scan of the
-directory. With `okf` absent from the PATH, stop and say so.
+directory. With `okf` absent from the PATH and no documented equivalent in the
+project, stop and say so.
 
 The layout it resolves against:
 
@@ -194,7 +195,7 @@ tags: [search, ranking]
 generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
 sources:
   - id: okapi-bm25-paper
-    resource: references/okapi-bm25.md
+    resource: /references/okapi-bm25.md
     title: Okapi at TREC-3
     last_modified: 1994-11-01
 ---

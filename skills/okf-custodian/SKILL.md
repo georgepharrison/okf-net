@@ -38,7 +38,7 @@ indexes it, searches it, or ships it.
 `okf <command> --help` for a command's options. Search is tokenized,
 field-weighted, and carries a trust tier and a stale flag on every hit — reach
 for it in place of a text scan of the directory. With `okf` absent from the
-PATH, stop and say so.
+PATH and no documented equivalent in the project, stop and say so.
 
 ```text
 <project>/okf/
