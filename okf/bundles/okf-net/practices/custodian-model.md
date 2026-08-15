@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T23:23:59-05:00 }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -91,17 +91,36 @@ description of what runs on this repository now.
 
 # Search before create
 
-A capture skill searches the resolved bundles *before* writing anything, and
+The capture skill searches the resolved bundles *before* writing anything, and
 either extends the concept it found or states why a new one is warranted. A
 knowledge base that cannot resist adding a fourth document about the same
 thing decays into a search problem, and then into an abandoned directory.
 
+# The two skills
+
+The custodian is instantiated by two prose skills shipped in the toolset's
+`skills/` directory, host-neutral and calling the CLI rather than
+reimplementing anything:[^prd]
+
+- **`okf-capture`** turns something just learned into a concept: search first,
+  apply [the capture-versus-cite
+  test](../format/provenance-capture-vs-cite.md), drop what cannot defend
+  itself into `raw/` with an entry in the capture manifest
+  (`okf/raw/manifest.json`), and stamp `generated`.
+- **`okf-custodian`** maintains the bundle: ingest a `raw/` item into an
+  ordinary `references/` concept, enrich prose, regenerate indexes, clear
+  lint, and append to `log.md`.
+
+Both state the same doctrine — orient by disclosure, retrieve by search, open
+what you pick; `raw/` is evidence and the bundle is knowledge — which is also
+what `okf mcp` tells a client in its tool descriptions.
+
 # Status in this bundle
 
-No custodian is active on this bundle yet: the skills it instantiates are not
-built, so `custodian/` and `raw/` are deliberately absent from this vault and
-every concept here is `unverified`. Activation is tracked as *Dogfood
-v2*.[^prd]
+The skills exist; no custodian is active on *this* bundle. `custodian/` and
+`raw/` are deliberately absent from this vault, every concept here is
+`unverified`, and the concepts are maintained by hand under review. Activation
+is tracked as *Dogfood v2*.[^prd]
 
 [^decisions]: okf-net — Architecture Decisions, §1, §3, §7.
 [^prd]: okf-net — Product Requirements, §2.4 and ACC-5.
