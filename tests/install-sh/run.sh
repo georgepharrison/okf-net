@@ -210,6 +210,80 @@ set -e
 check_eq "exits 0 when the dir is already on PATH" "0" "$rc"
 check_not_contains "stays quiet when the dir is on PATH" "is not on your PATH" "$out"
 
+# Two spellings of "the same directory" that a string comparison gets wrong, and both are
+# ordinary: `PATH` entries pick up trailing slashes, and `~/.local/bin` is very often a
+# symlink into a dotfiles checkout. Getting these wrong prints an `export PATH=…` the
+# reader does not need and that will not help them, which is worse than saying nothing.
+dir_slash="$work/bin-pathslash-$sh_bin"
+mkdir -p "$dir_slash"
+set +e
+out="$(PATH="$dir_slash/:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir_slash" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0 with a trailing slash on the PATH entry" "0" "$rc"
+check_not_contains "a trailing slash on the PATH entry is still the same dir" \
+  "is not on your PATH" "$out"
+
+real_dir="$work/bin-pathreal-$sh_bin"
+link_dir="$work/bin-pathlink-$sh_bin"
+mkdir -p "$real_dir"
+ln -sfn "$real_dir" "$link_dir"
+set +e
+out="$(PATH="$real_dir:$PATH" OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$link_dir" \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0 installing through a symlinked dir" "0" "$rc"
+check_not_contains "a symlinked install dir is still the dir it points at" \
+  "is not on your PATH" "$out"
+
+note "[$sh_bin] a trailing slash on the base URL"
+dir="$work/bin-baseslash-$sh_bin"
+set +e
+out="$(OKF_INSTALL_URL="$base/" OKF_INSTALL_DIR="$dir" "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "exits 0" "0" "$rc"
+check_not_contains "does not build a doubled slash into the URLs it reports" "$base//" "$out"
+if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
+
+note "[$sh_bin] https stays https across redirects"
+# The installer follows redirects, which means one 302 to `http://` would fetch the
+# manifest AND the binary in cleartext — and a sha256 checked against a manifest that
+# came down the same cleartext channel proves nothing at all. The assertion is on the
+# flags the installer hands curl, because the alternative — standing up a TLS endpoint
+# that redirects to http — would be testing curl rather than install.sh. A recording shim
+# earlier on PATH captures the argv; the run itself fails (the host does not resolve, by
+# design) and that is fine, the argv is the artifact under test.
+shim="$work/shim-$sh_bin"
+mkdir -p "$shim"
+argv_log="$work/curl-argv-$sh_bin.log"
+cat >"$shim/curl" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$argv_log"
+exec $(command -v curl) "\$@"
+EOF
+chmod +x "$shim/curl"
+
+: >"$argv_log"
+set +e
+PATH="$shim:$PATH" OKF_INSTALL_URL="https://install-sh-acceptance.invalid" \
+  OKF_INSTALL_DIR="$work/bin-tls-$sh_bin" "$sh_bin" "$installer" >/dev/null 2>&1
+set -e
+check_contains "an https base refuses a plaintext redirect" "--proto-redir =https" "$(cat "$argv_log")"
+check_contains "an https base refuses a plaintext first hop too" "--proto =https" "$(cat "$argv_log")"
+
+: >"$argv_log"
+set +e
+PATH="$shim:$PATH" OKF_INSTALL_URL="$base" \
+  OKF_INSTALL_DIR="$work/bin-tls-plain-$sh_bin" "$sh_bin" "$installer" >/dev/null 2>&1
+set -e
+check_not_contains "an http base does not pin a scheme it is not using" \
+  "--proto-redir" "$(cat "$argv_log")"
+check_not_contains "and nothing anywhere turns certificate verification off" \
+  "--insecure" "$(cat "$argv_log")"
+
 note "[$sh_bin] idempotent re-run"
 dir="$work/bin-happy-$sh_bin"
 before="$(sha256sum "$dir/okf" | cut -d' ' -f1)"

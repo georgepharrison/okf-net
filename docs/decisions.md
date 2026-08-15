@@ -2155,3 +2155,23 @@ checksum file, and a second one is a second thing to keep in step). No `--prefix
 passing needs `sh -s --`. No uninstall: the installer writes exactly one file, and `rm` is
 the uninstaller. No non-linux-x64 assets, so the manifest's asset map has three entries and
 room for more; that is PRD Q10's problem, not this one's.
+
+**The installer follows redirects, but an `https` base URL is followed only to `https`.**
+Redirects have to work — the artifact host is allowed to move, and #26 may put something in
+front of it — but a `curl | sh` that follows one 302 down to `http://` has thrown away
+everything the rest of this design bought. Both the manifest and the binary would come from
+whoever answered, and a `sha256` compared against a manifest fetched over the same cleartext
+channel proves nothing at all: the attacker writes both numbers. So `--proto '=https'`
+covers the first hop and `--proto-redir '=https'` every hop after it (`--https-only` is
+wget's one flag for both), and only when the caller asked for `https` in the first place —
+an `http` base URL is pinned to no scheme, because that is what the acceptance suite serves
+the fixture over and a silent upgrade would be as much of a surprise as a silent downgrade.
+Certificates are checked against the system trust store; nothing disables that and nothing
+pins a certificate, so the host can rotate its own without reissuing this script.
+
+**Two spellings of one directory.** The PATH hint compares resolved paths, not strings:
+`PATH` entries pick up trailing slashes and `~/.local/bin` is often a symlink into a
+dotfiles checkout, and in both cases a string comparison prints an `export PATH=…` for a
+directory that is already on `PATH`. Wrong advice is worse than none — the reader follows
+it, it does not help, and the rest of the output is now suspect. `cd -P && pwd -P` resolves
+one in POSIX sh; `readlink -f` is GNU.

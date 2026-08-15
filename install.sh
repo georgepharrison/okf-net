@@ -26,7 +26,10 @@
 
 set -eu
 
+# Trailing slash trimmed once, here, because every URL below is built by appending to this
+# and `https://host//latest.json` is a different URL to most caches and some servers.
 OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.tychostation.dev}"
+OKF_BASE_URL="${OKF_BASE_URL%/}"
 OKF_DIR="${OKF_INSTALL_DIR:-$HOME/.local/bin}"
 OKF_ASSET="okf-linux-x64"
 
@@ -119,10 +122,42 @@ else
   die "need sha256sum or shasum to verify the download"
 fi
 
+# TLS. Certificates are verified against the system trust store — nothing here passes
+# `--insecure` or `--no-check-certificate`, and nothing pins a certificate or a key, so an
+# artifact host can rotate its own without reissuing this script.
+#
+# Redirects ARE followed: the artifact host is allowed to move, and #26 may well end up
+# behind something that redirects. But when the base URL is https, they are followed only
+# to https. Without that, one 302 to `http://` fetches the manifest AND the binary in
+# cleartext from whoever answered — and a sha256 compared against a manifest that came
+# down the same cleartext channel proves nothing whatsoever. `--proto` covers the first
+# hop, `--proto-redir` every hop after it; wget's `--https-only` is both at once.
+#
+# An http base URL is left alone deliberately, because the acceptance suite serves the
+# fixture over plain http on localhost. Pinning the scheme to whatever the caller asked
+# for is the honest rule: no silent upgrade, and no silent downgrade either.
+case "$OKF_BASE_URL" in
+  https://*) tls_only=1 ;;
+  *)         tls_only=0 ;;
+esac
+
 download() { # download <url> <dest>
   case "$downloader" in
-    curl) curl --fail --silent --show-error --location --output "$2" "$1" ;;
-    wget) wget --quiet --output-document "$2" "$1" ;;
+    curl)
+      if [ "$tls_only" -eq 1 ]; then
+        curl --fail --silent --show-error --location \
+             --proto '=https' --proto-redir '=https' --output "$2" "$1"
+      else
+        curl --fail --silent --show-error --location --output "$2" "$1"
+      fi
+      ;;
+    wget)
+      if [ "$tls_only" -eq 1 ]; then
+        wget --quiet --https-only --output-document "$2" "$1"
+      else
+        wget --quiet --output-document "$2" "$1"
+      fi
+      ;;
   esac
 }
 
@@ -242,12 +277,26 @@ else
 fi
 
 # A PATH hint, and only when it is warranted. Compare against the real PATH entries rather
-# than substring-matching, or /home/x/.local/binaries would count as a match.
+# than substring-matching, or /home/x/.local/binaries would count as a match — and compare
+# them RESOLVED, because two spellings of one directory are both ordinary here: a PATH
+# entry that carries a trailing slash, and an install dir reached through a symlink
+# (`~/.local/bin` is very often a link into a dotfiles checkout). Printing an
+# `export PATH=…` for a directory that is already on PATH is worse than printing nothing:
+# the reader follows it, it does not help, and now they distrust the rest of the output.
+#
+# `cd -P && pwd -P` is the POSIX way to resolve one; `readlink -f` is GNU. A path that
+# does not exist resolves to itself, which is the right answer for a PATH entry naming a
+# directory that was never created.
+physical() { # physical <dir>
+  ( CDPATH=''; cd -P -- "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
+}
+
+okf_dir_physical="$(physical "$OKF_DIR")"
 on_path=0
 saved_ifs="$IFS"
 IFS=:
 for entry in $PATH; do
-  if [ "$entry" = "$OKF_DIR" ]; then
+  if [ "$(physical "$entry")" = "$okf_dir_physical" ]; then
     on_path=1
   fi
 done

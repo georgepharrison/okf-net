@@ -92,7 +92,10 @@ into `sh` would otherwise have.
 `curl -fsSL https://get.tychostation.dev/install.sh | sh` fetches
 `latest.json`, verifies the binary against the digest in it, and installs
 atomically to `~/.local/bin/okf`. `--version` pins a release, `--dry-run`
-reports without writing, and re-running is safe.
+reports without writing, and re-running is safe. Redirects are followed, but an
+`https` base URL is only ever followed to `https` — a single hop down to
+cleartext would let one party write both the binary and the digest it is
+checked against.
 
 The host it names is an internal nginx that pulls each release from the
 package registry and serves it read-only. **It resolves only inside Ringo's
