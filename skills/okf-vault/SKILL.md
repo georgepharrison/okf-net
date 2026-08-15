@@ -109,8 +109,8 @@ dismissed by its title and snippet.
 Each result ends in its markers: `[human-reviewed]`, `[unverified, stale]`.
 
 - **Trust tier** records who confirmed the content. `unverified` — nobody yet.
-  `machine-confirmed` — a second process re-checked it against its source.
-  `human-reviewed` — a person did.
+  `machine-confirmed` — a second agent or process re-checked it against its
+  source. `human-reviewed` — a person did.
 - **Stale** means the concept has passed the `stale_after` date it set for
   itself: it asked to be re-checked by now.
 
@@ -146,8 +146,9 @@ Index drift is an error in this vault rather than a warning — okf-net,
 That reference is everything the result line printed after `bundles/`: the
 bundle's name, then the path inside it, which is the pair that identifies a
 concept anywhere the bundle travels (`bundleName` and `path` in `--json`). The
-full path search printed is where the file sits in this checkout, so hand that
-one over as well when the human is standing in the repository.
+whole path search printed is where the file sits relative to where you ran the
+command, so hand that one over as well when the human is standing where you
+are.
 
 Where you leaned on a hit that was unverified or stale, mark it in the
 sentence that uses it. "The vault says X, unverified" is something a person
@@ -162,8 +163,9 @@ Take these in order and stop at the first that answers:
 
 1. **Read the fallback.** Where the output says it matched any of the terms
    rather than all, the query already widened as far as its words reach — the
-   hits below the top one *are* that widening, and are worth judging. Removing
-   a term from here searches for less than the fallback just searched for.
+   whole list *is* that widening, every row of it worth judging, the top one
+   included. Removing a term from here searches for less than the fallback
+   just searched for.
 2. **Reword.** Matching is on whole tokens, so `returns` and `return` are two
    different words and only one of them is in the vault. Try the form a
    concept would put in its own title, and a synonym for the idea.
@@ -211,7 +213,8 @@ reasons, and names the rows that bear on the human's current work.
   source worth archiving — hand off to **okf-capture**, which searches first,
   captures the evidence, and writes a conformant concept.
 - **`okf verify` is the human's word, spoken on request.** It stamps
-  `human:<id>` from their global git identity, on the concepts they name, when
-  they ask you to run it. The command refuses an actor equal to a concept's
-  `generated.by`, and `okf lint` reports the pairing (`OKF0201`): an actor
-  confirming its own generation is a contradiction dressed as a signal.
+  `human:<id>` from their configured verifying identity — `verify.actor`, else
+  their global git email — on the concepts they name, when they ask you to run
+  it. The command refuses an actor equal to a concept's `generated.by`, and
+  `okf lint` reports the pairing (`OKF0201`): an actor confirming its own
+  generation is a contradiction dressed as a signal.

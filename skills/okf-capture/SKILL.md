@@ -272,6 +272,5 @@ second `okf index <bundle-path>` reports every index unchanged.
   evidence is a new capture with a new manifest entry. An archive that can be
   edited cannot support the concept citing it.
 - **`verified` belongs to a second actor.** You stamp `generated`; a human
-  clears the concept — with `okf verify` once it ships, and by hand until then.
-  An actor confirming its own work is a contradiction dressed as a signal, and
-  `okf lint` reports it (`OKF0201`).
+  clears the concept with `okf verify`. An actor confirming its own work is a
+  contradiction dressed as a signal, and `okf lint` reports it (`OKF0201`).
