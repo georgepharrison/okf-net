@@ -1,0 +1,25 @@
+{
+  // okf-net's project config: the committed team contract for this vault
+  // (decisions.md, "the `okf lint` milestone" — project config lives at the
+  // vault root, sibling of bundles/). CLI args still win over it.
+  //
+  // Both promotions below follow decisions.md §7, which names generated-file
+  // drift as a rule `okf init` should promote to error, and the missing
+  // `description` warning as the one that degrades every index entry and
+  // search snippet in a bundle we own. Defaults stay defaults for foreign
+  // bundles; this file speaks only for this vault.
+  "lint": {
+    "severities": {
+      // OKF0306 generated-index-drift: an index.md we generated no longer
+      // matches its tree. `okf index` regenerates; nothing here is hand-edited.
+      "OKF0306": "error",
+      // OKF0301 missing-description: a concept without a description renders
+      // as a bare link in its index and a snippet-less search hit.
+      "OKF0301": "error"
+    }
+    // Tag rules (OKF0304 missing-tags, OKF0305 unregistered-tag with
+    // `tagRegistry`) are deliberately left at their hidden defaults until the
+    // bundle has a settled tag vocabulary — Dogfood v2, alongside custodial
+    // activation.
+  }
+}
