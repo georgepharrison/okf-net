@@ -158,6 +158,63 @@ public class OkfConceptReaderTests
         }
     }
 
+    [SkippableFact]
+    public void ASymlinkOutOfTheBundleIsNeitherResolvedNorReadNorWalked()
+    {
+        using var bundle = Bundle();
+        using var outside = new TempBundle("outside");
+        outside.Add("secret.md", "---\ntype: Secret\n---\n\nOutside every bundle root.\n");
+
+        // The two shapes a link takes: the file itself, and a directory on the way to it.
+        // `Path.GetFullPath` normalizes `..` textually and sees neither, so without the real
+        // path being checked a bundle could name any file on the machine (PRD MCP-5).
+        try
+        {
+            File.CreateSymbolicLink(
+                Path.Combine(bundle.Root, "topics", "borrowed.md"),
+                Path.Combine(outside.Root, "secret.md"));
+            Directory.CreateSymbolicLink(Path.Combine(bundle.Root, "elsewhere"), outside.Root);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create symlinks: {exception.Message}");
+        }
+
+        Assert.False(bundle.Bundle.TryResolve("topics/borrowed.md", out _));
+        Assert.False(bundle.Bundle.TryResolve("elsewhere/secret.md", out _));
+        Assert.Equal(OkfConceptStatus.Outside, OkfConceptReader.Read(bundle.Bundle, "topics/borrowed").Status);
+
+        // And the walk every other command runs on the tree agrees: a link out of the
+        // bundle is not bundle content, so it is never linted, indexed or searched either.
+        Assert.DoesNotContain(
+            bundle.Bundle.MarkdownFiles(),
+            file => file.EndsWith("borrowed.md", StringComparison.Ordinal));
+    }
+
+    [SkippableFact]
+    public void ASymlinkThatStaysInsideTheBundleIsStillReadable()
+    {
+        using var bundle = Bundle();
+
+        // The rule is containment, not a ban on links: a bundle that links one of its own
+        // concepts under a second name is doing nothing okf needs to refuse.
+        try
+        {
+            File.CreateSymbolicLink(
+                Path.Combine(bundle.Root, "alias.md"),
+                Path.Combine(bundle.Root, "topics", "widgets.md"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create symlinks: {exception.Message}");
+        }
+
+        var result = OkfConceptReader.Read(bundle.Bundle, "alias.md", new OkfConceptOptions { Today = TempBundle.Today });
+
+        Assert.Equal(OkfConceptStatus.Ok, result.Status);
+        Assert.Equal("Widgets", result.Concept!.Title);
+    }
+
     private static TempBundle Bundle()
     {
         var bundle = new TempBundle();

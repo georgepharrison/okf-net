@@ -445,6 +445,52 @@ public class McpToolTests
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(2));
     }
 
+    [SkippableFact]
+    public void NoToolFollowsASymlinkOutOfABundleRoot()
+    {
+        using var project = new TempTree();
+        project.CopyFixture("searchable", Path.Combine("okf", "bundles", "searchable"));
+        project.Write(Path.Combine("okf", "raw", "captured.md"), "---\ntype: Reference\n---\n\nPhlogiston raw capture.\n");
+
+        var bundle = Path.Combine(project.Root, "okf", "bundles", "searchable");
+        try
+        {
+            // A bundle okf did not produce can carry links, and a `..` that the path grammar
+            // refuses is spelled here in the filesystem instead: `borrowed.md` names a file
+            // outside every bundle, and `escape/` is a whole directory of them.
+            File.CreateSymbolicLink(
+                Path.Combine(bundle, "borrowed.md"),
+                Path.Combine(project.Root, "okf", "raw", "captured.md"));
+            Directory.CreateSymbolicLink(
+                Path.Combine(bundle, "escape"),
+                Path.Combine(project.Root, "okf", "raw"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new SkipException($"This platform will not create symlinks: {exception.Message}");
+        }
+
+        var run = Mcp.Session(
+            Cli.Environment(project.Root, project.Root),
+            null,
+            Mcp.Call(1, "okf_search", """{"query":"phlogiston"}"""),
+            Mcp.Call(2, "okf_read", """{"path":"borrowed.md"}"""),
+            Mcp.Call(3, "okf_read", """{"path":"escape/captured.md"}"""),
+            Mcp.Call(4, "okf_list", """{"bundle":"searchable","path":"escape"}"""),
+            Mcp.Call(5, "okf_list", """{"bundle":"searchable"}"""));
+
+        // PRD MCP-5, and the promise the tool descriptions make to the model: the raw/ drop
+        // zone is not readable through okf, by any route.
+        Assert.DoesNotContain("raw capture", run.Output, StringComparison.Ordinal);
+        Assert.True(run.Content(1).IsError);
+        Assert.True(run.Content(2).IsError);
+        Assert.Equal(McpServer.InvalidParams, run.ErrorCode(3));
+
+        // Nor is the linked file listed as bundle content, which would advertise a read that
+        // is going to be refused.
+        Assert.DoesNotContain("borrowed.md", run.Content(4).Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void APathCarryingANulIsInvalidParamsAndTheServerKeepsGoing()
     {

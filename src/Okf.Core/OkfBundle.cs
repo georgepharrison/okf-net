@@ -124,7 +124,7 @@ public sealed class OkfBundle
         var candidate = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
 
-        if (!IsInside(candidate))
+        if (!IsInside(candidate) || !FollowsNoLinkOut(candidate))
         {
             return false;
         }
@@ -141,11 +141,101 @@ public sealed class OkfBundle
         string.Equals(path, Root, StringComparison.Ordinal)
         || path.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
 
-    private static void Collect(string directory, List<string> files)
+    /// <summary>
+    /// Whether walking to a path stays inside the bundle once symlinks are followed.
+    /// <see cref="Path.GetFullPath(string)" /> resolves <c>..</c> textually and cannot see a
+    /// link, so without this a link planted in a bundle — by the author of a foreign bundle
+    /// okf did not produce, or by a capture that went wrong — names any file on the machine,
+    /// which is exactly what MCP-5 forbids. The rule is the one <see cref="MarkdownFiles" />
+    /// already applies to directories: okf never follows a link out of the bundle root.
+    /// </summary>
+    private bool FollowsNoLinkOut(string candidate)
+    {
+        var current = Root;
+        foreach (var segment in Path.GetRelativePath(Root, candidate).Split(Path.DirectorySeparatorChar))
+        {
+            if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            current = Path.Combine(current, segment);
+            switch (Link(current, out var target))
+            {
+                case LinkKind.None:
+                    break;
+
+                // Walking continues from where the link actually lands, so a chain of links
+                // inside the bundle stays readable and the first one that leaves is refused.
+                case LinkKind.Followed when IsInside(target!):
+                    current = target!;
+                    break;
+
+                default:
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>What a filesystem entry turned out to be when asked whether it is a symlink.</summary>
+    private enum LinkKind
+    {
+        /// <summary>An ordinary file or directory, or one that is not there at all.</summary>
+        None,
+
+        /// <summary>A symlink whose final target was resolved.</summary>
+        Followed,
+
+        /// <summary>A symlink that could not be followed: a cycle, a dangling target, an unreadable one.</summary>
+        Unfollowable,
+    }
+
+    /// <summary>
+    /// Classifies one filesystem entry, resolving a symlink to its final target. A link that
+    /// cannot be followed is reported as such rather than guessed at, and every caller here
+    /// treats that as "not contained".
+    /// </summary>
+    private static LinkKind Link(string path, out string? target)
+    {
+        target = null;
+        try
+        {
+            FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            if (entry.LinkTarget is null)
+            {
+                return LinkKind.None;
+            }
+
+            if (entry.ResolveLinkTarget(returnFinalTarget: true) is not { } resolved)
+            {
+                return LinkKind.Unfollowable;
+            }
+
+            target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved.FullName));
+            return LinkKind.Followed;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return LinkKind.Unfollowable;
+        }
+    }
+
+    private void Collect(string directory, List<string> files)
     {
         foreach (var file in Directory.EnumerateFiles(directory, "*.md"))
         {
-            if (!Path.GetFileName(file).StartsWith('.'))
+            if (Path.GetFileName(file).StartsWith('.'))
+            {
+                continue;
+            }
+
+            // A file symlink is the one way left for the walk to read a file the bundle does
+            // not contain: directory links are never descended into, but a link named
+            // `notes.md` pointing at `~/.ssh/id_rsa` would otherwise be linted, indexed and
+            // searched as bundle content.
+            if (Link(file, out var target) is LinkKind.None || (target is not null && IsInside(target)))
             {
                 files.Add(file);
             }
