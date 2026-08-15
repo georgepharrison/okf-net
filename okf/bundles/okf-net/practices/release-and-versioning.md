@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing release the installer can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T17:23:14Z }
+generated: { by: claude-fable/5, at: 2026-08-15T18:21:25Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -89,7 +89,7 @@ into `sh` would otherwise have.
 
 # Installing
 
-`curl -fsSL https://get.tychostation.dev/install.sh | sh` fetches
+`curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` fetches
 `latest.json`, verifies the binary against the digest in it, and installs
 atomically to `~/.local/bin/okf`. `--version` pins a release, `--dry-run`
 reports without writing, and re-running is safe. Redirects are followed, but an

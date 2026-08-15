@@ -1,7 +1,7 @@
 #!/bin/sh
 # okf installer.
 #
-#   curl -fsSL https://get.tychostation.dev/install.sh | sh
+#   curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 #
 # Downloads the newest `okf` release, verifies it against the release manifest, and
 # installs it to ~/.local/bin/okf. Re-running is safe: it reinstalls the same version over
@@ -18,7 +18,7 @@
 #   install.sh --help
 #
 # Environment:
-#   OKF_INSTALL_URL   base URL to install from   (default https://get.tychostation.dev)
+#   OKF_INSTALL_URL   base URL to install from   (default https://get.okf.tychostation.dev)
 #   OKF_INSTALL_DIR   directory to install into  (default $HOME/.local/bin)
 #
 # POSIX sh on purpose — no bashisms. The one thing an installer may not assume is a shell,
@@ -28,7 +28,7 @@ set -eu
 
 # Trailing slash trimmed once, here, because every URL below is built by appending to this
 # and `https://host//latest.json` is a different URL to most caches and some servers.
-OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.tychostation.dev}"
+OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.okf.tychostation.dev}"
 OKF_BASE_URL="${OKF_BASE_URL%/}"
 OKF_DIR="${OKF_INSTALL_DIR:-$HOME/.local/bin}"
 OKF_ASSET="okf-linux-x64"
@@ -46,7 +46,7 @@ usage: install.sh [--version <version>] [--dry-run]
   -h, --help      this message
 
 environment:
-  OKF_INSTALL_URL   base URL to install from  (default https://get.tychostation.dev)
+  OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
   OKF_INSTALL_DIR   install directory         (default $HOME/.local/bin)
 EOF
 }
@@ -213,7 +213,7 @@ fi
 say "    manifest: ${manifest_url}"
 download "$manifest_url" "$tmp/latest.json" \
   || die "could not fetch ${manifest_url}
-    If this hangs or cannot resolve, note that get.tychostation.dev resolves only
+    If this hangs or cannot resolve, note that get.okf.tychostation.dev resolves only
     inside Ringo's network today — see ringo/okf-net#26."
 
 resolved="$(manifest_version "$tmp/latest.json")"
