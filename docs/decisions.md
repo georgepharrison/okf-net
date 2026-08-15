@@ -1769,7 +1769,8 @@ internal links and its backlink index all survive here; its CDN-loaded Cytoscape
 `marked` do not, for reasons below.
 
 **Multi-page by default, single file on request.** One HTML file per markdown file,
-mirroring the bundle tree, plus `index.html` (the dashboard) and `graph.html`. That is
+mirroring the bundle tree, plus `index.html` (the landing page), `dashboard.html` and
+`graph.html`. That is
 what makes a URL name a concept: a deep link is shareable, the back button works, and a
 browser tab title says which concept you are reading. `--single-file` emits the same site
 as one `index.html` carrying every article as embedded JSON, routed on the fragment, for
@@ -1868,9 +1869,68 @@ clear 3:1 there, stay put. The graph's optional colour-by-type mode draws from t
 categorical order and always ships a legend — past three simultaneous types those hues are
 below the all-pairs separation floor, so the legend and the node labels are doing the work.
 
-**Filter state lives in the URL fragment.** `#f=stale&b=okf-net&q=…` on the dashboard,
-`#c=<id>` in single-file mode. A filtered view is therefore linkable and survives a reload,
-which matters most in the case with no server to hold state: a `file://` page.
+**Filter state lives in the URL fragment.** `#f=stale&b=okf-net&t=format&q=…` on the
+dashboard, `#c=<id>` and `#v=dashboard|graph` in single-file mode. A filtered view is
+therefore linkable and survives a reload, which matters most in the case with no server to
+hold state: a `file://` page. The keys compose: a tier tile, a bundle chip, a tag and a
+query are four independent predicates over the same list, and the fragment holds all four.
+
+**The landing page is the vault's index hierarchy, not the dashboard** (Ringo's first
+review of the live site, 2026-08-15). The site is meant to replace Obsidian as a view-only
+surface, and the way a reader enters a vault is the way §4's search doctrine says knowledge
+is found: progressive disclosure — the root `index.md`, rendered, with each entry's
+description under it, and a subdirectory's index one click further in. The dashboard
+answers a different question ("what in here can I trust?"), and answering it first put a
+wall of numbers between a reader and the knowledge. So `index.html` is the front door and
+`dashboard.html` is a destination: the seven tiles survive as a compact strip across the
+top of the landing page, and each one is an ordinary link to `dashboard.html#f=<tile>` —
+the dashboard opens with that filter already applied. A vault with several bundles renders
+one index per bundle, side by side, which is the bundle picker the same markup gives for
+free. Consequences, taken deliberately:
+
+- **The dashboard needed a way home, and it is the one concept pages already use.** A
+  breadcrumb whose root is the site name, plus a `Home` entry in the standing top bar and
+  the brand itself. The graph page gets the same, so the graph stays reachable from both
+  and reachable *out of* from either.
+- **The landing page carries a second rendering of each bundle's root index.** Its body is
+  read at the site root, not at `<slug>/index.html`, so `hub.md` has to resolve to
+  `kb/hub.html` rather than to `hub.html`. That is a second Markdig pass over one file per
+  bundle, not a rewrite of the first pass's output: destinations are resolved on the syntax
+  tree, and text surgery on rendered HTML would have to re-implement the parser's idea of
+  what a link is. `OkfSitePage.RootBodyHtml` holds it, and only a bundle's own root index
+  has one.
+- **Single-file mode routes the same four destinations on the fragment**: nothing (home),
+  `#v=dashboard`, `#v=graph`, `#c=<id>`. The graph moved out of the dashboard view into its
+  own, which also fixed the thing that made it awkward — it now fits its canvas when it is
+  shown rather than when the page loads.
+- **The landing page needs no JavaScript at all.** Its tiles and its index entries are
+  links, so the front door works with scripting off; only the dashboard's filtering does
+  not.
+
+**Every tag is a filter link** (same review). Tags are §4.1's cross-cutting axis, and a
+badge that did nothing when clicked was the one genuinely broken affordance on the page.
+Every tag badge — in a concept's metadata panel, on every card in the dashboard's list — is
+an anchor to `dashboard.html#t=<tag>`, composable with the tier, bundle and query filters
+already in the fragment. Three things are true of it at once, deliberately:
+
+- **It is a real link, not a script hook.** With JavaScript off it still navigates to a
+  dashboard that lists everything; with JavaScript on, a badge clicked *on the dashboard*
+  is intercepted so the tag composes with the filters already applied instead of replacing
+  the whole fragment. The client reads the tag from a `data-tag` attribute rather than
+  parsing it back out of the href.
+- **A tag is data okf-net did not write** (PRD ACC-1), so it is escaped twice over: into the
+  href with `encodeURIComponent`/`Uri.EscapeDataString`, which leaves no `<`, `&`, quote or
+  `#` behind to break out of the attribute or to add a key to the fragment grammar; and into
+  the label and `data-tag` with the HTML escaper. Read back, it is `decodeURIComponent` and
+  `textContent`, never `innerHTML`. A theory tests `<b>`, `]]>`, `"…"`, `'…'`, `a&b`,
+  `"><script>…`, `f=stale&b=kb`, `x#y` and `a space` through both emitters, parses every
+  page as XML, and asserts each badge's attribute, label and round-tripped href — the same
+  shape as the hostile-destination theory above it.
+- **The dashboard says which tag it is holding.** A tag filter can arrive from any page in
+  the site, including one the reader has since left, so it renders as a removable chip
+  beside the filter bar; `Clear filters` drops it with the rest. The embedded filter payload
+  already carried each concept's `tags` array, so nothing had to be added to it — a test now
+  pins that, because the array's absence would have made every clicked tag match nothing.
 
 **Generation is deterministic.** The graph's layout uses a seeded PRNG and a fixed iteration
 count, nothing reads a clock beyond today's date (injected, per CORE-7), and page order is
@@ -1889,10 +1949,41 @@ belongs to the caller, and a generator that removed files it did not write is on
 away from a disaster. The corollary is that a page for a concept that has since been deleted
 stays behind until the caller removes it.
 
-**Deliberately not done.** No CI `pages` job — a commented block sits at the end of
-`.gitlab-ci.yml` for whoever enables it, but publishing an unreviewed design to a public URL
-is not a side effect anyone asked for, and Ringo wants to iterate locally first
-(`mise run site`). No copying of non-markdown assets into the site, so an image beside a
+**Publishing: the default branch is the site, every other branch is a review environment.**
+The `pages` job runs on `$CI_DEFAULT_BRANCH` only and publishes at the domain root, so
+merging is the deploy; it replaced a temporary rule that published this branch there while
+the design was being reviewed. `pages_review` runs on every *other* branch with
+`pages.path_prefix: $CI_COMMIT_REF_SLUG`, which is GitLab's parallel-deployments feature:
+one Pages deployment per branch under its own path, published as a review environment
+(`review/<slug>`) whose `url` is `$CI_PAGES_URL` — that variable already carries the prefix
+from GitLab 17.9 on, so it is the address a reviewer actually opens. Both jobs sit in a new
+`deploy` stage after `validate`: a site whose generator failed its own suite should not
+reach a URL. Neither runs on a tag; a release publishes a binary, not a website. This
+project never creates merge-request pipelines (see `.gitlab-ci.yml`'s `workflow:` block), so
+every rule keys off `$CI_COMMIT_BRANCH`.
+
+**The self-cleaning is `pages.expire_in`, and the stop job says so rather than pretending.**
+The goal was that a branch's deployment disappears with the branch. GitLab documents exactly
+three ways a parallel deployment goes away: it is deleted when *a merge request* is merged
+or closed (which needs MR pipelines this project does not create), it expires via
+`pages.expire_in` and is then stopped and deleted by cron, or someone deletes it in the UI.
+There is no keyword that makes a stopping environment delete a deployment — `pages: false`
+only suppresses one in that pipeline — and the only per-deployment API is an
+Experiment-status GraphQL mutation needing a token the job token is not. So `expire_in: 1
+week` is the mechanism, `on_stop`/`auto_stop_in: 1 week` keep the environment list honest
+beside it, and `stop_pages_review` marks the environment stopped and prints which of the two
+actually removes the files. Both clocks reset on every push to the branch, so a branch still
+being worked on stays up and an abandoned one disappears from both lists with nobody doing
+anything. `stop_pages_review` carries what GitLab requires of a stop job — the same rules as
+the job it stops, a `when`, `environment:name`, `environment:action: stop` — plus
+`GIT_STRATEGY: none`, because deleting the branch is one of the things that triggers it and
+there would be nothing left to check out. Stated cost: `pages.path_prefix` and
+`pages.expire_in` are Premium/Ultimate keywords, and this instance is GitLab CE 19.0.1
+(`/version` reports `"enterprise": false`). If the review job is refused for that reason,
+the accepted fallback is to delete `pages_review` and `stop_pages_review` and let reviewers
+run `mise run site` locally; the default-branch `pages` job stands either way.
+
+**Deliberately not done.** No copying of non-markdown assets into the site, so an image beside a
 concept does not travel with it; the link is left exactly as written, per §6.1's tolerance
 rule. No search index — the dashboard's filter box is a substring match over titles, types,
 tags and descriptions, not BM25; `okf search` is the ranked search, and duplicating its
