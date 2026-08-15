@@ -2292,12 +2292,18 @@ entry.
 a case label rather than an edit spread through the script. Two refusals are worth the words
 they take:
 
-- **Darwin/x86_64** is refused with somewhere to go. Rosetta translates x86_64 to arm64 and
-  not the reverse, so "use the other build" would be wrong advice; an `osx-x64` asset is one
-  more line in the publish job, so the truthful answer is that it is a question of demand,
-  and the message names #36 as where to answer it. Following the issue, it is not built:
-  building an asset nobody has asked for is a release artifact to maintain forever on a
-  guess.
+- **Darwin/x86_64** is two machines, and they need opposite advice. A real Intel Mac is
+  refused with somewhere to go: Rosetta translates x86_64 to arm64 and not the reverse, so
+  "use the other build" would be wrong; an `osx-x64` asset is one more line in the publish
+  job, so the truthful answer is that it is a question of demand, and the message names #36
+  as where to answer it. Following the issue, it is not built — an asset nobody has asked
+  for is a release artifact to maintain forever on a guess. But an **Apple Silicon Mac whose
+  shell is running translated** answers `uname -m` the same way, and an x86_64 Terminal.app
+  or an x86_64 Homebrew is ordinary and announces itself to nobody. `sysctl -n
+  hw.optional.arm64` is the hardware talking rather than the process, so the installer asks
+  it and tells that owner to re-run under `arch -arm64` instead of telling them their
+  machine is unsupported. The failure mode being avoided is not a broken install; it is an
+  installer confidently giving a user a false fact about their own laptop.
 - **Anything else** points at `install.ps1` by name. A reader on Windows who found the `sh`
   one-liner first should not have to go looking for the other one.
 
