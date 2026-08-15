@@ -94,7 +94,7 @@ title: Okapi at TREC-3
 description: The paper that introduced BM25 and its k1/b parameters.
 resource: https://example.org/papers/okapi-bm25.pdf
 tags: [search, ranking]
-generated: { by: claude-fable/5, at: 2026-08-14T21:02:11-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T21:02:11Z }
 sources:
   - id: okapi-bm25-paper
     resource: https://example.org/papers/okapi-bm25.pdf
@@ -131,7 +131,7 @@ Set `ingestion` on that entry, leaving every other field as captured:
 
 ```json
 "ingestion": {
-  "at": "2026-08-14T21:02:11-05:00",
+  "at": "2026-08-14T21:02:11Z",
   "by": "claude-fable/5",
   "concepts": ["bundles/okf-net/references/okapi-bm25.md"]
 }
@@ -179,13 +179,16 @@ you wrote appears in the registry when one is configured.
 ## Stamp `generated`, on every write
 
 ```yaml
-generated: { by: claude-fable/5, at: 2026-08-14T21:02:11-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-14T21:02:11Z }
 ```
 
 `by` uses the §7 actor convention: `<producer>/<version>` for an agent or tool,
 `process:<id>` for an automated process, `human:<id>` for a person — a prefix
 that tells every consumer a person stood behind the content, so it stays with
-people. `at` is `date -Iseconds`.
+people. `at` is RFC 3339 UTC at second precision —
+`date -u +%Y-%m-%dT%H:%M:%SZ` — which is the one form okf-net writes, because
+a `Z`-suffixed stamp sorts as text in the order it sorts in time and a local
+offset records where you were sitting.
 
 A one-line edit is a write. `generated.at` older than the content is a false
 freshness signal, and it is the input to every drift and stale check

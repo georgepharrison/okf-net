@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-14T23:56:00-05:00 }
+generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -152,11 +152,17 @@ that means concretely, and only what it means:
 | A session with the skills | Capture, ingestion, enrichment, indexes, `log.md`. | A person, deliberately. |
 
 `okf/raw/` exists and holds its first capture, ingested into
-[`references/`](../references/about.md) and closed in the manifest.
-`check-manifest.py` covers what `okf lint` structurally cannot reach: the
-linter walks a bundle root, `raw/` sits outside every one of them, and so the
-manifest's parseability, its recorded hashes, and its ingestion pointers are
-invisible to every diagnostic the tool has.
+[`references/`](../references/about.md) and closed in the manifest. Two gates
+watch it, and they overlap on exactly one finding. `OKF0310` re-hashes every
+ingested item against the `sha256` its entry records — the linter's one
+vault-scoped rule, because `raw/` sits outside every bundle root and a rule
+about it cannot be scoped like the others (see [the lint severity
+model](../toolset/lint-severity-model.md)). `check-manifest.py` keeps the
+rest, which is most of it: the id grammar, the timestamp forms, the
+flat/packet layout, files in `raw/` no entry claims, ingestion pointers
+resolving to concepts that exist, and a manifest that will not parse at all —
+which the rule stays silent about on purpose, because a check that cannot read
+the record cannot claim the artifact changed. Neither ever repairs anything.
 
 What is **not** running, stated plainly because a custodian that overstates
 itself is worse than none:
