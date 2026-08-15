@@ -80,7 +80,10 @@ public class OkfSeverityResolverTests
     [Fact]
     public void ThePromotionNamesTheLayerThatTurnedItOnRatherThanTheDefaults()
     {
-        var global = new OkfSeverityLayer("global");
+        // `global` speaks to the flag and loses, so naming the *winning* layer is the only
+        // way to pass: a resolver that reported the first layer to mention it, or the
+        // defaults, would name something the consumer cannot edit to undo the promotion.
+        var global = new OkfSeverityLayer("global") { TreatAllWarningsAsErrors = false };
         var project = new OkfSeverityLayer("project") { TreatAllWarningsAsErrors = true };
         var resolver = new OkfSeverityResolver([global, project]);
 
