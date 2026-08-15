@@ -47,6 +47,9 @@ consume.
 - **Custodian pattern** — skills and conventions for the agent that
   maintains a bundle (capture, enrichment, staleness refresh), designed to
   run from git hooks and CI
+- **[Agent skills](skills/README.md)** — three host-neutral skills over the
+  same doctrine: `okf-capture` gets knowledge in, `okf-custodian` keeps it
+  alive, and `okf-vault` gets it back out for an agent answering a question
 - **Guardrails** — immutable `references/` evidence capture, provenance
   citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)
@@ -178,6 +181,7 @@ from source, deliberately not yet stable.
   with numbered, testable requirements
 - [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
   — the upstream format this toolset implements
+- [Agent skills](skills/README.md) — the three skills and when each fires
 - [AGENTS.md](AGENTS.md) — contributor and agent rules (Conventional
   Commits, hooks, lint)
 
