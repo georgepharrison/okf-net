@@ -66,6 +66,9 @@ internal static class CliApplication
                 output.WriteLine(VersionDisplay);
                 return ExitSuccess;
 
+            case "init":
+                return InitCommand.Run(args[1..], environment, output, error);
+
             case "lint":
                 return LintCommand.Run(args[1..], environment, output, error);
 
@@ -128,6 +131,7 @@ internal static class CliApplication
             okf — tooling for OKF v0.2 knowledge bundles.
 
             Usage:
+              okf init [path] [options]   Scaffold a vault: bundles/, raw/, custodian/, and the config
               okf lint [path] [options]   Validate §11 conformance plus the configured warning set
               okf index [path] [options]  Generate the index.md files for a bundle (--check to verify)
               okf search <query> [path]   Search the resolved bundles, ranked and links-first
