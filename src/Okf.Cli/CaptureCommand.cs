@@ -84,8 +84,8 @@ internal static class CaptureCommand
         {
             return Usage(
                 error,
-                "`okf capture add <file-or-directory-under-raw>` records exactly one item, "
-                + $"and {arguments.Operands.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} were named.");
+                "`okf capture add <file-or-directory-under-raw>` records exactly one item, and "
+                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "item")} were named.");
         }
 
         if (arguments.Concepts.Count > 0)
@@ -129,7 +129,7 @@ internal static class CaptureCommand
             return Usage(
                 error,
                 "`okf capture close <id-or-path>` closes exactly one entry, and "
-                + $"{arguments.Operands.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} were named.");
+                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "entry", "entries")} were named.");
         }
 
         if (arguments.Concepts.Count == 0)
