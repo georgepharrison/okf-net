@@ -50,7 +50,7 @@ _okf() {
         fi
         case "$word" in
             --*=*) ;;
-            --at|--bundle|--by|--captured-at|--concept|--config|--dir|--form|--format|--generated-at|--host|--limit|--name|--out|--scope|--severity|--source-last-modified|--tag|--title|--type|--url|--verify|-o) skip=1 ;;
+            --at|--bundle|--by|--captured-at|--channel|--concept|--config|--dir|--form|--format|--generated-at|--host|--limit|--name|--out|--scope|--severity|--source-last-modified|--tag|--title|--type|--url|--verify|--version|-o) skip=1 ;;
             -*) ;;
             *)
                 if [ -z "$verb" ]; then
@@ -63,7 +63,7 @@ _okf() {
     done
 
     if [ -z "$verb" ]; then
-        __okf_words "init lint index search register unregister registry inbox verify capture generated bundle site skills mcp completion help version --help -h --version" "$cur"
+        __okf_words "init lint index search register unregister registry inbox verify capture generated bundle site skills mcp upgrade completion help version --help -h --version" "$cur"
         return
     fi
 
@@ -231,6 +231,16 @@ _okf() {
                 -*) __okf_words "--help -h --scope --verbose -v" "$cur"; return ;;
             esac
             __okf_files "$cur"
+            ;;
+        upgrade)
+            case "$prev" in
+                --channel) __okf_words "rc stable" "$cur"; return ;;
+                --format) __okf_words "json text" "$cur"; return ;;
+                --version) return ;;
+            esac
+            case "$cur" in
+                -*) __okf_words "--help -h --channel --check --dry-run --format --json --version" "$cur"; return ;;
+            esac
             ;;
         completion)
             case "$cur" in

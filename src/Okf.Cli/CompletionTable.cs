@@ -56,6 +56,9 @@ internal sealed record CompletionValue(string Kind, bool TakesValue, IReadOnlyLi
     /// <summary>The shape a raw/ capture takes on disk.</summary>
     public static readonly CompletionValue Form = new("form", true, ["flat", "packet"]);
 
+    /// <summary>A release channel `okf upgrade` will follow.</summary>
+    public static readonly CompletionValue Channel = new("channel", true, ["rc", "stable"]);
+
     /// <summary>The shape `okf bundle` writes; not the <c>text|json</c> `--format`.</summary>
     public static readonly CompletionValue Distribution = new("distribution", true, ["dir", "tar.gz", "zip"]);
 }
@@ -322,6 +325,21 @@ internal static class CompletionTable
                 VerboseShort,
             ],
             CompletionValue.Path),
+        new(
+            "upgrade",
+            "Replace this binary with the newest release",
+            [],
+            [
+                Help,
+                HelpShort,
+                new("--channel", "The release channel to follow", CompletionValue.Channel),
+                new("--check", "Report whether an upgrade is available and stop", CompletionValue.None),
+                new("--dry-run", "Resolve and report without downloading anything", CompletionValue.None),
+                Format,
+                Json,
+                new("--version", "Install this release instead of the newest", CompletionValue.Text),
+            ],
+            CompletionValue.None),
         new(
             "completion",
             "Print a shell completion script",

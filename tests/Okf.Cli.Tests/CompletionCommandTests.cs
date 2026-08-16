@@ -39,6 +39,7 @@ public class CompletionCommandTests
             ["site"] = SiteArguments.Flags,
             ["skills"] = SkillsArguments.Flags,
             ["mcp"] = McpCommand.Flags,
+            ["upgrade"] = UpgradeArguments.Flags,
             ["completion"] = CompletionCommand.Flags,
             ["help"] = CliApplication.HelpFlags,
             ["version"] = CliApplication.VersionFlags,
@@ -61,6 +62,7 @@ public class CompletionCommandTests
             ["site"] = "SiteArguments.cs",
             ["skills"] = "SkillsArguments.cs",
             ["mcp"] = "McpCommand.cs",
+            ["upgrade"] = "UpgradeArguments.cs",
             ["completion"] = "CompletionCommand.cs",
         };
 

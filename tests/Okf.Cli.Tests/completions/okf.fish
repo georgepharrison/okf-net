@@ -20,6 +20,7 @@ complete -c okf -n '__fish_use_subcommand' -f -a 'bundle' -d 'Package the bundle
 complete -c okf -n '__fish_use_subcommand' -f -a 'site' -d 'Render the bundles as a static site'
 complete -c okf -n '__fish_use_subcommand' -f -a 'skills' -d 'The agent skills this binary carries and where they install'
 complete -c okf -n '__fish_use_subcommand' -f -a 'mcp' -d 'Run the read-only MCP server over stdio'
+complete -c okf -n '__fish_use_subcommand' -f -a 'upgrade' -d 'Replace this binary with the newest release'
 complete -c okf -n '__fish_use_subcommand' -f -a 'completion' -d 'Print a shell completion script'
 complete -c okf -n '__fish_use_subcommand' -f -a 'help' -d 'Show the verb list'
 complete -c okf -n '__fish_use_subcommand' -f -a 'version' -d 'Show the version'
@@ -172,6 +173,17 @@ complete -c okf -n '__fish_seen_subcommand_from mcp' -s h -d 'Show this help'
 complete -c okf -n '__fish_seen_subcommand_from mcp' -l scope -x -a 'project personal registered all' -d 'Which bundles the server serves'
 complete -c okf -n '__fish_seen_subcommand_from mcp' -l verbose -d 'Report vault resolution and effective configuration'
 complete -c okf -n '__fish_seen_subcommand_from mcp' -s v -d 'Report vault resolution and effective configuration'
+
+# okf upgrade
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l help -d 'Show this help'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -s h -d 'Show this help'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l channel -x -a 'rc stable' -d 'The release channel to follow'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l check -d 'Report whether an upgrade is available and stop'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l dry-run -d 'Resolve and report without downloading anything'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l format -x -a 'json text' -d 'Output format'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l json -d 'Emit the stable JSON form instead of text'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -l version -x -d 'Install this release instead of the newest'
+complete -c okf -n '__fish_seen_subcommand_from upgrade' -f
 
 # okf completion
 complete -c okf -n '__fish_seen_subcommand_from completion' -l help -d 'Show this help'

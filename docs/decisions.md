@@ -3504,6 +3504,13 @@ idempotently, checking for the line itself. Both take `OKF_SKIP_COMPLETIONS=1`, 
 treat a failure as a warning naming the manual command: the binary is downloaded, verified
 and in place by then.
 
+**`okf upgrade` was the first test of the claim.** #23 landed while this was in flight, and
+adding the verb to the dispatch table without adding it to the completion table failed the
+verb-set test rather than shipping a completion that was a verb behind — which is the whole
+argument for a table, exercised the week it was written. It is one row: `--check`,
+`--dry-run`, `--json`, `--format`, `--version` and `--channel`, with `stable|rc` offered
+and the version left to the person who knows which one they want.
+
 **Deliberately not done.**
 
 - **No value completion that needs a vault**, per the rule above: no bundle names, no
@@ -3518,5 +3525,3 @@ and in place by then.
   suite (the script is sourced, `COMP_WORDS` set, `COMPREPLY` read back); zsh is parsed and
   loaded under a real `compinit`; fish is parsed when a `fish` binary is present. Driving a
   zsh completion to its answers needs a terminal.
-- **No completion for `okf upgrade`**, which is [#23](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/23)
-  and in flight. It is one row in the table when it lands.

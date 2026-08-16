@@ -7,7 +7,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $words = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })
-    $valueFlags = @('--at', '--bundle', '--by', '--captured-at', '--concept', '--config', '--dir', '--form', '--format', '--generated-at', '--host', '--limit', '--name', '--out', '--scope', '--severity', '--source-last-modified', '--tag', '--title', '--type', '--url', '--verify', '-o')
+    $valueFlags = @('--at', '--bundle', '--by', '--captured-at', '--channel', '--concept', '--config', '--dir', '--form', '--format', '--generated-at', '--host', '--limit', '--name', '--out', '--scope', '--severity', '--source-last-modified', '--tag', '--title', '--type', '--url', '--verify', '--version', '-o')
 
     # The verb and its subcommand are the first two bare words that are not some
     # flag's value.
@@ -153,6 +153,14 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
                 default { $candidates = @('--help', '-h', '--scope', '--verbose', '-v') }
             }
         }
+        'upgrade' {
+            switch ($previous) {
+                '--channel' { $candidates = @('rc', 'stable') }
+                '--format' { $candidates = @('json', 'text') }
+                '--version' { $candidates = @() }
+                default { $candidates = @('--help', '-h', '--channel', '--check', '--dry-run', '--format', '--json', '--version') }
+            }
+        }
         'completion' {
             switch ($previous) {
                 default { $candidates = @('--help', '-h') }
@@ -171,7 +179,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
                 default { $candidates = @('--verbose', '-v') }
             }
         }
-        default { $candidates = @('init', 'lint', 'index', 'search', 'register', 'unregister', 'registry', 'inbox', 'verify', 'capture', 'generated', 'bundle', 'site', 'skills', 'mcp', 'completion', 'help', 'version') }
+        default { $candidates = @('init', 'lint', 'index', 'search', 'register', 'unregister', 'registry', 'inbox', 'verify', 'capture', 'generated', 'bundle', 'site', 'skills', 'mcp', 'upgrade', 'completion', 'help', 'version') }
     }
 
     $candidates |

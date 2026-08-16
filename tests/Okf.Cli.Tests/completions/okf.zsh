@@ -34,7 +34,7 @@ _okf() {
         fi
         case "$word" in
             (--*=*) ;;
-            (--at|--bundle|--by|--captured-at|--concept|--config|--dir|--form|--format|--generated-at|--host|--limit|--name|--out|--scope|--severity|--source-last-modified|--tag|--title|--type|--url|--verify|-o) skip=1 ;;
+            (--at|--bundle|--by|--captured-at|--channel|--concept|--config|--dir|--form|--format|--generated-at|--host|--limit|--name|--out|--scope|--severity|--source-last-modified|--tag|--title|--type|--url|--verify|--version|-o) skip=1 ;;
             (-*) ;;
             (*)
                 if [[ -z "$verb" ]]; then
@@ -63,6 +63,7 @@ _okf() {
             'site:Render the bundles as a static site'
             'skills:The agent skills this binary carries and where they install'
             'mcp:Run the read-only MCP server over stdio'
+            'upgrade:Replace this binary with the newest release'
             'completion:Print a shell completion script'
             'help:Show the verb list'
             'version:Show the version'
@@ -394,6 +395,27 @@ _okf() {
                 return
             fi
             _files
+            ;;
+        (upgrade)
+            case "$prev" in
+                (--channel) compadd -- rc stable; return ;;
+                (--format) compadd -- json text; return ;;
+                (--version) return ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                options=(
+                    '--help:Show this help'
+                    '-h:Show this help'
+                    '--channel:The release channel to follow'
+                    '--check:Report whether an upgrade is available and stop'
+                    '--dry-run:Resolve and report without downloading anything'
+                    '--format:Output format'
+                    '--json:Emit the stable JSON form instead of text'
+                    '--version:Install this release instead of the newest'
+                )
+                _describe -t options 'option' options
+                return
+            fi
             ;;
         (completion)
             if [[ "$cur" == -* ]]; then
