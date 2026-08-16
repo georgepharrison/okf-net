@@ -99,7 +99,9 @@ internal static class CaptureCommand
         }
 
         var manifestPath = OkfCaptureManifest.PathFor(vault);
-        var current = File.Exists(manifestPath) ? File.ReadAllText(manifestPath) : OkfCaptureWriter.EmptyManifest;
+        var (current, mark) = File.Exists(manifestPath)
+            ? ReadManifest(manifestPath)
+            : (OkfCaptureWriter.EmptyManifest, false);
 
         var result = OkfCaptureWriter.Add(
             current,
@@ -115,7 +117,20 @@ internal static class CaptureCommand
                 Form = arguments.Form,
             });
 
-        return Report(result, manifestPath, arguments, environment, output, error);
+        return Report(result, manifestPath, mark, arguments, environment, output, error);
+    }
+
+    /// <summary>
+    /// The manifest's text, with a leading byte-order mark reported rather than swallowed.
+    /// <see cref="File.ReadAllText(string)" /> consumes one and <see cref="OkfCaptureWriter.Save" />
+    /// writes none, so without this a manifest that carried a mark would quietly lose it —
+    /// a byte AD-52 promises not to move, on the one file whose job is to be evidence.
+    /// </summary>
+    private static (string Text, bool ByteOrderMark) ReadManifest(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var mark = bytes is [0xEF, 0xBB, 0xBF, ..];
+        return (Encoding.UTF8.GetString(bytes, mark ? 3 : 0, bytes.Length - (mark ? 3 : 0)), mark);
     }
 
     private static int Close(
@@ -174,8 +189,9 @@ internal static class CaptureCommand
             return CliApplication.ExitUsage;
         }
 
+        var (current, mark) = ReadManifest(manifestPath);
         var result = OkfCaptureWriter.Close(
-            File.ReadAllText(manifestPath),
+            current,
             new OkfCaptureClosure
             {
                 Entry = arguments.Operands[0],
@@ -184,13 +200,14 @@ internal static class CaptureCommand
                 Concepts = arguments.Concepts,
             });
 
-        return Report(result, manifestPath, arguments, environment, output, error);
+        return Report(result, manifestPath, mark, arguments, environment, output, error);
     }
 
     /// <summary>Writes the result, or reports the refusal at the exit code its kind earns.</summary>
     private static int Report(
         OkfCaptureWriteResult result,
         string manifestPath,
+        bool byteOrderMark,
         CaptureArguments arguments,
         OkfEnvironment environment,
         TextWriter output,
@@ -211,7 +228,7 @@ internal static class CaptureCommand
                 : CliApplication.ExitUsage;
         }
 
-        OkfCaptureWriter.Save(manifestPath, result.Text!);
+        OkfCaptureWriter.Save(manifestPath, byteOrderMark ? "\uFEFF" + result.Text : result.Text!);
 
         if (arguments.Json)
         {

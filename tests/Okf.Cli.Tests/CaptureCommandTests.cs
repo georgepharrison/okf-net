@@ -227,6 +227,22 @@ public class CaptureCommandTests
     }
 
     [Fact]
+    public void AByteOrderMarkOnTheManifestIsCarriedThroughTheWrite()
+    {
+        // `File.ReadAllText` eats a BOM and the writer emits none, so without care the one
+        // verb that promises to move no byte but its own would silently delete three.
+        using var vault = new CaptureVault();
+        vault.Drop("2026-08-16-a-page.html", "<html>a page</html>\n");
+        vault.WriteManifest("\uFEFF" + OkfCaptureWriter.EmptyManifest);
+
+        var run = vault.Add("2026-08-16-a-page.html");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal([0xEF, 0xBB, 0xBF], vault.ManifestBytes()[..3]);
+        Assert.Equal("2026-08-16-a-page", vault.Entry("2026-08-16-a-page").Id);
+    }
+
+    [Fact]
     public void AnEntryNothingNamesIsAUsageFailure()
     {
         using var vault = new CaptureVault();
@@ -382,6 +398,8 @@ public class CaptureCommandTests
             this.tree.Write(Path.Combine("okf", "raw", OkfCaptureManifest.FileName), text);
 
         public string Manifest() => File.ReadAllText(OkfCaptureManifest.PathFor(Vault));
+
+        public byte[] ManifestBytes() => File.ReadAllBytes(OkfCaptureManifest.PathFor(Vault));
 
         public OkfCaptureEntry Entry(string id) =>
             OkfCaptureManifest.TryLoad(Vault, out _)!.Captures.Single(entry => entry.Id == id);
