@@ -310,6 +310,31 @@ public class OkfIndexGeneratorTests
     }
 
     [Fact]
+    public void ApplyReturnsEveryIndexItWroteAndWritesItAsUtf8WithNoByteOrderMark()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"))
+            .Add("sub/leaf.md", Concept("Reference", "Leaf"));
+
+        var written = OkfIndexGenerator.Apply(OkfIndexGenerator.Plan(bundle.Bundle));
+
+        // The return value is the write log `okf index` reports from, and every other
+        // assertion on it in this file is a negative one — an empty second run, an orphan
+        // absent — so returning nothing at all would satisfy them. The bytes are the other
+        // half: `File.ReadAllText` eats a BOM, so a writer that emitted one would still
+        // pass every text comparison here while leaving a file that can never again equal
+        // its own rendered `Content` — drift on every later run (PRD ACC-7).
+        Assert.Equal(
+            [Path.Combine(bundle.Root, "index.md"), Path.Combine(bundle.Root, "sub", "index.md")],
+            written.Select(index => index.Path));
+        Assert.All(
+            written,
+            index => Assert.Equal(
+                System.Text.Encoding.UTF8.GetBytes(index.Content),
+                File.ReadAllBytes(index.Path)));
+    }
+
+    [Fact]
     public void ADirectoryWithNoConceptsOfItsOwnStillGetsAnIndexWhenAChildDoes()
     {
         using var bundle = new TempBundle();
