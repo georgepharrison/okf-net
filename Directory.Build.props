@@ -9,8 +9,12 @@
 
     `latest-all` enables every rule the SDK's analyzer package ships, including
     the ones off by default. Everything downgraded from that maximum lives in
-    .globalconfig, one line per rule with the reason it was downgraded — so the
-    exceptions are a readable list rather than a property nobody re-reads.
+    the repo-root .editorconfig, one line per rule with the reason it was
+    downgraded — so the exceptions are a readable list rather than a property
+    nobody re-reads. It is .editorconfig and not .globalconfig deliberately: a
+    global AnalyzerConfig has no glob sections, so `[tests/**/*.cs]` is not
+    expressible there, and it would lose to the per-rule config the SDK
+    generates for `latest-all` anyway.
 
     `EnforceCodeStyleInBuild` is what makes the IDExxxx style rules reach a
     command-line build at all; without it .editorconfig is advice the IDE gives

@@ -171,7 +171,7 @@ behaviour-preserving; nothing in `Okf.Core`'s frozen public surface changed.
 | CA1859 | `OkfSkills.cs:67` `Load` (return) | suppressed — backs the frozen public `All` property via `Lazy<IReadOnlyList<OkfSkill>>` |
 | CA1859 | `OkfSiteGenerator.cs:91` `MultiPage` (return) | suppressed — return flows unchanged into `OkfSitePlan.Files`, a frozen public constructor parameter/property |
 | CA1859 | `OkfSiteBuilder.cs:416` `Crumbs` (return) | suppressed — return flows unchanged into `OkfSitePage.Crumbs`, a public property (internal setter) |
-| CA1859 | `OkfInbox.cs:443` `DriftedSources` (return) | retyped to `List<OkfDriftedSource>` — private, only `.Count` is read at the call site, no public flow |
+| CA1859 | `OkfInbox.cs:443` `DriftedSources` (return) | retyped to `List<OkfDriftedSource>` — private. The list it returns does reach public API, as `OkfInboxItem.DriftedSources`, but only as a *value*: the property is still declared `IReadOnlyList<OkfDriftedSource>` and the constructor parameter is unchanged, so no public signature moved and a `List<T>` is what was stored there before |
 | CA1859 | `OkfAgentPointer.cs:265` `Splice` (`replacement` param) | retyped to `string[]` — private, sole caller passes an array; `.Count` uses in the body became `.Length` |
 | CA1859 | `OkfScope.cs:261` `VaultOf` (`bundles` param) | retyped to `List<OkfBundle>` — private, both callers pass `List<OkfBundle>` |
 | CA1859 | `OkfScope.cs:275` `Sentence` (`bundles` param) | retyped to `List<OkfBundle>`, same reasoning — this was the actual 10th CA1859 site (the triage's line number pointed here, not at `VaultOf`; `VaultOf` was fixed too, as a harmless consistent follow-on, though it was not itself one of the original 13) |
