@@ -43,6 +43,14 @@ a copy that drifts:
 An agent working on this vault loads the skill by name; nothing here duplicates
 their content, and a change to either lands in one place.
 
+Those two paths are this repository's own copy, and they are what `recipe.json`
+points at because they resolve here. Elsewhere the same files arrive inside the
+`okf` binary: `okf skills install` writes them to `~/.local/share/okf/skills`
+and into Claude Code's or pi's skill directory, and `okf skills path
+okf-custodian` prints where one landed. A project with no copy of its own gets
+`okf skill <name>` in its scaffolded recipe rather than a path that resolves on
+one machine.
+
 ## What runs where
 
 Honest scoping, because the alternative is a directory that claims a robot:
