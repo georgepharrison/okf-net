@@ -55,9 +55,20 @@ public sealed class OkfUpgradeVersionTests
     // the case that decides whether `1.1.0-rc.1` reads as an upgrade over `1.1.0`.
     [InlineData("1.1.0-rc.1", "1.1.0", -1)]
     [InlineData("1.1.0", "1.1.0-rc.1", 1)]
-    // §11.4.1: numeric identifiers compare numerically, so rc.10 follows rc.9.
+    // §11.4.1: numeric identifiers compare numerically, so rc.10 follows rc.9. The bare-
+    // numeric rows put the numeric identifier FIRST, where nothing separates it from the
+    // core, so a prerelease split that kept a character of the core would compare them as
+    // text and read 1.0.0-10 as the lower of the two.
     [InlineData("1.0.0-rc.9", "1.0.0-rc.10", -1)]
     [InlineData("1.0.0-rc.2", "1.0.0-rc.11", -1)]
+    [InlineData("1.0.0-9", "1.0.0-10", -1)]
+    [InlineData("1.0.0-2", "1.0.0-11", -1)]
+    // §2: the core is exactly three components. A fourth is not part of precedence, and a
+    // missing one reads as zero.
+    [InlineData("1.0.0.9", "1.0.0.1", 0)]
+    [InlineData("1.0", "1.0.0", 0)]
+    [InlineData("1", "1.0.0", 0)]
+    [InlineData("1.1", "1.0.0", 1)]
     // §11.4.3: numeric identifiers always have lower precedence than alphanumeric ones.
     [InlineData("1.0.0-1", "1.0.0-alpha", -1)]
     // §11.4.4: with everything before them equal, more fields wins.
@@ -92,6 +103,21 @@ public sealed class OkfUpgradeVersionTests
     public void RecognizesAnUnstampedBuild(string version, bool expected) =>
         Assert.Equal(expected, OkfUpgradeVersion.IsDevelopmentBuild(version));
 
+    /// <summary>
+    /// The core is whatever precedes the first <c>-</c> or <c>+</c>, even when that is
+    /// nothing at all. A release manifest is downloaded (AD-53), so its <c>version</c> is
+    /// external input and every one of these has to land somewhere rather than throw; the
+    /// somewhere is the <c>0.0.0</c> core, which AD-41 already treats as unstamped.
+    /// </summary>
+    [Theory]
+    [InlineData("+1.2.3", true)]
+    [InlineData("-1.2.3", true)]
+    [InlineData("", true)]
+    [InlineData("dev", true)]
+    [InlineData("1.2.3+dev", false)]
+    public void ReadsADegenerateVersionAsAZeroCore(string version, bool expected) =>
+        Assert.Equal(expected, OkfUpgradeVersion.IsDevelopmentBuild(version));
+
     [Theory]
     [InlineData("1.0.0", "1.1.0-rc.1", true)]
     [InlineData("1.1.0-rc.1", "1.1.0", true)]
@@ -101,8 +127,11 @@ public sealed class OkfUpgradeVersionTests
     // A local build takes any release, including one that sorts below its own 0.0.0 core.
     [InlineData("0.0.0-dev+9765a305", "1.0.0", true)]
     [InlineData("0.0.0-dev", "0.0.1", true)]
-    // Nothing to compare against is not an upgrade.
+    // Nothing to compare against is not an upgrade — not even for an unstamped build, which
+    // takes every release it is offered but cannot be offered a nameless one.
     [InlineData("1.0.0", "", false)]
+    [InlineData("0.0.0-dev", "", false)]
+    [InlineData("0.0.0-dev", "1.0.0", true)]
     public void AnswersWhetherAnUpgradeIsAvailable(string current, string available, bool expected) =>
         Assert.Equal(expected, OkfUpgradeVersion.IsUpgradeAvailable(current, available));
 }
