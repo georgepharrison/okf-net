@@ -47,6 +47,29 @@ public class OkfBundleWalkTests
             OkfBundle.IgnoredMetadataNames.Order(StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// The match is case-insensitive so a bundle reads the same on every platform: macOS
+    /// and Windows filesystems are case-insensitive, so <c>.Git</c> and <c>.git</c> are
+    /// one directory there and two here. A case-sensitive match would make conformance
+    /// depend on which machine ran the linter, and on Linux it would let a
+    /// <c>.GIT</c> escape the list entirely.
+    /// </summary>
+    [Theory]
+    [InlineData(".GIT")]
+    [InlineData(".Obsidian")]
+    [InlineData(".VSCode")]
+    public void An_ignored_metadata_name_is_matched_whatever_its_case(string name)
+    {
+        using var tree = new TempBundle();
+        tree.Add("visible.md", CleanConcept)
+            .Add($"{name}/notes.md", "# no frontmatter\n")
+            .Add("THUMBS.DB", "explorer state")
+            .Add("Desktop.INI", "[.ShellClassInfo]");
+        var bundle = tree.Bundle;
+
+        Assert.Equal(["visible.md"], bundle.ContentFiles().Select(bundle.RelativePath));
+    }
+
     [Fact]
     public void A_dot_prefixed_markdown_file_is_walked()
     {
