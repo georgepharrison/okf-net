@@ -250,7 +250,7 @@ internal sealed class McpToolset
 
     /// <summary>Renders the <c>tools/list</c> result.</summary>
     /// <returns>The result JSON.</returns>
-    public string List()
+    public static string List()
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, EnvelopeOptions))
@@ -770,7 +770,7 @@ internal sealed class McpToolset
     /// too, because one filter is the common case and a client that spells it as a scalar is
     /// not wrong enough to fail.
     /// </summary>
-    private static IReadOnlyList<string> Strings(JsonElement? arguments, string name)
+    private static List<string> Strings(JsonElement? arguments, string name)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } value
             || !value.TryGetProperty(name, out var property)
