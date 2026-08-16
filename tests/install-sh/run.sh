@@ -78,10 +78,12 @@ make_release() { # make_release <version>
   local v="$1" dir="$www/v$1" name sha_line
   mkdir -p "$dir"
 
-  # Stand-ins for the real binaries: scripts that answer `okf version` the way the real
-  # ones do, so the installer's final "prints the installed version" step is exercised
-  # rather than mocked away. Two of them, with DIFFERENT bytes — that is what makes "did
-  # it pick the right asset" an answerable question rather than a coincidence.
+  # Stand-ins for the real binaries: scripts that answer `okf version`, so the installer's
+  # final "prints the installed version" step is exercised rather than mocked away. The
+  # string they answer with is a stand-in too — a released binary prints the bare version
+  # since #53 — and what earns its place in it is the asset name. Two of them, with
+  # DIFFERENT bytes — that is what makes "did it pick the right asset" an answerable
+  # question rather than a coincidence.
   #
   # They also answer `okf skills install`, which the installer runs once the binary is in
   # place (#41). Every invocation is appended to $OKF_STUB_LOG when that is set — the

@@ -365,7 +365,8 @@ publish:
       # The tag is `vX.Y.Z` from `main` or `vX.Y.Z-rc.N` from `dev`, and this job
       # does not care which: the package version is that string without the `v`,
       # so that it is character-for-character what the binary inside it answers
-      # to `okf version` (modulo the `+sha` metadata). Nothing below branches on
+      # to `okf version` — exactly so since issue #53, which took the `+<sha>`
+      # build metadata off a tagged build's version. Nothing below branches on
       # the `-rc.N`, which is what makes a candidate and a release the same build
       # verified the same way. The registry would take the `v` too — this
       # instance was probed with a deliberately non-semver version and accepted
