@@ -10,6 +10,15 @@ implementation choices in this repo.
   Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). Enforced by
   a `commit-msg` git hook.
 - **Setup.** Run `mise run setup` once after cloning to install git hooks.
+- **Branches and releases.** Merge requests target **`dev`**, not `main`. `dev`
+  is the `rc` prerelease channel: every merge there cuts a `vX.Y.Z-rc.N` tag
+  and an installable release candidate. `main` is the **stable** release
+  branch — merging to it cuts a plain `vX.Y.Z` — and it is only ever advanced
+  by promoting `dev`, as an explicit fast-forward or merge, when Ringo says
+  ship. Nothing else writes to `main`. Which version comes out is decided by
+  the commit types in the range being released (`feat` minor, `fix`/`docs`/
+  `refactor`/`perf`/`ci` patch, a `!`/`BREAKING CHANGE` major), which is the
+  other reason a commit type must be honest about what the commit did.
 - **Running the CLI.** Nothing puts an `okf` binary on your PATH in this
   checkout, so `mise run cli -- <args>` (e.g. `mise run cli -- lint okf/`) is
   the documented `okf` equivalent here — it is what the skills' escape hatch

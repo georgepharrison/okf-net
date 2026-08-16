@@ -253,11 +253,20 @@ commit-check:
       done
       exit $failed
 
-# Semantic release, on the default branch only. Invocation style and image
+# Semantic release, on the two release branches. Invocation style and image
 # copied from iac's semantic-release job (node:22-slim, global npm install
 # of the plugins, git fetch --tags before running); the trigger rule differs
 # from iac deliberately — iac releases on tag push, okf-net releases by
-# having semantic-release itself cut the (prerelease) tag from main.
+# having semantic-release itself cut the tag from the branch it ran on.
+#
+# Two branches since the 1.0.0 flip (work item #10), matching `.releaserc.yml`:
+# `dev` is the `rc` prerelease channel and cuts `vX.Y.Z-rc.N`, `main` is the
+# release branch and cuts `vX.Y.Z`. Both are spelled out by name rather than
+# via `$CI_DEFAULT_BRANCH` — the default branch is one of the two, and naming
+# only it would silently mean "main only" again. semantic-release itself
+# decides which channel a run is on, from the branch name; this rule only
+# decides whether it is invoked at all. Every other branch reaches no release
+# job, so a feature branch cannot tag anything.
 release:
   stage: release
   rules:
@@ -266,7 +275,7 @@ release:
     # consequence of a push, never of a clock.
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev"'
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates
     - git fetch --tags --force
@@ -809,7 +818,9 @@ custodian-inbox:
 #
 # ONE deployment, on the default branch only. Merging is the deploy; nothing else
 # writes there. This replaces the temporary branch-scoped rule that published the
-# 6-static-site branch to the root while the design was being reviewed.
+# 6-static-site branch to the root while the design was being reviewed. It stayed
+# main-only through the 1.0.0 flip while `release` gained `dev`: there is one site
+# and one URL, and it should show what is released, not what is queued behind it.
 #
 # Branch review environments were built and tried on this instance, and refused
 # (2026-08-15, pipeline 331). `pages.path_prefix` — GitLab's parallel-deployments
