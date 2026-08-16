@@ -764,6 +764,178 @@ public class OkfBundlerTests
         }
     }
 
+    [Fact]
+    public void Entries_are_sorted_by_path_whatever_order_the_bundles_arrived_in()
+    {
+        using var tree = new BundlerVault();
+        var resolved = tree.WorkingSet();
+        var reversed = new OkfWorkingSet([.. resolved.Bundles.Reverse()], resolved.VaultRoot, "reversed");
+
+        var plan = OkfBundler.Plan(reversed, Options());
+
+        // AD-36: entries sorted by path ordinally, the manifest sorting with them. The order
+        // bundles arrive in is the caller's; the order they are written in is the format's,
+        // or the same vault packages to two different byte streams.
+        Assert.Equal(
+            plan.Entries.Select(entry => entry.Path).Order(StringComparer.Ordinal),
+            plan.Entries.Select(entry => entry.Path));
+        Assert.Equal(
+            plan.Manifest.Files.Select(file => file.Path).Order(StringComparer.Ordinal),
+            plan.Manifest.Files.Select(file => file.Path));
+    }
+
+    [Fact]
+    public void A_lone_bundle_with_no_vault_around_it_names_no_vault_and_no_bundle_for_its_dangling_links()
+    {
+        using var bundle = new TempBundle("alpha");
+        bundle.Add("a.md", "---\ntype: Concept\ntitle: A\n---\n\nA links to [b](../beta/b.md).\n");
+
+        // `okf bundle <bundle-dir>` resolves one bundle with no vault around it, so there is
+        // no `bundles/` tree in which to say which bundle a dangling target would have
+        // landed in. AD-35 makes `sourceVault` a name, and there is no name to give.
+        var plan = OkfBundler.Plan(new OkfWorkingSet([bundle.Bundle], null, "one bundle"), Options());
+
+        Assert.Null(plan.Manifest.SourceVault);
+        var link = Assert.Single(plan.Manifest.ExternalLinks);
+        Assert.Equal("../beta/b.md", link.To);
+        Assert.Null(link.Bundle);
+
+        // Absent, and said so: a key the writer skipped would read as "not recorded" to a
+        // consumer, and AD-34 requires every dangling link to be listed.
+        var json = plan.Manifest.ToJson();
+        Assert.Contains("\"sourceVault\": null", json, StringComparison.Ordinal);
+        Assert.Contains("\"bundle\": null", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    // A manifest is data verify did not write. AD-4 makes okf-net tolerate a foreign
+    // artifact, and a hand-edited or truncated digest is exactly what --verify exists to
+    // notice — so it is reported, never indexed off the end of.
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "0123456789ab…")]
+    [InlineData("0123456789ab", "0123456789ab")]
+    [InlineData("abc", "abc")]
+    public void Verify_reports_a_recorded_digest_at_whatever_length_it_was_recorded(string recorded, string shown)
+    {
+        using var tree = new BundlerVault();
+        var output = Path.Combine(tree.Output, "dist");
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), output, OkfDistributionFormat.Directory);
+
+        var manifestPath = Path.Combine(output, OkfDistributionManifest.FileName);
+        var actual = OkfCaptureManifest.Sha256Of(
+            Path.Combine(output, "bundles", "beta", "gadgets.md"));
+        File.WriteAllText(
+            manifestPath,
+            File.ReadAllText(manifestPath).Replace(actual, recorded, StringComparison.Ordinal));
+
+        var finding = Assert.Single(
+            OkfBundler.Verify(output).Findings,
+            finding => finding.Path == "bundles/beta/gadgets.md");
+
+        Assert.Equal(OkfDistributionIssue.Modified, finding.Issue);
+        Assert.Equal($"recorded {shown}, found {actual[..12]}….", finding.Detail);
+    }
+
+    [Fact]
+    public void Verify_reports_a_path_that_is_neither_an_archive_nor_a_directory()
+    {
+        using var tree = new BundlerVault();
+
+        // AD-37: a distribution that cannot be read is unreadable, never a pass. Verifying
+        // the wrong path is the commonest way to reach this, and it has to be said out loud
+        // rather than reported as a clean archive with nothing in it.
+        var result = OkfBundler.Verify(Path.Combine(tree.Output, "not-there.tar.gz"));
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal(OkfDistributionIssue.Unreadable, finding.Issue);
+        Assert.Contains("neither an archive nor a directory", finding.Detail, StringComparison.Ordinal);
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public void Verify_reports_a_manifest_that_does_not_read_as_a_manifest()
+    {
+        using var tree = new BundlerVault();
+        var output = Path.Combine(tree.Output, "dist");
+        OkfBundler.Write(OkfBundler.Plan(tree.WorkingSet(), Options()), output, OkfDistributionFormat.Directory);
+        File.WriteAllText(Path.Combine(output, OkfDistributionManifest.FileName), "[]\n");
+
+        var result = OkfBundler.Verify(output);
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal(OkfDistributionIssue.Unreadable, finding.Issue);
+        Assert.Contains("does not parse as a distribution manifest", finding.Detail, StringComparison.Ordinal);
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public void Verify_skips_a_directory_entry_in_a_tar_and_in_a_zip()
+    {
+        using var tree = new BundlerVault();
+        var plan = OkfBundler.Plan(tree.WorkingSet(), Options());
+
+        // AD-37: directory entries alone are skipped, because the bundler writes none and
+        // every extractor makes the directories a file's path implies. An archive repacked
+        // by another tool carries them, and reporting one as `unlisted` would fail a
+        // distribution whose bytes are all exactly what the manifest says.
+        var tar = Path.Combine(tree.Output, "dist.tar.gz");
+        OkfBundler.Write(plan, tar, OkfDistributionFormat.TarGz);
+        Repack(tar, writer => writer.WriteEntry(new GnuTarEntry(TarEntryType.Directory, "bundles/alpha/")));
+        Assert.Equal([], OkfBundler.Verify(tar).Findings.Select(finding => finding.Path));
+
+        var zip = Path.Combine(tree.Output, "dist.zip");
+        OkfBundler.Write(plan, zip, OkfDistributionFormat.Zip);
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Update))
+        {
+            archive.CreateEntry("bundles/alpha/");
+        }
+
+        Assert.Equal([], OkfBundler.Verify(zip).Findings.Select(finding => finding.Path));
+    }
+
+    /// <summary>Rewrites a tar.gz with one more entry appended, whatever kind of entry it is.</summary>
+    private static void Repack(string archive, Action<TarWriter> append)
+    {
+        var entries = TarEntries(archive);
+        using var file = File.Create(archive);
+        using var gzip = new GZipStream(file, CompressionLevel.Optimal);
+        using var writer = new TarWriter(gzip, TarEntryFormat.Gnu);
+        foreach (var entry in entries)
+        {
+            writer.WriteEntry(entry);
+        }
+
+        append(writer);
+    }
+
+    [Fact]
+    public void A_manifest_reads_every_key_only_in_the_shape_it_is_declared_with()
+    {
+        // AD-4 again: a foreign manifest is read, never assumed well-shaped. A key carrying
+        // the wrong JSON type is the key being absent — not a cast that throws in the middle
+        // of verifying somebody's download.
+        var manifest = OkfDistributionManifest.Parse("""
+            {
+              "manifestVersion": "1",
+              "okfVersion": "0.9",
+              "generator": "okf/0.0.0",
+              "sourceVault": 5,
+              "generatedAt": "2026-08-15T14:00:00Z",
+              "bundles": [],
+              "externalLinks": [],
+              "files": []
+            }
+            """);
+
+        Assert.NotNull(manifest);
+        Assert.Equal(OkfDistributionManifest.CurrentVersion, manifest.ManifestVersion);
+        Assert.Null(manifest.SourceVault);
+
+        // The spec version is the manifest's own claim about what it was written against,
+        // so it is read rather than assumed: a distribution from a future spec has to be
+        // able to say so.
+        Assert.Equal("0.9", manifest.OkfVersion);
+    }
+
     /// <summary>Appends one entry that is not a file to a written tar.gz.</summary>
     private static void Smuggle(string archive, string name, TarEntryType type, string linkName)
     {
