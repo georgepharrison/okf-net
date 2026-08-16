@@ -4,7 +4,7 @@ title: The Architecture Spine
 description: A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
 tags: [okf-net, architecture, layering, governance]
-generated: { by: claude-fable/5, at: 2026-08-15T19:02:42Z }
+generated: { by: claude-fable/5, at: 2026-08-15T20:40:00Z }
 sources:
   - id: spine
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
@@ -62,14 +62,15 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The forty-eight rules cover layering and the offline contract, the diagnostic
+The forty-nine rules cover layering and the offline contract, the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, trust derivation and acknowledgment, the canonical timestamp,
 configuration precedence, search determinism and its engine-agnostic result
 contract, MCP containment, the bundler's dangling-and-record answer, the
-site's untrusted-data posture, release stamping, the license gate, the split
-between what a commit hook may cost and what CI owes, and the rule that tests
-must be shown to constrain the code.
+site's untrusted-data posture, the single bundle walk every surface reads,
+release stamping, the license gate, the split between what a commit hook may
+cost and what CI owes, and the rule that tests must be shown to constrain the
+code.
 
 # The rules the document keeps about itself
 

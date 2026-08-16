@@ -3,7 +3,7 @@ type: Concept
 title: Bundling and Distribution
 description: The bundler ships bundles/ and nothing else, deterministically, with a manifest attesting what shipped and which links now dangle.
 tags: [okf-net, distribution, bundle, determinism, cli]
-generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T20:40:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/6041b28b6a9a3a6a19d0eb5a610c7bfd38589de1/docs/decisions.md
@@ -47,12 +47,16 @@ repo-facing README are producer-side by construction. `raw/` in particular is a
 extracted from a captured artifact plus the original URL in its frontmatter,
 never the captured bytes.
 
-Inside a bundle root, two narrow rules apply. Dotfiles and dot-directories are
-skipped — the same walk `okf lint` uses, so `.obsidian/` and `.DS_Store` are
-already gone — and a short list of editor droppings is excluded by *name*
-(`*~`, `*.swp`, `*.orig`, `*.bak`, and friends). The list is short on purpose:
-a file whose name does not announce itself as junk gets packaged, because a
-producer who put it in a bundle root meant it to be there.
+Inside a bundle root, two narrow rules apply. The walk is the one `okf lint`
+uses, so a named list of tool state never arrives — `.git/`, `.obsidian/`,
+`.vscode/`, `.DS_Store` and their peers — while a dot-prefixed *concept*
+ships like any other, because a distribution that omitted a file the linter
+had just judged would describe a different tree from the report. On top of
+that the bundler excludes a short list of editor droppings by the *end* of
+their name (`*~`, `*.swp`, `*.orig`, `*.bak`, and friends). Both lists are
+short on purpose: a file whose name does not announce itself as junk gets
+packaged, because a producer who put it in a bundle root meant it to be
+there.
 
 # Deterministic, so the artifact can be checked
 

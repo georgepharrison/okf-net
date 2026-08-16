@@ -555,8 +555,11 @@ flowchart TB
 - **Rule:** The walk starts at `bundles/<name>/` and carries concepts, reserved files and
   non-markdown content alike — §6.3 makes code content. Everything outside a bundle root
   (`raw/`, `custodian/`, `okf.json`, the vault README) is never reached rather than
-  skipped. A short name-matched junk list is excluded; a file whose name does not say it is
-  junk gets packaged. The distribution keeps `bundles/<name>/`, so a link between two
+  skipped. Inside a bundle root the walk is AD-49's and the bundler adds one rule of its
+  own: a short list of junk *suffixes* (`*~`, `*.swp`, `*.orig`, …) is excluded, and a file
+  whose name does not say it is junk gets packaged — including a dot-prefixed concept,
+  because shipping a tree that differs from the one `okf lint` judged is the failure this
+  prevents. The distribution keeps `bundles/<name>/`, so a link between two
   packaged bundles still resolves. Formats are `tar.gz` (default), `zip` and `dir`, which
   between them cover every shape §3 permits.
 - **Source:** [what ships](decisions.md#what-ships-and-what-never-does),
@@ -804,6 +807,23 @@ flowchart TB
 - **Source:** [custodian activation](decisions.md#proposed-decisions-decided-2026-08-15-review-9-custodian-activation-on-this-repo-work-item-20-2026-08-15),
   [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14)
 
+### AD-49 — One walk decides what is bundle content, and a dot-prefix hides nothing
+
+- **Binds:** `OkfBundle.MarkdownFiles`, `OkfBundle.ContentFiles`, `OkfDiscovery`, and every
+  surface that reads them — lint, index, search, MCP, the site, the bundler
+- **Prevents:** `okf lint` reporting conformance over a tree it did not read, and two
+  surfaces disagreeing about which files a bundle contains.
+- **Rule:** `MarkdownFiles()` and `ContentFiles()` are the only walk; nothing enumerates a
+  bundle for itself. Spec §11 conforms every non-reserved `.md` file in the tree, so a
+  leading dot is not an exemption: `.hidden.md` is linted, indexed, searched, rendered and
+  packaged, and a dot-directory is descended. The one exception is
+  `OkfBundle.IgnoredMetadataNames` — `.DS_Store`, `.git`, `.hg`, `.idea`, `.obsidian`,
+  `.svn`, `.vscode`, `Thumbs.db`, `desktop.ini` — matched on the whole name,
+  case-insensitively, for files and directories alike, used by the walk and by bundle
+  discovery, and asserted literally by a test so it cannot grow unreviewed. A symlinked
+  directory is still never descended, dot-prefixed or not.
+- **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -947,14 +967,14 @@ flowchart TB
 
 | Capability | Lives in | Governed by | PRD |
 | --- | --- | --- | --- |
-| `okf lint` | `OkfLinter`, `OkfRules`, `OkfSeverityResolver`, `LintText`, `MarkdownScanner`; `LintCommand` renders | AD-3, AD-4, AD-5, AD-11, AD-12, AD-31 | CORE-3, CORE-4, CORE-8, CLI-5, CLI-6, CLI-7, CLI-15, ACC-1 |
-| `okf index` | `OkfIndexGenerator`, `OkfIndex`; `IndexCommand` renders | AD-5, AD-13, AD-14, AD-15 | CORE-9, CORE-10, CLI-9, CLI-10, ACC-3, ACC-7 |
-| `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28 | CORE-11, CLI-3, CLI-11 |
-| `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator` | AD-6, AD-28, AD-29, AD-30 | MCP-1 … MCP-5, CORE-12 |
+| `okf lint` | `OkfLinter`, `OkfRules`, `OkfSeverityResolver`, `LintText`, `MarkdownScanner`; `LintCommand` renders | AD-3, AD-4, AD-5, AD-11, AD-12, AD-31, AD-49 | CORE-3, CORE-4, CORE-8, CLI-5, CLI-6, CLI-7, CLI-15, ACC-1 |
+| `okf index` | `OkfIndexGenerator`, `OkfIndex`; `IndexCommand` renders | AD-5, AD-13, AD-14, AD-15, AD-49 | CORE-9, CORE-10, CLI-9, CLI-10, ACC-3, ACC-7 |
+| `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49 | CORE-11, CLI-3, CLI-11 |
+| `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator` | AD-6, AD-28, AD-29, AD-30, AD-49 | MCP-1 … MCP-5, CORE-12 |
 | `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
-| `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37 | PRD §5 (post-MVP roadmap), CLI-14 |
-| `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40 | PRD §5 (post-MVP roadmap) |
+| `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
+| `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
 | Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI | AD-1, AD-6, AD-16, AD-18, AD-20 | SKILL-1 … SKILL-8 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32 | SKILL-7, ACC-5, ACC-6 |
 | Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43 | CLI-17, Q10 |
