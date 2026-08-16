@@ -683,10 +683,16 @@ flowchart TB
   `-p:Version` plus `-p:SourceRevisionId`. The unstamped default is `0.0.0-dev`, never
   `1.0.0`. No MSBuild target shells out to git — `mise run publish-aot` derives a local
   version from `git describe` and normalizes it, dropping the distance trailer and carrying
-  the commit as build metadata. Two version strings ship deliberately: `okf version` prints
-  the informational version with `+<sha>`, while MCP's `serverInfo.version` prints the bare
-  semantic version, because semver §10 excludes build metadata from precedence.
-- **Source:** [version stamping](decisions.md#proposed-decisions-decided-2026-08-15-review-9-version-stamping-and-tag-pipelines-work-item-10-2026-08-14)
+  the commit as build metadata. Two version strings ship deliberately: a tagged build (the
+  `publish` job, rc or stable) prints the bare version from `okf version` — the tag already
+  identifies the commit — while a local, untagged build (`mise run publish-aot`, a plain
+  `dotnet build`) still carries `+<sha>`, because nothing else says where it came from.
+  `okf version --verbose` prints a second line, `commit: <sha>` (or `commit: unknown` when
+  unstamped), on every build regardless of whether the sha made it into the first line.
+  MCP's `serverInfo.version` prints the bare semantic version unchanged, because semver §10
+  excludes build metadata from precedence.
+- **Source:** [version stamping](decisions.md#proposed-decisions-decided-2026-08-15-review-9-version-stamping-and-tag-pipelines-work-item-10-2026-08-14),
+  [bare release versions](decisions.md#proposed-decisions-bare-release-versions-work-item-53-2026-08-16)
 
 ### AD-42 — Every hop of the release chain re-verifies the bytes, and the host pulls
 
@@ -703,7 +709,9 @@ flowchart TB
   fetches, because every binary embeds the same files), `latest.json`, and both
   installers. CI stamps from the tag,
   never from `git describe`, and the job compares `okf version` from the freshly compiled
-  binary against `<tag minus the leading v>+<short sha>` before uploading anything — a
+  binary against the bare `<tag minus the leading v>` — a tagged build carries no `+<sha>`,
+  the tag already identifies the commit (issue #53) — and separately checks that
+  `okf version --verbose` names the commit on its second line, before uploading anything: a
   runnable check for `linux-x64` only, because a Linux runner cannot execute the other two,
   which get a grepped `file` assertion instead so a mislabelled image cannot reach a tester.
   `latest.json` is the release contract, a map keyed by asset name, and carries both a
@@ -949,7 +957,7 @@ flowchart TB
     rel --> tag["tag vX.Y.Z-rc.N from dev<br/>vX.Y.Z from main<br/>+ GitLab Release"]
     tag --> pub["publish job<br/>tag pipeline only"]
     pub --> build["publish 3 RIDs<br/>linux-x64 AOT · osx-arm64<br/>win-x64 · stamped from the tag"]
-    build --> gate{"okf version matches<br/>tag plus short sha?"}
+    build --> gate{"okf version matches tag,<br/>--verbose names the commit?"}
     gate -- no --> stop["fail · upload nothing"]
     gate -- yes --> reg["generic package registry<br/>okf/VERSION · 8 assets<br/>3 binaries · knowledge bundle<br/>skills archive"]
     reg --> man["latest.json<br/>per asset: path · size · sha256 · url"]

@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, and every tag publishes a self-describing three-platform release the installers can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-16T00:00:00Z }
+generated: { by: claude-fable/5, at: 2026-08-16T06:00:00Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -227,9 +227,14 @@ and still prints a green, so the `test-install` CI job fails outright when
 `shells under test:` before its first case.
 
 The version is the tag without its leading `v`, so a downloaded binary answers
-`okf version` with the package version it came from, plus the short commit sha
-as build metadata — an rc tag can be rebuilt, so the version alone does not
-identify a binary.
+`okf version` with exactly the package version it came from — bare, no
+`+<sha>` build metadata, because a tagged build already has an identifier for
+the commit: the tag itself (issue #53). An rc tag can be rebuilt, so the
+version alone still does not identify a binary; `okf version --verbose` names
+the commit on a second line for that reason, on every build, whether the
+first line carries a `+<sha>` or not. Only an untagged local build (`mise run
+publish-aot`, a plain `dotnet build`) keeps the sha in the first line — there,
+nothing but the sha says where the binary came from.
 
 Two properties are worth naming because the installer leans on both. The
 download URL is **predictable** from the version alone, which is what lets

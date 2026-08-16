@@ -28,6 +28,29 @@
     Neither this file nor any target in this repo shells out to git — deriving a
     version from the working tree is the caller's job, so a build from a source
     archive with no `.git` still works and still produces a usable version.
+
+    ISSUE #53 — TAGGED RELEASES PRINT THE BARE VERSION
+    ====================================================
+    A build the `publish` CI job stamps from a tag already has an identifier for
+    the commit — the tag itself, one `git show <tag>` away. Appending `+<sha>`
+    to that build's `AssemblyInformationalVersion` bought nothing and cost a
+    fresh install printing `okf 1.0.0+9765a305` — build metadata precedence
+    already ignores (semver §10), on a version a release note already names
+    exactly. `IncludeSourceRevisionInInformationalVersion` is the SDK's own
+    switch for this: the `publish` job now passes
+    `-p:IncludeSourceRevisionInInformationalVersion=false` so
+    `AssemblyInformationalVersion` is the bare `-p:Version` and nothing more.
+    `mise run publish-aot` and a plain `dotnet build` do not pass it, so a local
+    or untagged build keeps `+<sha>` — nothing else says where an unstamped
+    build came from.
+
+    The commit must not disappear just because it left the informational
+    version: every build still carries `SourceRevisionId` as its own attribute,
+    independent of whether it was folded into the informational version
+    string, so `okf version`'s verbose flag can print it as a second line. Read via
+    `Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()`, which is
+    AOT-safe — no reflection over types, the same shape as the
+    `AssemblyInformationalVersionAttribute` lookup `okf version` already does.
   -->
   <PropertyGroup>
     <!--
@@ -38,5 +61,27 @@
     -->
     <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
   </PropertyGroup>
+
+  <!--
+    Carries the commit forward even when `IncludeSourceRevisionInInformationalVersion`
+    drops it from `AssemblyInformationalVersion` (issue #53). Deliberately a Target, not a
+    plain `ItemGroup`: a bare `<AssemblyMetadata Include="Commit" Value="$(SourceRevisionId)" />`
+    outside any target bakes in `$(SourceRevisionId)` at project-evaluation time, before the
+    SDK's `InitializeSourceControlInformation` target has resolved it from git — empirically
+    confirmed empty (`commit: unknown` even on a build whose first line carried `+<sha>`
+    fine, because that suffix is appended by a Target too). `BeforeTargets="GetAssemblyAttributes"`
+    plus `DependsOnTargets="InitializeSourceControlInformation"` gives the item the same
+    timing `AddSourceRevisionToInformationalVersion` already relies on for the `+<sha>`
+    suffix. Empty when neither `-p:SourceRevisionId` nor git supplies one (a source archive
+    with no `.git`, built with no override); `okf version`'s verbose flag prints that as
+    `commit: unknown`.
+  -->
+  <Target Name="AddCommitAssemblyMetadata"
+          BeforeTargets="GetAssemblyAttributes"
+          DependsOnTargets="InitializeSourceControlInformation">
+    <ItemGroup>
+      <AssemblyMetadata Include="Commit" Value="$(SourceRevisionId)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

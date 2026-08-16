@@ -500,7 +500,7 @@ Every row below is what `okf` dispatches today, except the two marked **deferred
 | `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
 | `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
 | `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | — | 0 clean shutdown · 2 startup failure |
-| `okf version` · `okf help` | Report the informational version (`<semver>+<short-sha>`); print the verb list | `--version`, `--help`, `-h` as aliases | 0 |
+| `okf version` · `okf help` | Report the informational version — the bare `<semver>` from a build stamped off a tag, `<semver>+<short-sha>` from an untagged one (#53); print the verb list | `--verbose` / `-v` on `version` adds a `commit: <sha>` second line; `--version`, `--help`, `-h` as aliases | 0 |
 | `okf register [path]` | **Deferred — not built.** Add a bundle/vault to the registry (idempotent) | — | — |
 | `okf unregister [path]` | **Deferred — not built.** Remove a registry entry (idempotent) | — | — |
 

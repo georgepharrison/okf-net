@@ -65,6 +65,81 @@ public class CliSurfaceTests
     public void SemanticVersionDropsBuildMetadata(string? informationalVersion, string expected) =>
         Assert.Equal(expected, CliApplication.SemanticVersion(informationalVersion));
 
+    /// <summary>
+    /// Plain `okf version` prints only the informational version — a tagged build's bare
+    /// `1.0.0` or an untagged build's `0.0.0-dev+abc1234` — and never a second line, so a
+    /// script parsing one line of output keeps working (issue #53).
+    /// </summary>
+    [Fact]
+    public void VersionWithoutVerboseHasNoCommitLine()
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(home.Root, home.Root, "version");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Single(run.OutputLines);
+    }
+
+    /// <summary>
+    /// `okf version --verbose` (and its `-v` alias) prints a second line naming the commit
+    /// this binary was built from, independent of whether that commit also survived into
+    /// the informational version on the first line (issue #53: a tagged build's first line
+    /// carries no `+&lt;sha&gt;` any more, so the commit needs somewhere else to live).
+    /// </summary>
+    [Theory]
+    [InlineData("--verbose")]
+    [InlineData("-v")]
+    public void VerboseVersionAddsACommitLine(string flag)
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(home.Root, home.Root, "version", flag);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(2, run.OutputLines.Length);
+        Assert.Matches(@"^\d+\.\d+\.\d+", run.OutputLines[0]);
+        // Not merely non-empty: a build that lost its commit prints `commit: unknown`
+        // rather than a blank or missing line, so `Contains("commit:")` alone would also
+        // pass on that failure mode.
+        Assert.Matches(@"^commit: \S+$", run.OutputLines[1]);
+    }
+
+    /// <summary>
+    /// The commit metadata is read from a dedicated `AssemblyMetadata` item (issue #53),
+    /// not from the informational version's `+&lt;sha&gt;` suffix — so it survives on a
+    /// tagged build where that suffix is gone. <see cref="CliApplication.DescribeCommit"/>
+    /// is the pure rendering step: a present value passes through, and a missing or empty
+    /// one falls back to <see cref="CliApplication.UnknownCommit"/> rather than printing
+    /// nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("abc1234", "abc1234")]
+    [InlineData(null, CliApplication.UnknownCommit)]
+    [InlineData("", CliApplication.UnknownCommit)]
+    public void DescribeCommitFallsBackWhenUnstamped(string? commit, string expected) =>
+        Assert.Equal(expected, CliApplication.DescribeCommit(commit));
+
+    /// <summary>
+    /// The `AssemblyMetadata` item in `Directory.Build.props` is the whole mechanism that
+    /// keeps the commit reachable once the `publish` job takes it out of the informational
+    /// version (issue #53), and the shape assertions above cannot see it break: an item
+    /// that stops resolving still renders as `commit: unknown`, which they accept. The
+    /// oracle here is the SDK's, not this repo's — `GenerateAssemblyInfo` appends
+    /// `+$(SourceRevisionId)` to the informational version on any build that did not opt
+    /// out, so on this test run's own build the commit must be exactly that suffix. A build
+    /// whose informational version carries no suffix is the unstamped case (a source
+    /// archive with no `.git`, or an opted-out build), and there the commit is `unknown`.
+    /// </summary>
+    [Fact]
+    public void CommitMetadataMatchesTheBuildMetadataTheSdkStamped()
+    {
+        var informational = CliApplication.VersionDisplay;
+        var metadata = informational.IndexOf('+', StringComparison.Ordinal);
+
+        Assert.Equal(
+            metadata < 0 ? CliApplication.UnknownCommit : informational[(metadata + 1)..],
+            CliApplication.CommitDisplay);
+    }
+
     [Fact]
     public void ListRulesCoversEveryShippedRule()
     {

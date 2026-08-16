@@ -209,7 +209,8 @@ curl --fail --location --output okf \
   "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/<version>/<asset>"
 chmod +x okf
 xattr -d com.apple.quarantine okf   # macOS only; see the Gatekeeper note above
-./okf version   # <version>+<short-sha> — the tag, and the commit it was built from
+./okf version            # <version> — the tag, since a tagged build already names one
+./okf version --verbose  # <version> then `commit: <sha>` — the commit it was built from
 ```
 
 Each release also carries `latest.json` beside the binary, which is what makes
