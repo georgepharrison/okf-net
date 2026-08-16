@@ -539,6 +539,27 @@ public class OkfSiteBuilderTests
     }
 
     [Fact]
+    public void TheSlugSuffixKeepsCountingPastTheSecondCollision()
+    {
+        using var first = new TempBundle("kb");
+        using var second = new TempBundle("kb");
+        using var third = new TempBundle("kb");
+        first.Add("a.md", "---\ntype: Concept\n---\n\nA.\n");
+        second.Add("b.md", "---\ntype: Concept\n---\n\nB.\n");
+        third.Add("c.md", "---\ntype: Concept\n---\n\nC.\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([first.Bundle, second.Bundle, third.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // A third bundle of the same name has to reach a third slug. A counter that stopped
+        // moving would loop for ever on a name already taken, or hand two bundles one slug.
+        Assert.Equal(
+            ["kb-2/b.html", "kb-3/c.html", "kb/a.html"],
+            model.Pages.Select(page => page.Href));
+    }
+
+    [Fact]
     public void ABundleNamedAfterTheSitesOwnDirectoryIsMovedOutOfItsWay()
     {
         using var bundle = new TempBundle("assets");
