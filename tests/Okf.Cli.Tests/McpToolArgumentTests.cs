@@ -271,25 +271,21 @@ public class McpToolArgumentTests
 
     /// <summary>
     /// A concept read back carries the fields a client needs to cite it — its absolute
-    /// path, its bundle, its description and its tags — beside the body.
+    /// path, its bundle, its description and its tags — beside the body. The description
+    /// and the tags are pinned to the fixture's own frontmatter rather than merely asserted
+    /// to be present: a `tags` array that came back empty reads as a concept that carries
+    /// no tags, which is a different citation. (The search-result path being a legal
+    /// `okf_read` argument is asserted separately in <see cref="McpAcceptanceTests" />.)
     /// </summary>
     [Fact]
     public void AReadConceptCarriesItsPathBundleDescriptionAndTags()
     {
         using var vault = McpProtocolTests.Vault();
 
-        var listed = Mcp.Session(
-            McpProtocolTests.Environment(vault),
-            vault.Root,
-            Mcp.Call(1, "okf_search", """{"query":"widget","limit":1}"""));
-        var (results, _) = listed.Content(0);
-        using var parsed = JsonDocument.Parse(results);
-        var path = parsed.RootElement[0].GetProperty("path").GetString();
-
         var run = Mcp.Session(
             McpProtocolTests.Environment(vault),
             vault.Root,
-            Mcp.Call(1, "okf_read", $$"""{"path":"{{path}}"}"""));
+            Mcp.Call(1, "okf_read", """{"path":"widgets.md"}"""));
 
         var (text, isError) = run.Content(0);
         Assert.False(isError);
@@ -297,8 +293,12 @@ public class McpToolArgumentTests
         using var concept = JsonDocument.Parse(text);
         Assert.True(Path.IsPathRooted(concept.RootElement.GetProperty("absolutePath").GetString()));
         Assert.True(Path.IsPathRooted(concept.RootElement.GetProperty("bundle").GetString()));
-        Assert.True(concept.RootElement.TryGetProperty("description", out _));
-        Assert.True(concept.RootElement.TryGetProperty("tags", out var tags));
-        Assert.Equal(JsonValueKind.Array, tags.ValueKind);
+        Assert.Equal(
+            "Every widget the fixture bundle knows about.",
+            concept.RootElement.GetProperty("description").GetString());
+        Assert.Equal(
+            (string?[])["catalog", "widgets"],
+            concept.RootElement.GetProperty("tags").EnumerateArray()
+                .Select(tag => tag.GetString()).ToArray());
     }
 }
