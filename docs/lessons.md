@@ -172,6 +172,25 @@ future session (human or agent) relearns them. Newest first within sections.
   of the code under test by construction.
 - Bundle walks must not descend directory symlinks: a symlink to an ancestor
   turned a 1-file bundle into 81 phantom files, bounded only by `PATH_MAX`.
+- **One quality gate can manufacture work for another, and mutation testing is
+  where the bill arrives.** Turning the analyzers up to `latest-all` (work item
+  #31) made CA1062 an error, so every public entry point gained an
+  `ArgumentNullException.ThrowIfNull` guard. The next full mutation run
+  (`docs/spikes/2026-08-16-mutation-baseline.md`) counted **177 survivors** —
+  11.4 % of all of them, 2.45 points of score — sitting on exactly those
+  guards, and every one is unkillable: the callers are all in-repo and none
+  passes null, so deleting the guard changes nothing observable. The right
+  response is to classify them as equivalent mutants and say so, **not** to
+  write null-argument tests, which would be a suite documenting the analyzer
+  rather than the product — the vacuity AD-44 exists against. Expect this
+  whenever a defensive-coding rule is switched on above a mutation score, and
+  budget the score drop rather than the tests. Two more operational notes from
+  the same run: the runtime tripled with the codebase (6 m 58 s → 21 m 47 s for
+  3413 → 10 986 mutants), so comments quoting "~8 minutes" in `mise.toml` and
+  `.gitlab-ci.yml` are now stale by 3×; and Stryker's **console** summary
+  disagreed with its own JSON report by 53 mutants (5237/1601 printed versus
+  5290/1548 in the file). Only the JSON reproduces the score Stryker itself
+  prints, so read the report and never the terminal line.
 
 ## Process / agents
 
