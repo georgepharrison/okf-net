@@ -76,7 +76,30 @@ internal static class SearchCommand
         // PRD CLI-1/CLI-3: search resolves its working set exactly as `okf lint` does, so
         // the two commands never disagree about which bundles they are looking at, and the
         // default scope is the project vault — identical results on every machine.
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        var scope = ScopeSettings.Resolve(arguments.Scope, environment);
+        if (arguments.Path is not null && scope.Scope != OkfScopeKind.Project && arguments.Scope is not null)
+        {
+            // A path names the bundles; a scope names how to find them. Honouring one would
+            // mean silently ignoring the other, and a flag that does nothing is worse than a
+            // refusal.
+            error.WriteLine(
+                $"okf: error: `--scope {scope.Scope.ToScopeString()}` and an explicit path are exclusive; " +
+                "a path already says which bundles to search.");
+            error.WriteLine("Run `okf search --help` for usage.");
+            return CliApplication.ExitUsage;
+        }
+
+        var resolution = arguments.Path is not null
+            ? new OkfScopeResolution(OkfDiscovery.Resolve(arguments.Path, environment), [])
+            : OkfScope.Resolve(scope.Scope, environment);
+        var workingSet = resolution.WorkingSet;
+
+        foreach (var note in resolution.Notes)
+        {
+            // Reported once, on stderr, and never an error: a laptop that has not been set
+            // up the same way must not fail a query (PRD CLI-2).
+            error.WriteLine($"okf: {note}");
+        }
 
         var outcome = OkfSearchEngine.Search(
             workingSet.Bundles,
@@ -89,7 +112,7 @@ internal static class SearchCommand
 
         if (arguments.Verbose)
         {
-            WriteVerbose(error, workingSet, query, outcome);
+            WriteVerbose(error, workingSet, scope, query, outcome);
         }
 
         if (arguments.Json)
@@ -99,7 +122,7 @@ internal static class SearchCommand
         }
         else
         {
-            WriteText(outcome, environment.CurrentDirectory, output);
+            WriteText(outcome, workingSet, environment.CurrentDirectory, output);
         }
 
         // PRD CLI-11 and the §3 CLI-surface table: an empty result set is not an error, so
@@ -111,9 +134,11 @@ internal static class SearchCommand
     private static void WriteVerbose(
         TextWriter error,
         OkfWorkingSet workingSet,
+        ScopeSettings scope,
         OkfSearchQuery query,
         OkfSearchOutcome outcome)
     {
+        error.WriteLine($"okf: scope {scope.Scope.ToScopeString()} (from {scope.Layer})");
         error.WriteLine($"okf: resolved {workingSet.Resolution}");
         foreach (var bundle in workingSet.Bundles)
         {
@@ -130,8 +155,28 @@ internal static class SearchCommand
         }
     }
 
-    private static void WriteText(OkfSearchOutcome outcome, string baseDirectory, TextWriter output)
+    /// <summary>
+    /// The roots a working set spans: the vault a bundle sits in, or the bundle itself when
+    /// it stands alone. More than one means a result's path has to name which one it came
+    /// from — two vaults can hold a bundle of the same name holding a concept of the same
+    /// name, and a bare relative path would make them indistinguishable.
+    /// </summary>
+    private static IReadOnlyList<string> Roots(OkfWorkingSet workingSet) =>
+        [.. workingSet.Bundles
+            .Select(bundle => Path.GetDirectoryName(bundle.Root) is { } parent
+                && string.Equals(Path.GetFileName(parent), OkfDiscovery.BundlesDirectoryName, StringComparison.Ordinal)
+                && Path.GetDirectoryName(parent) is { Length: > 0 } vault
+                    ? vault
+                    : bundle.Root)
+            .Distinct(StringComparer.Ordinal)];
+
+    private static void WriteText(
+        OkfSearchOutcome outcome,
+        OkfWorkingSet workingSet,
+        string baseDirectory,
+        TextWriter output)
     {
+        var roots = Roots(workingSet);
         if (outcome.UsedFallback)
         {
             output.WriteLine(
@@ -147,7 +192,7 @@ internal static class SearchCommand
             output.WriteLine(
                 $"{rank.ToString(CultureInfo.InvariantCulture)}. " +
                 $"{result.Score.ToString("F4", CultureInfo.InvariantCulture)}  " +
-                $"{DiagnosticWriter.Display(result.AbsolutePath, baseDirectory)}  " +
+                $"{(roots.Count > 1 ? result.AbsolutePath : DiagnosticWriter.Display(result.AbsolutePath, baseDirectory))}  " +
                 $"{result.Title}{type}  [{Markers(result)}]");
 
             if (result.Snippet.Length > 0)
@@ -163,6 +208,11 @@ internal static class SearchCommand
             .Append(DiagnosticWriter.Plural(outcome.ConceptCount, "concept"))
             .Append(" across ")
             .Append(DiagnosticWriter.Plural(outcome.BundleCount, "bundle"));
+
+        if (roots.Count > 1)
+        {
+            summary.Append(" in ").Append(DiagnosticWriter.Plural(roots.Count, "vault"));
+        }
 
         if (outcome.Truncated)
         {
@@ -202,6 +252,13 @@ internal static class SearchCommand
                                             the personal vault (OKF_HOME, else ~/okf).
 
             Options:
+              --scope <project|personal|registered|all>
+                                            Which vaults to search. project (the default) is
+                                            the vault above; personal is OKF_HOME, else
+                                            ~/okf; registered is every entry in okf's
+                                            registry; all is the project plus the registry.
+                                            Settable as `search.scope` in okf.json; a path
+                                            argument and --scope are exclusive.
               --type <type>                 Only concepts with this `type`; repeatable (OR)
               --tag <tag>                   Only concepts carrying this tag; repeatable (AND)
               --limit <n>                   Report at most n results (default: 10)

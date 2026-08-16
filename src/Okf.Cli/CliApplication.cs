@@ -84,6 +84,15 @@ internal static class CliApplication
             case "search":
                 return SearchCommand.Run(args[1..], environment, output, error);
 
+            case "register":
+                return RegistryCommand.Register(args[1..], environment, output, error);
+
+            case "unregister":
+                return RegistryCommand.Unregister(args[1..], environment, output, error);
+
+            case "registry":
+                return RegistryCommand.Registry(args[1..], environment, output, error);
+
             case "inbox":
                 return InboxCommand.Run(args[1..], environment, output, error);
 
@@ -187,6 +196,9 @@ internal static class CliApplication
               okf lint [path] [options]   Validate §11 conformance plus the configured warning set
               okf index [path] [options]  Generate the index.md files for a bundle (--check to verify)
               okf search <query> [path]   Search the resolved bundles, ranked and links-first
+              okf register [path]         Add a vault or bundle to the registry (idempotent)
+              okf unregister [path|id]    Remove a registry entry (idempotent)
+              okf registry [list|prune]   Report the registry, or drop entries whose path is gone
               okf inbox [path]            List the concepts waiting on a person
               okf verify <concept>...     Stamp human verification on one or more concepts
               okf capture <add|close>     Record a raw/ capture, or close its ingestion

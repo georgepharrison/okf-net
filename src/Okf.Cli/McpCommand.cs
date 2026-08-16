@@ -25,10 +25,12 @@ internal static class McpCommand
     {
         string? path = null;
         var verbose = false;
+        OkfScopeKind? requested = null;
 
-        foreach (var argument in args)
+        for (var index = 0; index < args.Length; index++)
         {
-            switch (argument)
+            var argument = args[index];
+            switch (argument.StartsWith("--scope=", StringComparison.Ordinal) ? "--scope" : argument)
             {
                 case "--help" or "-h":
                     WriteUsage(output);
@@ -36,6 +38,22 @@ internal static class McpCommand
 
                 case "--verbose" or "-v":
                     verbose = true;
+                    break;
+
+                case "--scope":
+                    var value = argument.StartsWith("--scope=", StringComparison.Ordinal)
+                        ? argument["--scope=".Length..]
+                        : index + 1 < args.Length ? args[++index] : null;
+                    if (!OkfScopeKindExtensions.TryParse(value, out var scope))
+                    {
+                        error.WriteLine(
+                            $"okf: error: Unknown --scope value '{value}'; expected one of " +
+                            string.Join(", ", OkfScopeKindExtensions.Names) + ".");
+                        error.WriteLine("Run `okf mcp --help` for usage.");
+                        return CliApplication.ExitUsage;
+                    }
+
+                    requested = scope;
                     break;
 
                 default:
@@ -58,7 +76,29 @@ internal static class McpCommand
             }
         }
 
-        var tools = new McpToolset(environment, path);
+        ScopeSettings settings;
+        try
+        {
+            settings = ScopeSettings.Resolve(requested, environment);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            return CliApplication.ExitUsage;
+        }
+
+        if (path is not null && requested is not null && settings.Scope != OkfScopeKind.Project)
+        {
+            error.WriteLine(
+                $"okf: error: `--scope {settings.Scope.ToScopeString()}` and an explicit path are exclusive; " +
+                "a path already says which bundles to serve.");
+            error.WriteLine("Run `okf mcp --help` for usage.");
+            return CliApplication.ExitUsage;
+        }
+
+        // AD-30: the scope is fixed here, at launch, and no tool argument can widen it. A
+        // client that wants a different scope launches a different server.
+        var tools = new McpToolset(environment, path, settings.Scope);
 
         try
         {
@@ -68,7 +108,13 @@ internal static class McpCommand
             var workingSet = tools.Resolve();
             if (verbose)
             {
+                error.WriteLine($"okf: scope {settings.Scope.ToScopeString()} (from {settings.Layer})");
                 error.WriteLine($"okf: resolved {workingSet.Resolution}");
+                foreach (var note in tools.Notes)
+                {
+                    error.WriteLine($"okf: {note}");
+                }
+
                 foreach (var bundle in workingSet.Bundles)
                 {
                     error.WriteLine($"okf: bundle {bundle.Root}");
@@ -113,12 +159,22 @@ internal static class McpCommand
                                             the personal vault (OKF_HOME, else ~/okf).
 
             Options:
-              --verbose, -v                 Report vault resolution on stderr at startup
+              --scope <project|personal|registered|all>
+                                            Which vaults the server serves, fixed here at
+                                            launch: no tool argument can widen it. project
+                                            (the default) is the vault above; personal is
+                                            OKF_HOME, else ~/okf; registered is every entry
+                                            in okf's registry; all is the project plus the
+                                            registry. Settable as `search.scope` in
+                                            okf.json; a path argument and --scope are
+                                            exclusive.
+              --verbose, -v                 Report scope and vault resolution on stderr at startup
               --help, -h                    Show this help
 
             Configure a client to run it, e.g.:
 
               { "command": "okf", "args": ["mcp", "/path/to/project"] }
+              { "command": "okf", "args": ["mcp", "--scope", "all"] }
 
             Exit codes:
               0  clean shutdown (stdin closed)

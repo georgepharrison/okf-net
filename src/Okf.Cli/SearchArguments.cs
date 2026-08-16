@@ -28,6 +28,12 @@ internal sealed class SearchArguments
     /// <summary>The <c>--tag</c> filters, equivalent to inline <c>tag:</c> filters.</summary>
     public IReadOnlyList<string> Tags => this.tags;
 
+    /// <summary>
+    /// The <c>--scope</c> flag, or <see langword="null" /> when configuration decides
+    /// (PRD CLI-3, CLI-4).
+    /// </summary>
+    public OkfScopeKind? Scope { get; private set; }
+
     /// <summary>Whether to emit the stable JSON array instead of human-readable lines.</summary>
     public bool Json { get; private set; }
 
@@ -80,6 +86,15 @@ internal sealed class SearchArguments
                         && count > 0
                         ? count
                         : throw new OkfConfigException($"--limit expects a positive whole number; got '{limit}'.");
+                    break;
+
+                case "--scope":
+                    var scope = inlineValue ?? Next(args, ref index, name);
+                    parsed.Scope = OkfScopeKindExtensions.TryParse(scope, out var kind)
+                        ? kind
+                        : throw new OkfConfigException(
+                            $"Unknown --scope value '{scope}'; expected one of " +
+                            string.Join(", ", OkfScopeKindExtensions.Names) + ".");
                     break;
 
                 case "--type":
