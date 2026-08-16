@@ -136,6 +136,7 @@ public class OkfDocumentParseTests
             ---
             type: Metric
             tags: [a, b]
+            executor: {kind: python}
             sources:
               - id: s1
             ---
@@ -147,6 +148,7 @@ public class OkfDocumentParseTests
         var serialized = OkfDocument.Parse(source).Serialize();
 
         Assert.Contains("tags: [a, b]", serialized, StringComparison.Ordinal);
+        Assert.Contains("executor: {kind: python}", serialized, StringComparison.Ordinal);
         Assert.Contains("sources:\n- id: s1", serialized, StringComparison.Ordinal);
     }
 
@@ -356,5 +358,54 @@ public class OkfDocumentParseTests
         var ex = Assert.Throws<OkfDocumentException>(() => new OkfDocument(frontmatter, "Body.").Serialize());
 
         Assert.Contains("recursive", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The reference implementation splits with <c>str.splitlines()</c>, which ends a line
+    /// on a bare CR as well as on LF and CRLF. Expectations here are Python's:
+    /// <c>"Line one.\rLine two.\r".splitlines()</c> is <c>['Line one.', 'Line two.']</c>.
+    /// </summary>
+    [Fact]
+    public void ParseEndsALineOnABareCarriageReturnIncludingTheLastOne()
+    {
+        var doc = OkfDocument.Parse("---\ntype: X\r---\n\nLine one.\rLine two.\r");
+
+        Assert.Equal("X", OkfValues.Text(doc.Frontmatter, "type"));
+        Assert.Equal("Line one.\nLine two.", doc.Body);
+    }
+
+    [Fact]
+    public void SerializeDoesNotAddASecondNewlineToABodyThatHasOne()
+    {
+        var frontmatter = new OkfMapping { { "type", "Guide" } };
+
+        Assert.Equal("---\ntype: Guide\n---\n\nBody.\n", new OkfDocument(frontmatter, "Body.\n").Serialize());
+    }
+
+    /// <summary>
+    /// An anchor and its alias parse to one node held twice, which decisions.md records as
+    /// a shared node rather than a cycle. Serializing writes the content out at both
+    /// places; only a value that contains itself is refused.
+    /// </summary>
+    [Fact]
+    public void SerializeEmitsASharedNodeAtEveryPlaceItAppears()
+    {
+        var tags = new OkfSequence();
+        tags.Add(OkfValue.Scalar("revenue"));
+        var executor = new OkfMapping { { "kind", "python" } };
+        var frontmatter = new OkfMapping
+        {
+            { "type", OkfValue.Scalar("Metric") },
+            { "tags", tags },
+            { "also_tags", tags },
+            { "executor", executor },
+            { "also_executor", executor },
+        };
+
+        var serialized = new OkfDocument(frontmatter, "Body.").Serialize();
+
+        Assert.Equal(
+            "---\ntype: Metric\ntags:\n- revenue\nalso_tags:\n- revenue\nexecutor:\n  kind: python\nalso_executor:\n  kind: python\n---\n\nBody.\n",
+            serialized);
     }
 }
