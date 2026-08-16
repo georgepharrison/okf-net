@@ -3321,3 +3321,111 @@ spawning a process, which is the one thing AD-7 still forbids here, so the diges
 whole of the check. *`okf upgrade --skills`* — the new binary carries its own skills and
 `okf skills install` is one command; folding it in would make an upgrade write outside the
 binary's directory, which is the boundary this verb is defined by.
+
+### Proposed decisions: the AGENTS.md context pointer (work item #56, 2026-08-16)
+
+**Why a pointer, and why now.** Every skill and every vault convention this project has
+built assumes an agent already knows a project keeps knowledge in `okf/`. Nothing said so.
+A session that opens a fresh consuming project has no reason to reach for `okf-vault` before
+answering from memory, no reason to reach for `okf-capture` when it learns something worth
+keeping, and no reason to run `okf inbox` before calling a bundle current — the three skills
+exist and fire perfectly once invoked, and nothing invokes them. That is the knowledge-leak
+`okf init` and `okf skills install` now close: a marker-fenced block written into the
+project's own `AGENTS.md`, which most agent hosts load into context on every turn without
+being asked, so the pointer is there before the first question is.
+
+**The trigger has to be demanding, or the fix becomes a new failure mode.** A pointer that
+fires on any passing fact turns every session into a capture session, and `okf-capture`'s
+own doctrine — search first, apply the capture-vs-cite test, cite what already has a home
+elsewhere — gets skipped under the pressure of a block that just says "write this down."
+The capture branch is therefore narrower than the skill's own broad description: not
+"knowledge worth keeping" but *durable and non-derivable from the code* — a fact that would
+otherwise be re-learned the same way it was just learned. The line words that as the check
+an agent can actually run — *something durable the code cannot re-derive* — rather than as
+the abstraction *non-derivable*: the guide's leading words earn their keep by recruiting
+priors the model already holds, and "open the code and see" is a test, where a coined
+adjective only labels its answer. Over-capture is the risk this
+wording is built to resist, and the vault's own review loop — `okf inbox`, staleness,
+verification — is the second line of defense for whatever gets through anyway: nothing this
+pointer causes to be written skips the ordinary path to being judged, corrected, or removed.
+
+**The wording follows `writing-for-agents`.** The block is a **context pointer** in that
+guide's terms: it names out-of-context material (the three skills, `okf search`) and encodes
+the condition for reaching each — one branch per skill, front-loaded with a **leading word**
+(*Read*, *Capture*, *Maintain*) so each line anchors a single behavior rather than spelling
+it out. Every clause is phrased positively (no "don't"), and the block restates nothing
+`okf help` or a skill's own `description` already says — duplicating either would inflate
+this always-loaded fragment's cost for a fact the agent can already reach. Three prunings
+decide the final wording, each the guide's own rule applied to a line that failed it:
+
+- **The read branch states a condition, not a preference.** "Answer from the vault first" is
+  a priority with no trigger in it. *Before answering or deciding from memory* is a branch
+  condition the agent can test at the moment it matters, and it carries the second case a
+  question-shaped trigger misses: designing against knowledge the project already has. What
+  the skill descriptions cannot say, and this line exists to say, is that *this* project has
+  a vault and it outranks recall; restating their own triggers ("when asked what we know")
+  would be duplicating text that is already loaded.
+- **Each command is named once.** `okf inbox` sat on both the read and the maintain line —
+  one word doing duty in two branches, which is "one trigger per branch" read backwards. The
+  maintain line keeps it; the read branch keeps `okf search`, the one verb that serves it.
+  "When asked" left the maintain line for the neighbouring reason: `okf-custodian`'s own
+  description already carries that trigger, so the clause paid always-loaded tokens to ask
+  for behavior the agent already had.
+- **The machine-maintained sentence is gone.** `<!-- okf:begin -->` / `<!-- okf:end -->` is
+  the generated-region idiom every model has read a thousand times, and a fence named `okf`
+  says who owns it — the sentence restated its own markers, spent a line plus a blank one on
+  every turn of every session, and had already gone half-stale (`okf skills install --scope
+  project` rewrites the block too). The human who needs the fact reads it here and in the
+  README, off the agent's context budget.
+
+**The escape hatch is one verb, and the block names no path inside the vault.** `okf search`
+covers the one case a skill's own text cannot cover for itself — the skill not being
+installed at all. No second hatch for `okf` missing from PATH is added, because
+`okf-vault`'s own body already carries one ("With `okf` absent from the PATH and no
+documented equivalent in the project, say so and stop"), and none for `okf/README.md`, the
+vault's own map: the ladder's disclosed-reference rung is where that file sits, but a
+pointer earns its load only for material the agent cannot find by looking, and `okf/` is on
+the disk in front of it. A copy of both guidance files — `SKILL.md` and
+`SKILL-MECHANICS.md` — is kept at `docs/reference/writing-for-agents/` so this citation
+resolves inside the repository rather than at a path only the author's machine has (Ringo's
+skill, 2026-08-16, copied as of this decision).
+
+**The block is a Core constant, not an embedded resource.** The three skills are embedded
+(AD-50) because each is a whole document a person edits, lints, and reads independently of
+`okf init`; this block is seven lines whose exact bytes are the fence contract itself, and
+`OkfScaffold` already templates every other scaffolded file — the vault README, the project
+config, the custodian recipe — as a C# string reviewed alongside the code that writes it.
+A second file would only be something to keep in sync with the first.
+
+**`okf init` writing outside `okf/` is a deliberate widening of AD-2**, recorded there in
+place (no new AD; the count stays at fifty-two): `okf init` now also writes two files at the
+*project* root — `AGENTS.md` (fenced block, idempotent) and `CLAUDE.md` (this repository's
+own one-liner, written only when absent) — both opt out with `--no-agents-md`, and `okf
+skills install --scope project` writes the identical pair, because that command is the other
+place a project's own copy of the skills gets planted. The personal vault is excluded
+outright, in both commands: its parent is the home directory (decisions.md §6), and a
+context pointer belongs to a project, not to `~`.
+
+**The writer never touches a byte it was not asked to.** `OkfAgentPointer.WriteAgentsMd`
+creates the file with the block when none exists; appends the block after exactly one blank
+line when the file exists with no fence; and, when a fence is present, replaces only the
+text from the opening marker line to the closing marker line, inclusive — byte for byte, and
+only when it differs from the canonical block — leaving everything else, including the
+file's own CRLF-or-LF convention, exactly as found. This is the same discipline `OkfStamp`
+already uses for a concept's frontmatter (a text splice over a re-emitted document, so a
+one-line change reads as a one-line diff), applied to a file okf-net does not otherwise own
+any part of. `CLAUDE.md` is simpler by design: created once, in this repository's own form,
+and never rewritten — a project that already has one owns it, and okf-net has nothing to say
+about its content.
+
+**A second fence is reported, never reconciled.** A file carrying more than one complete
+`okf:begin`/`okf:end` pair — a merge artifact, or a block pasted twice — is left exactly as
+found and reported `left as found (more than one okf fence; remove the extras and re-run)`,
+exit 0, the same never-overwrite manners as `skipped (modified)` in `okf skills install`.
+Splicing the first pair and walking away is the one outcome that must not happen: it leaves
+the others saying an older okf's wording in the agent's context on every turn, and reports
+`unchanged` forever after, so the duplicate the guide's pruning section forbids becomes
+invisible. Deleting the extras would be this writer destroying lines no run of it wrote,
+which is the discipline above. A begin marker with no close of its own before the next end
+marker is *inside* the region the first fence owns, not a second fence — one machine-owned
+region, spliced current like any other.

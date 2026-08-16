@@ -51,3 +51,14 @@ points at `skills/<name>/SKILL.md`, and `okf init` writes that same path into
 any project that has one. A project that has none gets the instruction
 `okf skills path <name>` in its recipe instead, because an absolute path in a
 committed file resolves for exactly one person.
+
+## Being found
+
+Installing a skill puts the file on disk; it does nothing to make an agent
+reach for it in a project that has never used okf before. `okf init` and `okf
+skills install --scope project` close that gap by writing a marker-fenced
+context-pointer block into the project's `AGENTS.md` (plus a one-line
+`CLAUDE.md` naming it) — the one always-loaded line that tells a session this
+project keeps its knowledge in a vault, and names the single trigger that
+reaches each skill above. `--no-agents-md` opts out; see decisions.md's *the
+AGENTS.md context pointer* entry for the wording rationale.

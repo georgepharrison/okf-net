@@ -348,6 +348,12 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
     `raw/` item tracked in the capture manifest, and hand-edit drift in generated files.
   - Refuses to overwrite existing files; re-running on an initialized project is a
     reported no-op.
+  - Also writes a marker-fenced context-pointer block into the project's `AGENTS.md`
+    (created if absent, spliced in place otherwise, left as found when the file already
+    carries more than one fence) and a one-line `CLAUDE.md` naming it
+    (created only when absent) — both at the *project* root, outside `okf/` (a deliberate
+    widening of AD-2, work item #56). `--no-agents-md` opts out; a `--personal` vault never
+    gets them. `okf skills install --scope project` writes the identical pair.
 - **CLI-9 — Generated-drift and `raw/` ingestion-immutability rules.** The two rules
   `okf init` promotes must exist as rules.
   - Generated drift: an on-disk generated file differs from what `okf index` would emit
@@ -520,10 +526,10 @@ Every row below is what `okf` dispatches today, and every verb `okf help` lists 
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
 | `okf capture <add\|close>` | Record an item already sitting in `raw/` in the capture manifest, or close its ingestion | `--by <actor>` (required), `--url`, `--title`, `--source-last-modified`, `--form flat\|packet`, `--concept` (`close`), `--captured-at` / `--at`, `--json` | 0 written · 1 the record says no (already captured and ingested, entry already closed, named concept absent) · 2 the manifest does not read as one, the item is not capturable, no actor, or usage |
 | `okf generated stamp <concept>...` | Write the `generated: {by, at}` stamp a producer owes on every write | `--by <actor>` (required), `--at`, `--dry-run` | 0 stamped · 2 missing concept, frontmatter that does not parse, malformed actor, or usage |
-| `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | `--name`, `--personal` | 0 created · 1 refused (would overwrite) · 2 usage |
+| `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | `--name`, `--personal`, `--no-agents-md` | 0 created · 1 refused (would overwrite) · 2 usage |
 | `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
 | `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
-| `okf skills <list\|path\|install>` | Report the agent skills this binary carries, where one is installed, or install them | `--host`, `--dir`, `--scope <user\|project>` (an install target, not a search scope), `--force` | 0 installed or reported · 1 `path` for a skill that is not installed · 2 usage |
+| `okf skills <list\|path\|install>` | Report the agent skills this binary carries, where one is installed, or install them | `--host`, `--dir`, `--scope <user\|project>` (an install target, not a search scope), `--force`, `--no-agents-md` (with `--scope project`) | 0 installed or reported · 1 `path` for a skill that is not installed · 2 usage |
 | `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | `--scope` (at launch only) | 0 clean shutdown · 2 startup failure |
 | `okf upgrade` | Replace this binary with a release from the artifact host — the only command that uses a network, and only when it is run (`docs/architecture.md` AD-53) | `--check`, `--version <x.y.z>`, `--channel <stable\|rc>` (`rc` reserved), `--dry-run`, `--json`; `OKF_INSTALL_URL` | 0 upgraded, already current, or reported · 1 `--check` found an upgrade · 2 refused before writing: unusable base URL, unreadable manifest, no asset for this platform, digest mismatch, an oversized or out-of-base asset, unwritable install directory |
 | `okf version` · `okf help` | Report the informational version — the bare `<semver>` from a build stamped off a tag, `<semver>+<short-sha>` from an untagged one (#53); print the verb list | `--verbose` / `-v` on `version` adds a `commit: <sha>` second line; `--version`, `--help`, `-h` as aliases | 0 |

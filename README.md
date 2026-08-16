@@ -299,6 +299,16 @@ violate OKF conformance):
   custodian/         # skill + config for the maintaining agent (never distributed)
 ```
 
+`okf init` also writes two files at the project root, deliberately outside
+`okf/`: a marker-fenced context-pointer block in `AGENTS.md` (created if
+absent, spliced in place otherwise — never touching a byte outside the fence)
+and a one-line `CLAUDE.md` pointing at it (written only when none exists). The
+block tells an agent the project keeps its knowledge in a vault and names the
+one trigger per skill — read, capture, maintain — that reaches it.
+`--no-agents-md` skips both, a `--personal` vault never gets them (its parent
+is the home directory, not a project), and `okf skills install --scope
+project` writes the identical pair.
+
 ## Status
 
 **1.0.0.** What is built and gated in CI:

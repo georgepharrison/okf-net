@@ -52,3 +52,11 @@ implementation choices in this repo.
   mutating the code under test and confirming tests go red. `mise run mutate`
   does that spot-check mechanically and exhaustively: Stryker.NET rewrites the
   source thousands of ways and reports every mutation no test noticed.
+
+<!-- okf:begin -->
+This project keeps its knowledge in `okf/`, an OKF vault.
+
+- **Read**: before answering or deciding from memory — reach for `okf-vault`, or `okf search` when it is not installed.
+- **Capture**: when the session produced something durable the code cannot re-derive — reach for `okf-capture`.
+- **Maintain**: when `okf inbox` is non-empty — reach for `okf-custodian`.
+<!-- okf:end -->

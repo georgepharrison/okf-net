@@ -3,7 +3,7 @@ type: Concept
 title: Vaults, Registry, and Configuration
 description: How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
 tags: [okf-net, vault, registry, configuration, discovery]
-generated: { by: "claude-fable/5", at: 2026-08-16T04:55:28Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T05:36:06Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -29,6 +29,15 @@ project vault, found by walking up from the working directory for a directory
 named `okf/`, and the personal vault at `~/okf/` — visible, not hidden,
 because knowledge someone accumulates for years should not live somewhere
 `ls` refuses to mention.[^decisions]
+
+For a project vault, `okf init` also writes a marker-fenced context-pointer
+block into `AGENTS.md` and a one-line `CLAUDE.md` naming it — both at the
+*project* root, outside `okf/`, so the pointer is loaded before a session
+asks its first question. A re-run splices the fenced region back to current
+without touching a byte outside it, and reports `unchanged` once it already
+is; `--no-agents-md` opts out, and a personal vault never gets one, because
+its parent is the home directory rather than a project. `okf skills install
+--scope project` writes the identical pair.
 
 Every command resolves its working set the same way, which is the property
 that keeps `okf lint` and `okf search` from ever disagreeing about what they

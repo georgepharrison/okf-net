@@ -149,6 +149,13 @@ internal static class SkillsCommand
             output.WriteLine("Skipped files differ from the ones this okf carries; `--force` overwrites them.");
         }
 
+        // The context pointer belongs beside a *project*'s own copy of the skills — a
+        // user-scoped install has no project root to write AGENTS.md into.
+        if (arguments.Scope == OkfSkillScope.Project && !arguments.NoAgentsMd)
+        {
+            AgentPointerReport.Write(environment.CurrentDirectory, environment, output);
+        }
+
         return CliApplication.ExitSuccess;
     }
 
@@ -184,6 +191,8 @@ internal static class SkillsCommand
               --scope <user|project>        Whether a host target is the user's home or the
                                             working directory (default: user)
               --force                       Overwrite a file whose bytes differ
+              --no-agents-md                With --scope project, skip writing the
+                                            AGENTS.md / CLAUDE.md context pointer
               --help, -h                    Show this help
 
             Where the skills land:

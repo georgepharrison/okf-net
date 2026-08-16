@@ -19,6 +19,79 @@ public class InitCommandTests
         Assert.Contains("okf init [path] [options]", run.Output, StringComparison.Ordinal);
         Assert.Contains("--name <bundle>", run.Output, StringComparison.Ordinal);
         Assert.Contains("--personal", run.Output, StringComparison.Ordinal);
+        Assert.Contains("--no-agents-md", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheHappyPathAlsoWritesTheAgentsMdAndClaudeMdPointerAtTheProjectRoot()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("pointers");
+
+        var run = Cli.RunIn(project, home.Root, "init");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("AGENTS.md: created", run.Output, StringComparison.Ordinal);
+        Assert.Contains("CLAUDE.md: created", run.Output, StringComparison.Ordinal);
+
+        var agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+        Assert.Contains(OkfAgentPointer.BeginMarker, agentsMd, StringComparison.Ordinal);
+        Assert.Contains("okf-vault", agentsMd, StringComparison.Ordinal);
+
+        var claudeMd = File.ReadAllText(Path.Combine(project, "CLAUDE.md"));
+        Assert.Equal(OkfAgentPointer.ClaudeMdContent, claudeMd);
+    }
+
+    [Fact]
+    public void NoAgentsMdSkipsBothPointerFiles()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("no-pointer");
+
+        var run = Cli.RunIn(project, home.Root, "init", "--no-agents-md");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.DoesNotContain("AGENTS.md", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("CLAUDE.md", run.Output, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(project, "AGENTS.md")));
+        Assert.False(File.Exists(Path.Combine(project, "CLAUDE.md")));
+    }
+
+    [Fact]
+    public void APersonalVaultNeverWritesAgentsMdOrClaudeMdIntoTheHomeDirectory()
+    {
+        // The personal vault's parent is the home directory (decisions.md §6): writing a
+        // context pointer there would drop AGENTS.md at ~, which is not a project.
+        using var home = new TempTree();
+        var elsewhere = Path.Combine(home.Root, "mine");
+
+        var run = Cli.Run(Cli.Environment(home.Root, home.Root, okfHome: elsewhere), "init", "--personal");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.DoesNotContain("AGENTS.md", run.Output, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(home.Root, "AGENTS.md")));
+        Assert.False(File.Exists(Path.Combine(home.Root, "CLAUDE.md")));
+    }
+
+    [Fact]
+    public void ASecondInitRunSplicesTheFenceRatherThanReportingCreated()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("respliced");
+        Cli.RunIn(project, home.Root, "init");
+
+        // Simulate the block having gone stale, exactly as an older okf would have left it.
+        var agentsMd = Path.Combine(project, "AGENTS.md");
+        File.WriteAllText(
+            agentsMd,
+            File.ReadAllText(agentsMd).Replace("okf-vault", "some-old-skill-name", StringComparison.Ordinal));
+
+        var run = Cli.RunIn(project, home.Root, "init");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("AGENTS.md: updated", run.Output, StringComparison.Ordinal);
+        Assert.Contains("CLAUDE.md: skipped (exists)", run.Output, StringComparison.Ordinal);
+        Assert.Contains("okf-vault", File.ReadAllText(agentsMd), StringComparison.Ordinal);
     }
 
     [Fact]
