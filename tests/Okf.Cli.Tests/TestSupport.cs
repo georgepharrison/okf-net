@@ -238,6 +238,29 @@ internal static class Repository
 }
 
 /// <summary>
+/// Whether an external tool the test suite shells out to is available, without launching
+/// it — the SDK image the <c>test</c> CI job runs in has no python3 (the <c>dogfood</c> job
+/// installs it separately to run <c>check-manifest.py</c> directly), so a test that
+/// launches python3 as an oracle must skip there rather than fail.
+/// </summary>
+internal static class Tooling
+{
+    /// <summary>Whether an executable resolves on <c>PATH</c>, the way a shell would find it.</summary>
+    /// <param name="executable">The executable's base name, without an extension.</param>
+    /// <returns><see langword="true" /> if some directory on <c>PATH</c> contains it.</returns>
+    public static bool IsOnPath(string executable)
+    {
+        string[] names = OperatingSystem.IsWindows() ? [executable + ".exe"] : [executable];
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+
+        return path
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(_ => names, (directory, name) => Path.Combine(directory, name))
+            .Any(File.Exists);
+    }
+}
+
+/// <summary>
 /// Google's four reference bundles, read as-is from their upstream clone (PRD ACC-1).
 /// The location is <c>~/code/knowledge-catalog/okf/bundles</c> by default and can be
 /// pointed elsewhere with <c>OKF_REFERENCE_BUNDLES</c>; where the clone is absent (a CI

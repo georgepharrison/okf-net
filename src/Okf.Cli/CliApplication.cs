@@ -90,6 +90,12 @@ internal static class CliApplication
             case "verify":
                 return VerifyCommand.Run(args[1..], environment, output, error);
 
+            case "capture":
+                return CaptureCommand.Run(args[1..], environment, output, error);
+
+            case "generated":
+                return GeneratedCommand.Run(args[1..], environment, output, error);
+
             case "bundle":
                 return BundleCommand.Run(args[1..], environment, output, error);
 
@@ -183,6 +189,9 @@ internal static class CliApplication
               okf search <query> [path]   Search the resolved bundles, ranked and links-first
               okf inbox [path]            List the concepts waiting on a person
               okf verify <concept>...     Stamp human verification on one or more concepts
+              okf capture <add|close>     Record a raw/ capture, or close its ingestion
+              okf generated stamp <concept>...
+                                          Write the `generated` stamp a producer owes
               okf bundle [path] --out <f> Package the bundles for consume-only distribution
               okf site [path] --out <dir> Render the bundles as a static site (dashboard, graph, pages)
               okf skills <list|path|install>

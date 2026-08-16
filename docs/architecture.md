@@ -338,13 +338,15 @@ flowchart TB
 
 ### AD-18 — The capture manifest is the immutability record and the work queue, and is never repaired
 
-- **Binds:** `okf/raw/manifest.json`, both skills, `check-manifest.py`, `OKF0310`
+- **Binds:** `okf/raw/manifest.json`, both skills, `check-manifest.py`, `OKF0310`,
+  `okf capture add`, `okf capture close`
 - **Prevents:** an agent "fixing" the one record that proves an artifact did not change.
 - **Rule:** `<vault>/raw/manifest.json` is append-only. `files[].path` is relative to
   `raw/`; `ingestion.concepts` paths are relative to the vault root. An entry whose
   `ingestion` is null is uningested and freely re-capturable; immutability starts at
   ingestion. A manifest that will not parse, or a `sha256` that no longer matches, is
-  **reported and left as found** — never rewritten to make it parse.
+  **reported and left as found** — never rewritten to make it parse. The two verbs that
+  write it, `okf capture add` and `okf capture close`, hold to the same terms (AD-52).
 - **Source:** [capture and custodian skills](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-capture-and-custodian-skills-milestone-work-item-3-2026-08-14),
   [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15)
 
@@ -857,6 +859,30 @@ flowchart TB
   check, non-interactively, and treat its failure as a warning naming the command to re-run.
 - **Source:** [shipping the skills](decisions.md#proposed-decisions-shipping-the-skills-work-item-41-2026-08-15)
 
+### AD-52 — Bookkeeping is written by a verb, spliced rather than re-serialized, and never repaired
+
+- **Binds:** `okf capture add`, `okf capture close`, `okf generated stamp`,
+  `OkfCaptureWriter`, `OkfStamp`, both producer skills
+- **Prevents:** an agent hand-writing the structure layer — a `sha256` it typed, a
+  timestamp it guessed, a JSON edit it improvised — into the one record whose whole job is
+  to prove the artifact did not change.
+- **Rule:** The fields the Design Paradigm calls machine-owned have a command that writes
+  them and no other way in. Three exist and they are CLI-only; MCP stays read-only
+  (AD-30). Every edit is a **text splice** located by `Utf8JsonReader` token offsets, so
+  only the appended, replaced or closed region moves and every other byte — whitespace,
+  key order, the timestamp spellings already on disk — survives as found; the spliced
+  result is then read back through `OkfCaptureManifest` and required to hold the entry
+  just written, exactly as AD-23 requires of a stamped concept. The file is replaced by
+  temp-and-rename. Refusals never repair (AD-18): an ingested entry is immutable (exit 1),
+  an uningested one is replaced in place, a manifest that does not read as one is reported
+  and left alone (exit 2). The entry id is **derived** from the item's own name so it
+  cannot disagree with the `<id>.<ext>` / `<id>/` join `check-manifest.py` enforces, and
+  `--form` is an assertion checked against the item's shape rather than a label. `--by` is
+  required with no configured default — AD-22's chain resolves a *person* and a capture is
+  usually an agent's — and `--captured-at` / `--at` accept only the canonical instant
+  (AD-24).
+- **Source:** [deterministic write bookkeeping](decisions.md#proposed-decisions-deterministic-write-bookkeeping-work-item-44-2026-08-16)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -1006,12 +1032,13 @@ flowchart TB
 | `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49 | CORE-11, CLI-3, CLI-11 |
 | `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator` | AD-6, AD-28, AD-29, AD-30, AD-49 | MCP-1 … MCP-5, CORE-12 |
 | `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
+| `okf capture` / `okf generated` | `OkfCaptureWriter`, `OkfCaptureManifest`, `OkfStamp`; `CaptureCommand` + `GeneratedCommand` render | AD-16, AD-18, AD-19, AD-21, AD-23, AD-24, AD-30, AD-52 | SKILL-3, ACC-5 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
-| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50 | SKILL-1 … SKILL-8 |
+| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50, AD-52 | SKILL-1 … SKILL-8 |
 | `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
-| Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32 | SKILL-7, ACC-5, ACC-6 |
+| Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32, AD-52 | SKILL-7, ACC-5, ACC-6 |
 | Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 

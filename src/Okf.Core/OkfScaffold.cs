@@ -251,7 +251,7 @@ public static class OkfScaffold
             Write(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
             Write(
                 Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
-                CaptureManifest()),
+                OkfCaptureWriter.EmptyManifest),
             Write(Path.Combine(bundleRoot, AboutThisBundleFileName), AboutThisBundle(name, options.Actor, stamp)),
             Write(Path.Combine(bundleRoot, OkfBundle.LogFileName), BundleLog(day)),
         };
@@ -867,13 +867,6 @@ public static class OkfScaffold
 
         """;
 
-    private static string CaptureManifest() => """
-        {
-          "manifestVersion": 1,
-          "captures": []
-        }
-
-        """;
 
     private static string AboutThisBundle(string name, string actor, string stamp) => $$"""
         ---

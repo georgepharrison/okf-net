@@ -2958,3 +2958,88 @@ abc1234`. The same command without
 first line, with the second line unchanged — confirming the commit metadata item survives
 independent of the informational-version switch, which is the property this whole change
 leans on.
+
+### Proposed decisions: deterministic write bookkeeping (work item #44, 2026-08-16)
+
+From the GPT-5.6 outside review. The two producer skills told an agent to hand-write
+`sha256`, `capturedAt`, the ingestion close, and the `generated` frontmatter stamp. Every
+one of those is *structure*, and the Design Paradigm's own sentence — structure is
+deterministic and machine-owned, prose is written by an agent and reviewed by a person —
+says the toolset owns them. The gap had a reason at the time (see the capture and
+custodian skills milestone: "every field is something the writing agent already holds") and
+the reason has expired: a `raw/` reader now exists (`OKF0310`, `check-manifest.py`), the
+multi-model story in #45 puts small local models on the writing side, and a hash an agent
+typed proves nothing about the artifact it claims to describe.
+
+- **Three verbs, and they are CLI-only.** `okf capture add`, `okf capture close`,
+  `okf generated stamp`. MCP stays read-only (AD-30) — a write tool is exactly what turns a
+  knowledge base into a surface an untrusted host can edit, and nothing about this work
+  weakens that. The new rule is **AD-52**.
+- **The manifest is edited by text splice, not re-serialized.** This is the decision the
+  rest follows from. `Utf8JsonReader` reports `TokenStartIndex` and `BytesConsumed` for
+  every token, so the captures array, each entry, and each entry's `ingestion` value are
+  locatable by byte offset; only the appended, replaced or closed region is rewritten.
+  Measured on this repository's own manifest: appending an entry leaves the existing one
+  byte-identical, local-offset timestamps and inline `concepts` array included, and
+  deleting the inserted span gives the original file back exactly. A `JsonSerializer`
+  round trip would have normalized all three and handed a reviewer a diff in which the one
+  changed entry is invisible — the same argument AD-23 makes for stamping a concept's text
+  rather than re-emitting it, applied to the one file whose whole job is to be evidence.
+- **The result is read back before it is kept.** `OkfCaptureWriter` parses its own output
+  through `OkfCaptureManifest` and requires the entry it just wrote to be there in the
+  state it claims, or it refuses and writes nothing. Same rule as AD-23's parse-back:
+  surgery that produced something okf cannot read did not happen.
+- **Refuse, never repair (AD-18).** An entry whose `ingestion` is closed is immutable, so
+  `okf capture add` on it exits 1; an uningested entry is freely re-capturable and is
+  replaced in place. Closing an already-closed entry exits 1, because closing is what
+  starts immutability and a second one would rewrite when the artifact froze. A manifest
+  that does not read as one — bad JSON, wrong `manifestVersion`, no `captures` array —
+  exits 2 with nothing written, and so does an entry that has lost its `ingestion` key:
+  this writer will not invent a required key any more than it will repair a brace.
+  Exit 1 is "the record says no"; exit 2 is "the environment is not one I can write into",
+  which is the CLI-14 split the other verbs already use.
+- **The id is the item's name, and the item's name is checked.** `check-manifest.py`
+  joins entry to disk through one rule — a flat capture's file is `<id>.<ext>`, a packet's
+  files live under `<id>/` — so `okf capture add` derives the id from the item rather than
+  taking it as a flag, and refuses a name that is not `<YYYY-MM-DD>-<slug>` on a day that
+  exists. Deriving it is what keeps a CLI-written capture passing the gate that reads it;
+  a flag would have let the two disagree. `--form` is accepted as an *assertion* and
+  refused when it disagrees with whether the item is a file or a directory, because the
+  form is the item's shape and not a label on it.
+- **`--by` is required, with no configured default.** Considered and rejected: reusing
+  `OkfVerifyIdentity`'s chain (it resolves a `human:` actor, and a capture is usually an
+  agent's), and adding a `capture.actor` config key. An agent already holds the actor
+  string it writes into `generated.by`; a configured fallback would be a second identity
+  source with no guard, quietly attributing one producer's capture to another. AD-22's
+  chain exists for the opposite risk — *guessing a person* — and does not transfer. One
+  flag, no chain, no new config key.
+- **Only the canonical instant is accepted for `--captured-at` / `--at`.** The flags exist
+  so a test or a CI job can pin a stamp; accepting a second spelling of the one form
+  okf-net writes (AD-24) would put that spelling into the manifest through the door built
+  to make runs reproducible. Whatever offset the clock hands over, what lands is `Z` at
+  second precision.
+- **`okf generated stamp` reaches three shapes and warns about a person.** Absent key
+  (insert before the closing fence), a one-line flow mapping (replace that line), anything
+  else (the YAML emitter, which re-indents and is the documented trade). A `human:` actor
+  is *allowed* — §7 lets a person be a producer — and warned about on stderr, because
+  `generated` records who wrote the content and `okf verify` is the surface for who read
+  it. The help text says out loud that a fresh `generated.at` makes the concept
+  unacknowledged again (AD-21): that is the acknowledgment loop working, and an agent that
+  reads it as a bug will avoid restamping, which is the failure the loop exists to prevent.
+- **What the skills lost, and what they kept.** The manifest's field table survives as
+  *what the entry records and where it comes from* rather than as a thing to type — an
+  agent still has to know what `originalUrl` is for. Both frontmatter templates drop their
+  `generated` line and point at the step that stamps it, so a concept written exactly to
+  the template is not carrying a timestamp somebody guessed. Every step still ends on a
+  criterion the environment answers, and the criteria got *better*: "`okf capture add`
+  exits 0 and its `--json` names your id with `"ingested": false`" is checkable where "the
+  manifest parses as JSON" was a thing an agent asserts about its own output.
+- **Both skills gained one line of doctrine, in the same words:** *structure is the
+  toolset's; prose is yours.* It sits beside the existing pair (orient by disclosure;
+  `raw/` is evidence) for the same reason those are stated twice — an agent that reads one
+  skill and an agent that reads the other should come away with one model.
+- **`check-manifest.py` is unchanged, and that is the result.** The schema did not move;
+  the verbs write what the script already specified. The script's own invariants became
+  the acceptance test: `CaptureCommandTests` runs the repository's real
+  `check-manifest.py` against a temp vault the CLI wrote, which is an oracle this
+  repository did not author for the occasion.

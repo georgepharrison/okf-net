@@ -31,6 +31,11 @@ consume.
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields
+  - `okf capture` / `okf generated` — the bookkeeping a producer owes,
+    written by code rather than by hand: `capture add` hashes an artifact
+    dropped in `raw/` and records it, `capture close` marks it ingested, and
+    `generated stamp` writes a concept's generation stamp. Each edits the file
+    in place and refuses rather than repairs
   - `okf bundle` — package your bundles for consume-only distribution
     (tar.gz, zip, or a plain directory) with byte-reproducible archives and a
     manifest recording a `sha256` per file, which `--verify` re-checks
@@ -270,7 +275,8 @@ violate OKF conformance):
 - **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
   site. Its public API was frozen by the 1.0.0 review.
 - **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `inbox`,
-  `verify`, `bundle`, `site`, `skills`, `mcp`, plus `help` and `version`.
+  `verify`, `capture`, `generated`, `bundle`, `site`, `skills`, `mcp`, plus
+  `help` and `version`.
 - **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
   `okf_search`, `okf_read`) over stdio.
 - **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`,

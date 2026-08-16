@@ -1,5 +1,9 @@
 # Directory Update Log
 
+## 2026-08-16
+
+* **Update**: The structure layer got commands, and [the custodian model](practices/custodian-model.md) gained the section that says which. `okf capture add`, `okf capture close` and `okf generated stamp` took over the `sha256`, the capture timestamp, the ingestion close and the `generated` stamp the two producer skills had been telling an agent to type by hand — the exact layer the model gives to code. Both skills now call them and say not to hand-edit `okf/raw/manifest.json`. Every manifest edit is a byte-offset splice rather than a re-serialization, so an appended entry leaves the rest of the record byte-identical, and all three refuse rather than repair: an ingested capture is immutable and a manifest that will not read as one is left exactly as found.
+
 ## 2026-08-15
 
 * **Update**: The bundle walk stopped hiding dot-prefixed markdown. SPEC §11 conforms every non-reserved `.md` file in the tree, but `.hidden.md` and anything under a dot-directory were skipped, so `okf lint` could report conformance over files it never opened. One walk now serves lint, index generation, search, MCP, the site and the bundler, and it passes over exactly nine named entries — `.git`, `.hg`, `.svn`, `.obsidian`, `.idea`, `.vscode`, `.DS_Store`, `Thumbs.db`, `desktop.ini` — asserted literally by a test so the list cannot grow unreviewed. Recorded in [the lint severity model](toolset/lint-severity-model.md) and [bundling and distribution](toolset/bundling-and-distribution.md).
