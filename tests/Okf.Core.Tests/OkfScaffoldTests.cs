@@ -266,6 +266,11 @@ public class OkfScaffoldTests
         Assert.Contains("is a bundle root", failure.Message, StringComparison.Ordinal);
         Assert.Contains("README.md", failure.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(bundleRoot, "README.md")));
+
+        // The path is named as it was typed. The second, longer form exists only for a path
+        // that reached the bundle root through a link, and saying it here would tell
+        // somebody their own path resolves to itself.
+        Assert.DoesNotContain("which resolves to", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
