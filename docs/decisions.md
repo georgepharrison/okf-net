@@ -3429,3 +3429,94 @@ invisible. Deleting the extras would be this writer destroying lines no run of i
 which is the discipline above. A begin marker with no close of its own before the next end
 marker is *inside* the region the first fence owns, not a second fence — one machine-owned
 region, spliced current like any other.
+
+### Proposed decisions: shell completions (work item #51, 2026-08-16)
+
+Ringo discovers what an app can do by pressing tab. `okf` had seventeen verbs, a subcommand
+under four of them and about forty options, and none of it was reachable that way.
+
+**Generated from a table, not four hand-written scripts.** Four checked-in completion
+scripts are four files that must be edited every time a verb or a flag lands, by whoever
+lands it, in shells they may not use. They drift on the first commit that forgets one, and
+nothing goes red — a completion that is a verb behind still works, which is exactly why
+nobody notices. `src/Okf.Cli/CompletionTable.cs` holds one table (verbs, subcommands, each
+option with a one-line description, whether it takes a value, and what values are worth
+offering) and `CompletionCommand` renders bash, zsh, fish and PowerShell from it. Adding a
+verb means adding a row, and forgetting to add the row is a failing test rather than a
+missing feature.
+
+**The table lives in the CLI, not in Core.** AD-6 puts every judgement in the library, and
+there is no judgement here: this is knowledge about one adapter's command line — its
+spelling of `--format`, its `-o` alias, its subcommand words. Core would have had to learn
+what a flag is to hold it.
+
+**Hand-rolled templates, for the reason the argument parser is hand-rolled.** No completion
+library, no `dotnet-suggest`, no `System.CommandLine` (AD-9): the parser is ours, so the
+description of it has to be ours too, and the binary must publish NativeAOT-clean. The
+scripts are pure ASCII, deterministic, and byte-stable for a given table, which is what
+makes a golden test possible at all — `tests/Okf.Cli.Tests/completions/` holds the four
+files and the diff is reviewable.
+
+**Three tests hold the table to the code, and they were shown to do it.** The verb set must
+equal `CliApplication.Verbs` — which is no longer a `switch` over string literals but the
+array the dispatcher itself reads, so there is one list and not two. Each verb's options
+must equal the `Flags` array its parser declares. And each `Flags` array must equal its
+parser's own `case` labels, read out of the source: an array nobody checks is a second place
+to forget. Renaming one verb in the table fails eight assertions; adding a spelling to a
+parser's `switch` and nowhere else fails two.
+
+**What is dynamic, and why it is one thing.** `okf skills path <TAB>` completes skill names
+by running `okf skills list --names`, a flag added here that prints bare names and answers
+out of the binary — no vault resolution, no file read. Everything else offered is static:
+`--format`, `--scope`, `--host`, `--form`, the shell names, and the `OKF####` ids, all
+baked into the script when it is generated. Paths are the shell's own file completion,
+which every one of the four already does better than okf could.
+
+**Nothing walks the filesystem, and that is a rule rather than an omission.** Bundle names,
+concept paths and search terms are all completable in principle and none of them are
+completed here. Each would mean resolving a vault and reading a tree on the tab key — in
+whatever directory the user happens to be in, however large the vault, however cold the page
+cache — for a keystroke that is supposed to be instant and must never fail visibly. The one
+subprocess a script starts asks the binary about itself.
+
+**`--names` belongs to `list` alone.** `okf skills install --names` is refused rather than
+ignored, because a flag that is accepted and changes nothing is how a flag ends up meaning
+two things a year later.
+
+**The `--scope` clash is real and is left alone.** `okf search --scope` takes
+`project|personal|registered|all`; `okf skills --scope` takes `user|project`. They are
+different questions — which bundles to read, where to install — wearing one name, and the
+completion table carries them as two value kinds so each verb offers its own set. Renaming
+either is a breaking change to a shipped surface for a tidiness nobody has asked for; PRD
+§3 already annotates the skills one as "an install target, not a search scope".
+
+**The installers place it, mirroring the skills step (#41).** `install.sh` detects the shell
+from `$SHELL`'s basename and nothing else — the shell running `curl … | sh` is `sh` on every
+machine whatever the user's shell is, and asking a shell what it is means launching one —
+then writes `okf completion <shell>` through a staging file and a rename into
+`${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/okf`,
+`…/zsh/site-functions/_okf`, or `${XDG_CONFIG_HOME:-~/.config}/fish/completions/okf.fish`.
+zsh also gets one line about `fpath`, printed as a conditional for the reader to apply
+because no shell can see another shell's `fpath`. A shell okf has no script for gets nothing
+written and nothing said. `install.ps1` has no directory to drop a file into — a native
+argument completer is registered by running code — so it appends one line to `$PROFILE`,
+idempotently, checking for the line itself. Both take `OKF_SKIP_COMPLETIONS=1`, and both
+treat a failure as a warning naming the manual command: the binary is downloaded, verified
+and in place by then.
+
+**Deliberately not done.**
+
+- **No value completion that needs a vault**, per the rule above: no bundle names, no
+  concept paths, no tags, no types. `--tag` and `--type` complete nothing rather than
+  guessing.
+- **No `--severity` level half.** The ids are offered; the `=hidden|info|warning|error`
+  after them is not, because `=` is a word-break character in bash and zsh and making that
+  work means teaching every script a second parsing rule for one flag.
+- **No inline `--flag=value` completion.** The same word-break problem, for the same
+  handful of keystrokes saved.
+- **No fish or PowerShell exercised live in CI.** bash is driven end to end in the test
+  suite (the script is sourced, `COMP_WORDS` set, `COMPREPLY` read back); zsh is parsed and
+  loaded under a real `compinit`; fish is parsed when a `fish` binary is present. Driving a
+  zsh completion to its answers needs a terminal.
+- **No completion for `okf upgrade`**, which is [#23](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/23)
+  and in flight. It is one row in the table when it lands.

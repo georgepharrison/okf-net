@@ -4,7 +4,7 @@ title: The Architecture Spine
 description: A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
 tags: [okf-net, architecture, layering, governance]
-generated: { by: "claude-fable/5", at: 2026-08-16T04:55:24Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T05:54:46Z }
 sources:
   - id: spine
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
@@ -62,7 +62,7 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The fifty-three rules cover layering and the offline contract — including the
+The fifty-four rules cover layering and the offline contract — including the
 single, bounded exception to it, the self-replacing `okf upgrade` — the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, which bookkeeping a verb writes rather than an agent,

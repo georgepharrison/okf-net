@@ -52,6 +52,9 @@ consume.
   - `okf skills` — the three agent skills ship inside the binary;
     `okf skills install` places them for Claude Code, pi, or any directory
     you name, and `okf skills path <skill>` says where one landed
+  - `okf completion <bash|zsh|fish|pwsh>` — prints a completion script
+    generated from okf's own verb table, so tab completion never lags the
+    binary; the installers place it for you
   - `okf mcp` — the same capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
@@ -173,6 +176,54 @@ If the step fails, the install does not: it warns and names the command to run
 again. Every release also carries `okf-skills.tar.gz` — the same three files,
 for a host okf-net does not know about or a project that would rather vendor
 them.
+
+### Tab completion comes with it too
+
+The installers also write the completion script for the shell `$SHELL` names —
+bash, zsh or fish — and on Windows add one line to your PowerShell `$PROFILE`.
+Nothing is downloaded for that either: `okf` prints its own completion script,
+generated from the verb table it dispatches on, so it lists exactly the verbs
+and options the binary you have actually has.
+
+Load one into the shell you are in right now:
+
+```sh
+eval "$(okf completion bash)"
+eval "$(okf completion zsh)"
+okf completion fish | source
+```
+
+```powershell
+okf completion pwsh | Out-String | Invoke-Expression
+```
+
+Or place it yourself, which is what the installer does:
+
+```sh
+okf completion bash > "${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/okf"
+okf completion zsh  > "${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions/_okf"
+okf completion fish > "${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/okf.fish"
+```
+
+zsh reads that directory only when it is on `$fpath`, so if nothing completes,
+put `fpath=(~/.local/share/zsh/site-functions $fpath)` in `~/.zshrc` above your
+`compinit` line. Verbs, subcommands, options and the fixed values behind
+`--format`, `--scope`, `--host` and friends all complete; so do skill names
+after `okf skills path`. Nothing else asks okf a question — a completion never
+resolves a vault or walks a bundle, because the tab key has to be instant.
+
+To skip the step, set `OKF_SKIP_COMPLETIONS=1`:
+
+```sh
+curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_SKIP_COMPLETIONS=1 sh
+```
+
+```powershell
+$env:OKF_SKIP_COMPLETIONS = '1'; irm https://get.okf.tychostation.dev/install.ps1 | iex
+```
+
+A completion that fails to land is a warning naming the command to run by hand,
+never a failed install.
 
 > **`get.okf.tychostation.dev` resolves only inside Ringo's network today.** The
 > host is an internal nginx behind the internal Caddy; there is no public DNS
