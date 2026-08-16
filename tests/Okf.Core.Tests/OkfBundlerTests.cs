@@ -29,6 +29,7 @@ public class OkfBundlerTests
 
         Assert.Equal(
             [
+                "bundles/alpha/.hidden.md",
                 "bundles/alpha/about-this-bundle.md",
                 "bundles/alpha/index.md",
                 "bundles/alpha/log.md",
@@ -944,9 +945,17 @@ public class OkfBundlerTests
             // Editor and tool droppings inside a bundle: never knowledge, never shipped.
             Write("bundles/alpha/topics/widgets.md~", "an editor backup");
             Write("bundles/alpha/.obsidian/workspace.json", "{}");
-            Write("bundles/alpha/.hidden.md", "---\ntype: Concept\n---\n");
+            Write("bundles/alpha/.vscode/settings.json", "{}");
+            Write("bundles/alpha/.idea/alpha.iml", "<module />");
+            Write("bundles/alpha/.git/config", "[core]");
+            Write("bundles/alpha/.DS_Store", "finder state");
+            Write("bundles/alpha/Thumbs.db", "explorer state");
             Write("bundles/alpha/topics/.widgets.md.swp", "swap");
             Write("bundles/alpha/merge.md.orig", "a merge leftover");
+
+            // A dot-prefixed concept is a concept: §11 holds it to conformance, so a
+            // distribution that dropped it would ship a bundle the linter had judged.
+            Write("bundles/alpha/.hidden.md", Concept("Hidden", "A dot-prefixed concept."));
 
             // The vault around the bundles: producer-side, every byte of it.
             Write("okf.json", "{ \"lint\": { \"severities\": { \"OKF0301\": \"error\" } } }");

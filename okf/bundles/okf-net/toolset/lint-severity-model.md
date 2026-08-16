@@ -3,7 +3,7 @@ type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 tags: [okf-net, lint, diagnostics, severity, configuration]
-generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
+generated: { by: claude-fable/5, at: 2026-08-15T20:40:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -32,6 +32,30 @@ zero. A bundle that violates §11 exits non-zero no matter what the
 configuration says. This is the same commitment as [foreign-bundle
 tolerance](../format/foreign-bundle-tolerance.md), viewed from the
 configuration side.
+
+# What gets linted
+
+Conformance is scoped to a tree, so the walk that defines the tree is part of
+the rule. Every non-reserved `.md` file under the bundle root is a concept and
+is held to §11 — **including a dot-prefixed one, and one inside a
+dot-directory**. A leading dot is a shell display convention, not a statement
+about knowledge, and a linter that skipped `.hidden.md` would report
+conformance over a file it never opened.
+
+The one exception is a short list of names matched whole: `.git`, `.hg`,
+`.svn`, `.obsidian`, `.idea`, `.vscode`, `.DS_Store`, `Thumbs.db` and
+`desktop.ini`. Those are tool state and operating-system droppings — nobody
+authored them as knowledge, and the tools that write them rewrite them
+unasked. Everything else a producer put in a bundle root is theirs and is
+read, `.gitignore` and `.editorconfig` included.
+
+That list is a single constant, and it is the same one the index generator,
+search, the site and the bundler walk by, so a file cannot be a concept to one
+surface and invisible to another. The consequence worth stating out loud: a
+producer who keeps scratch markdown under `.drafts/` will see conformance
+errors and index drift. Both are the correct report, and both are answered by
+giving the file frontmatter or moving it outside the bundle root, where
+producer-side material already belongs.
 
 # Identifier ranges
 

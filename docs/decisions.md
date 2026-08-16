@@ -2534,3 +2534,122 @@ dogfood bundle rather than here: the `publish` job produces **seven** assets, no
 `tests/install-sh/run.sh` now runs **82** assertions per shell, not 73. The 73 in the
 multi-platform section above is correct as a record of what that change left behind and
 stays as written.
+
+### Proposed decisions: dot-prefixed markdown is linted (work item #42, 2026-08-15)
+
+From the GPT-5.6 outside review, and a 1.0.0 blocker: SPEC §11 conforms **every**
+non-reserved `.md` file in a bundle tree, but the walk skipped every dot-prefixed file and
+never descended a dot-directory. `bundle/.hidden.md` could therefore carry no frontmatter
+at all while `okf lint` printed `0 errors` — okf-net reporting conformance it had not
+checked. The review offered two exits: lint the files, or write the gap down as a
+deliberate deviation. Linting is adopted.
+
+#### Why linting beats documenting the deviation
+
+- **A conformance tool that documents its blind spots still has them.** The whole value of
+  `okf lint` is that its exit code stands in for reading the tree. A recorded deviation
+  moves the defect from the code to a paragraph a consumer of the *format* will never see:
+  they receive an archive and a `0 errors` claim, not this file.
+- **The deviation had no principle behind it.** "A leading dot means hidden" is a shell
+  display convention, not a statement about knowledge. §3.1 reserves names; §11 scopes
+  conformance to the tree. Neither mentions a dot. The skip was inherited from the
+  ordinary habit of not walking `.git`, generalized past what that habit justifies.
+- **The narrow version of the habit is still right, and is cheap to state.** Nobody wants
+  `.git/COMMIT_EDITMSG` linted. That wants a list of names, which is checkable, rather than
+  a shape rule, which over-reaches. So the deviation shrinks from "any dot-prefixed path"
+  to nine names — and the nine are the ones a reviewer can argue with.
+- **AD-3 points the same way.** Defaults block only what the spec says; the mirror of that
+  is that defaults must not *silently exempt* what the spec covers. Skipping a file is a
+  stronger act than lowering its severity: a severity is configurable and a skip is not.
+
+#### The ignore list, and why each name is on it
+
+`OkfBundle.IgnoredMetadataNames` is the single constant, matched on the **whole name**,
+case-insensitively, for files and directories alike:
+
+| Name | Why |
+| --- | --- |
+| `.git` | A repository, not content. It is also a *file* in a git worktree, which is why the match is not directory-only. |
+| `.hg`, `.svn` | The same, for Mercurial and Subversion. Present because a foreign bundle may come from either, and finding out at lint time is worse than three strings. |
+| `.obsidian` | Obsidian's per-vault state — workspace layout, plugin data. A markdown vault editor is exactly the tool most likely to be pointed at a bundle. |
+| `.idea`, `.vscode` | Editor state the editor rewrites without being asked; `.vscode` in particular holds `.md` snippets and settings that are not knowledge. |
+| `.DS_Store` | Nobody authored it; macOS Finder dropped it. |
+| `Thumbs.db`, `desktop.ini` | The Windows equivalents. Both were already excluded by the bundler's junk list and moved here, so the names live in one place. |
+
+What is deliberately **not** on it: `.gitignore`, `.gitattributes`, `.editorconfig`,
+`.markdownlint.yaml`. A producer wrote those, can see them, and meant them — the same
+argument the bundler already makes for a file whose name does not say it is junk. They are
+content, and they ship.
+
+**Case-insensitively**, and that is a decision rather than a convenience. macOS and
+Windows filesystems fold case, so `.Git` and `.git` are one directory there and two on
+Linux; an ordinal match would make a bundle's conformance depend on which machine ran the
+linter, which is the one thing a conformance tool may not do. It costs the ability to
+carry a directory genuinely named `.GIT` on Linux, which nobody wants. This is the one
+place in `Okf.Core` where a name is matched case-insensitively — `IsReservedFile` and
+`IsConventionalFile` stay ordinal, because §3.1 spells its reserved names in one case and
+the spec, not a filesystem, is what they answer to. A test pins the comparer, so the
+asymmetry cannot be tidied away by a later consistency pass.
+
+The list's contents are asserted literally by a test, so an addition cannot arrive
+silently: growing it is a decision, and a decision nobody reviewed is how a small list
+becomes a shape rule again.
+
+#### One walk, so the answer is uniform
+
+The invariant is that `OkfBundle.MarkdownFiles()` and `ContentFiles()` are the only walk,
+and every surface reads one of them. The change was therefore made once and applies
+everywhere, which is the answer to "does this also affect …":
+
+- **Lint** — a dot-prefixed concept is held to `OKF0001`/`OKF0002` like any other, and a
+  `.md` inside a dot-directory is reached.
+- **Index generation** — a dot-prefixed concept is listed in its directory's `index.md`,
+  and a dot-directory that holds concepts gets an index of its own and an entry in its
+  parent. A bundle that was hiding concepts will now see `OKF0306` drift, which is the
+  correct report and not a regression.
+- **Search, MCP, the site** — the corpus is whatever the walk returns minus the reserved
+  files (AD-27), so a dot-prefixed concept is searchable, readable through `okf_read`, and
+  rendered as a page, with no change of its own.
+- **The bundler** — a dot-prefixed concept ships. That is the point: shipping a bundle
+  while omitting a file `okf lint` had just judged would make the archive and the report
+  describe different trees. The suffix-matched junk list (`*~`, `*.swp`, `*.orig`, …) stays
+  in `OkfBundler`, because it is a packaging-hygiene rule about names' *endings* and never
+  intersects `*.md`; its two whole-name entries moved to the shared constant.
+- **Bundle discovery** — `OkfDiscovery` had the same blanket dot filter over the
+  directories in `bundles/`, one level above the walk, so `okf/bundles/.drafts/notes.md`
+  was invisible for the same reason. It now uses the same constant. `okf init` still
+  *refuses to author* a dot-prefixed bundle name, and that asymmetry is deliberate: AD-4
+  says okf-net reports on what it is handed and enforces its conventions only on what it
+  writes.
+
+#### What this costs, and what it did not
+
+Google's four reference bundles contain no dot-prefixed file and no dot-directory
+(`find ~/code/knowledge-catalog/okf/bundles -name '.*'` is empty), so ACC-1 is unaffected
+by construction, and the acceptance suite still lints all four at exit 0. The dogfood vault
+has none either: `mise run cli -- lint okf/` still reports 28 files and
+`0 errors, 0 warnings, 0 infos`.
+
+The cost lands on someone else's bundle: a producer who kept scratch markdown under
+`.drafts/` will now see conformance errors, and their generated indexes will drift to
+include it. That is the correct report — those files are in the tree §11 talks about — and
+the two ways out are both cheap: give the file frontmatter, or move it outside the bundle
+root, which is where producer-side material already belongs (AD-17).
+
+#### What this supersedes in this log
+
+Two passages above described the old walk and are now wrong; they stay as written, because
+the record of what was once true is what makes a reversal reviewable.
+
+- [What ships, and what never does](#what-ships-and-what-never-does) says
+  `ContentFiles()` keeps "no dotfiles, no dot-directories". It keeps the symlink rule and
+  nothing else; the dot rule is now the nine names.
+- The same section says `.DS_Store` and `.obsidian/` "need no entry — the dotfile rule
+  already has them". They now have entries, in `OkfBundle.IgnoredMetadataNames` rather
+  than in the bundler's list, which is where `Thumbs.db` and `desktop.ini` went too.
+
+[The vectorization spike](spikes/2026-08-15-vectorization.md) leans on the same retired
+rule when it argues that `<vault-root>/.okf/` costs the bundler nothing. The conclusion
+survives for the other reason it gives — the walk starts at `bundles/<name>/`, so a
+vault-root directory is never reached whatever it is called — but an index kept *inside*
+a bundle root would now be walked, and #24 has to place it accordingly.

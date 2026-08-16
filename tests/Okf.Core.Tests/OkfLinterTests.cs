@@ -27,18 +27,48 @@ public class OkfLinterTests
     }
 
     [Fact]
-    public void NonMarkdownFilesAndDotDirectoriesAreIgnored()
+    public void NonMarkdownFilesAndMetadataDirectoriesAreIgnored()
     {
         using var bundle = new TempBundle();
         bundle.Add("clean.md", CleanConcept)
             .Add("viz.html", "<html>not a concept</html>")
             .Add("attesters/sql_equality.py", "# not a concept")
-            .Add(".git/config", "[core]");
+            .Add(".git/config", "[core]")
+            .Add(".obsidian/notes.md", "# not a concept, and never read")
+            .Add(".vscode/settings.md", "# not a concept, and never read");
 
         var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(bundle.Bundle);
 
         Assert.Empty(result.Diagnostics);
         Assert.Equal(1, result.FileCount);
+    }
+
+    /// <summary>
+    /// Spec §11 conforms every non-reserved <c>.md</c> file in the tree, and a leading dot
+    /// is not an exemption from it (work item #42).
+    /// </summary>
+    [Fact]
+    public void ADotPrefixedConceptIsHeldToSection11LikeAnyOther()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("clean.md", CleanConcept)
+            .Add(".no-frontmatter.md", "# A concept with no frontmatter at all\n")
+            .Add(".drafts/no-type.md", "---\ntitle: No type\ndescription: d\ntags: [fixture]\n---\n\n# Body\n");
+
+        var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(bundle.Bundle);
+
+        Assert.Equal(3, result.FileCount);
+        Assert.Equal(
+            [OkfRules.UnparseableFrontmatter, OkfRules.MissingType],
+            result.Diagnostics
+                .OrderBy(diagnostic => diagnostic.RuleId, StringComparer.Ordinal)
+                .Select(diagnostic => diagnostic.RuleId));
+        Assert.Equal(
+            [Path.Combine(bundle.Root, ".drafts", "no-type.md"), Path.Combine(bundle.Root, ".no-frontmatter.md")],
+            result.Diagnostics
+                .Select(diagnostic => diagnostic.Path)
+                .Order(StringComparer.Ordinal));
+        Assert.All(result.Diagnostics, diagnostic => Assert.Equal(OkfSeverity.Error, diagnostic.Severity));
     }
 
     [SkippableFact]

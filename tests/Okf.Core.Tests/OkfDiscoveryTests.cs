@@ -136,6 +136,24 @@ public class OkfDiscoveryTests : IDisposable
         Assert.Throws<OkfDiscoveryException>(() => OkfDiscovery.Resolve(vault, Environment(this.root)));
     }
 
+    /// <summary>
+    /// Bundle discovery passes over the same names the walk inside a bundle does, and
+    /// nothing else: a dot-prefixed directory in <c>bundles/</c> is a bundle (work item
+    /// #42), while named tool state is not.
+    /// </summary>
+    [Fact]
+    public void ADotPrefixedBundleIsDiscoveredAndOnlyNamedToolStateIsPassedOver()
+    {
+        var bundles = Path.Combine(this.root, "project", "okf", "bundles");
+        Directory.CreateDirectory(Path.Combine(bundles, ".drafts"));
+        Directory.CreateDirectory(Path.Combine(bundles, ".git"));
+        Directory.CreateDirectory(Path.Combine(bundles, ".obsidian"));
+
+        var resolved = OkfDiscovery.Resolve(Path.Combine(this.root, "project", "okf"), Environment(this.root));
+
+        Assert.Equal([".drafts", "alpha", "beta"], resolved.Bundles.Select(bundle => bundle.Name));
+    }
+
     /// <summary>Removes the temporary tree.</summary>
     public void Dispose()
     {
