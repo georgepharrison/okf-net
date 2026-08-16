@@ -146,9 +146,16 @@ flowchart TB
   makes the whole bundle non-conformant under §11.
 - **Rule:** Knowledge lives at `<project>/okf/`, holding `README.md`, `okf.json`,
   `bundles/<name>/`, `custodian/` and `raw/`. `okf init` refuses, with exit 2 and no
-  writes, to scaffold a vault at or inside a bundle root.
+  writes, to scaffold a vault at or inside a bundle root. `okf init` also writes two files
+  at the *project* root — the vault's parent, deliberately outside `okf/`: a marker-fenced
+  context-pointer block in `AGENTS.md` (created if absent, spliced in place otherwise, never
+  touching a byte outside the fence) and a one-line `CLAUDE.md` naming it (written only when
+  none exists). Both opt out with `--no-agents-md`, both are skipped for the personal vault
+  (its parent is the home directory, not a project), and `okf skills install --scope
+  project` writes the identical pair.
 - **Source:** [decisions §2](decisions.md#2-bundle-self-description--project-layout),
-  [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15)
+  [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15),
+  [the AGENTS.md context pointer](decisions.md#proposed-decisions-the-agentsmd-context-pointer-work-item-56-2026-08-16)
 
 ### AD-3 — Defaults block only what the spec says
 
