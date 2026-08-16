@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -51,18 +49,7 @@ internal static class DiagnosticWriter
     /// <returns>The JSON text, newline-terminated.</returns>
     public static string ToJson(IReadOnlyList<OkfDiagnostic> diagnostics, string baseDirectory)
     {
-        using var buffer = new MemoryStream();
-        // Messages carry backticks and section signs; the default encoder would escape
-        // them to \u00XX and make CI annotations unreadable. The relaxed encoder still
-        // emits valid JSON — okf output is read by tools and humans, never embedded in
-        // HTML.
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
             foreach (var diagnostic in diagnostics)
@@ -88,9 +75,7 @@ internal static class DiagnosticWriter
             }
 
             writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray()) + Environment.NewLine;
+        }) + Environment.NewLine;
     }
 
     /// <summary>

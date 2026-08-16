@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -240,14 +238,7 @@ internal static class RegistryCommand
 
     private static string ToJson(OkfRegistry registry)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(
-            buffer,
-            new JsonWriterOptions
-            {
-                Indented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            }))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
             foreach (var entry in registry.Entries)
@@ -262,9 +253,7 @@ internal static class RegistryCommand
             }
 
             writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     private static void WriteUsage(string verb, TextWriter writer)

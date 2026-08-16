@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -180,14 +179,7 @@ internal static class IndexCommand
 
     private static string ToJson(IReadOnlyList<OkfIndexPlan> plans, string baseDirectory)
     {
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
             foreach (var plan in plans)
@@ -207,9 +199,7 @@ internal static class IndexCommand
             }
 
             writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray()) + Environment.NewLine;
+        }) + Environment.NewLine;
     }
 
     private static string Status(OkfIndexStatus status) => status switch
