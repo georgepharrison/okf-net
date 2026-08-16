@@ -382,10 +382,10 @@ public static class OkfIndexGenerator
                 }
 
                 entries.Add(new OkfIndexEntry(
-                    Section(Scalar(frontmatter, "type")),
-                    Title(Scalar(frontmatter, "title"), concept),
+                    Section(FrontmatterValues.Scalar(frontmatter, "type")),
+                    Title(FrontmatterValues.Scalar(frontmatter, "title"), concept),
                     Link(Path.GetFileName(concept)),
-                    Blurb(Scalar(frontmatter, "description"))));
+                    Blurb(FrontmatterValues.Scalar(frontmatter, "description"))));
             }
 
             // A subdirectory is listed only when it got an index of its own; listing one
@@ -599,13 +599,8 @@ public static class OkfIndexGenerator
         // nowhere else. No synthesis, no borrowing a child's description — generation
         // stays deterministic and offline (PRD CLI-16).
         var about = Path.Combine(directory, OkfBundle.AboutFileName);
-        return Frontmatter(about, options) is { } frontmatter ? Blurb(Scalar(frontmatter, "description")) : null;
+        return Frontmatter(about, options) is { } frontmatter ? Blurb(FrontmatterValues.Scalar(frontmatter, "description")) : null;
     }
-
-    private static string? Scalar(OkfMapping frontmatter, string key) =>
-        frontmatter.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy
-            ? scalar.Value
-            : null;
 
     private static string Section(string? type) => Flatten(type) is { Length: > 0 } text
         ? text

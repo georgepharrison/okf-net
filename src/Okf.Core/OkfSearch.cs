@@ -662,28 +662,6 @@ public static class OkfSearchEngine
         return true;
     }
 
-    private static string? Scalar(OkfMapping frontmatter, string key) =>
-        frontmatter.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy
-            ? scalar.Value
-            : null;
-
-    private static IReadOnlyList<string> TagValues(OkfMapping frontmatter)
-    {
-        if (!frontmatter.TryGetValue("tags", out var value))
-        {
-            return [];
-        }
-
-        return value switch
-        {
-            // A scalar `tags` is one tag, not a list to guess a separator for.
-            OkfScalar scalar when scalar.IsTruthy => [scalar.Value],
-            OkfSequence sequence =>
-                [.. sequence.OfType<OkfScalar>().Where(item => item.IsTruthy).Select(item => item.Value)],
-            _ => [],
-        };
-    }
-
     /// <summary>The collection statistics BM25 needs, taken over the whole corpus.</summary>
     private sealed class Statistics
     {
@@ -733,9 +711,9 @@ public static class OkfSearchEngine
             Body = body;
             Weighted = weighted;
             Length = length;
-            Type = Scalar(frontmatter, "type");
-            Description = Scalar(frontmatter, "description");
-            Tags = TagValues(frontmatter);
+            Type = FrontmatterValues.Scalar(frontmatter, "type");
+            Description = FrontmatterValues.Scalar(frontmatter, "description");
+            Tags = FrontmatterValues.Tags(frontmatter);
         }
 
         public OkfBundle Bundle { get; }
@@ -764,10 +742,10 @@ public static class OkfSearchEngine
             var weighted = new Dictionary<string, double>(StringComparer.Ordinal);
             var length = 0.0;
 
-            Index(weighted, ref length, Scalar(frontmatter, "title"), TitleWeight);
-            Index(weighted, ref length, Scalar(frontmatter, "type"), TypeWeight);
-            Index(weighted, ref length, Scalar(frontmatter, "description"), DescriptionWeight);
-            foreach (var tag in TagValues(frontmatter))
+            Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "title"), TitleWeight);
+            Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "type"), TypeWeight);
+            Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "description"), DescriptionWeight);
+            foreach (var tag in FrontmatterValues.Tags(frontmatter))
             {
                 Index(weighted, ref length, tag, TagWeight);
             }
@@ -808,7 +786,7 @@ public static class OkfSearchEngine
                 AbsolutePath = Path,
                 Bundle = Bundle.Root,
                 BundleName = Bundle.Name,
-                Title = Scalar(Frontmatter, "title") is { Length: > 0 } title
+                Title = FrontmatterValues.Scalar(Frontmatter, "title") is { Length: > 0 } title
                     ? title
                     : System.IO.Path.GetFileNameWithoutExtension(Path),
                 Type = Type,

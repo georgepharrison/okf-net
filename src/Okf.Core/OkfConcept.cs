@@ -47,10 +47,10 @@ public sealed class OkfConcept
         Id = Path.EndsWith(".md", StringComparison.Ordinal) ? Path[..^3] : Path;
         Frontmatter = document.Frontmatter;
         Body = document.Body;
-        Type = Scalar(document.Frontmatter, "type");
-        Description = Scalar(document.Frontmatter, "description");
-        Tags = TagValues(document.Frontmatter);
-        Title = Scalar(document.Frontmatter, "title") is { Length: > 0 } title
+        Type = FrontmatterValues.Scalar(document.Frontmatter, "type");
+        Description = FrontmatterValues.Scalar(document.Frontmatter, "description");
+        Tags = FrontmatterValues.Tags(document.Frontmatter);
+        Title = FrontmatterValues.Scalar(document.Frontmatter, "title") is { Length: > 0 } title
             ? title
             : System.IO.Path.GetFileNameWithoutExtension(path);
         TrustTier = OkfDocument.TrustTier(document.Frontmatter);
@@ -95,27 +95,6 @@ public sealed class OkfConcept
 
     /// <inheritdoc />
     public override string ToString() => Path;
-
-    private static string? Scalar(OkfMapping frontmatter, string key) =>
-        frontmatter.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy
-            ? scalar.Value
-            : null;
-
-    private static IReadOnlyList<string> TagValues(OkfMapping frontmatter)
-    {
-        if (!frontmatter.TryGetValue("tags", out var value))
-        {
-            return [];
-        }
-
-        return value switch
-        {
-            OkfScalar scalar when scalar.IsTruthy => [scalar.Value],
-            OkfSequence sequence =>
-                [.. sequence.OfType<OkfScalar>().Where(item => item.IsTruthy).Select(item => item.Value)],
-            _ => [],
-        };
-    }
 }
 
 /// <summary>The outcome of a concept read: the concept, or why there is none.</summary>

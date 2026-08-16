@@ -125,7 +125,7 @@ public sealed class OkfUpgradeManifest
                 throw new OkfUpgradeException("the release manifest is not a JSON object.");
             }
 
-            if (ReadString(root, "version") is not { Length: > 0 } version)
+            if (StrictJson.String(root, "version") is not { Length: > 0 } version)
             {
                 throw new OkfUpgradeException(
                     "the release manifest names no version — is it a release manifest?");
@@ -141,8 +141,8 @@ public sealed class OkfUpgradeManifest
                         continue;
                     }
 
-                    var path = ReadString(entry.Value, "path");
-                    var sha256 = ReadString(entry.Value, "sha256");
+                    var path = StrictJson.String(entry.Value, "path");
+                    var sha256 = StrictJson.String(entry.Value, "sha256");
                     if (path is not { Length: > 0 } || sha256 is not { Length: > 0 })
                     {
                         // Left out of the map rather than kept with holes: an asset that
@@ -163,20 +163,15 @@ public sealed class OkfUpgradeManifest
                         path,
                         sha256,
                         size,
-                        ReadString(entry.Value, "url"));
+                        StrictJson.String(entry.Value, "url"));
                 }
             }
 
             return new OkfUpgradeManifest(
                 version,
-                ReadString(root, "tag"),
-                ReadString(root, "generatedAt"),
+                StrictJson.String(root, "tag"),
+                StrictJson.String(root, "generatedAt"),
                 assets);
         }
     }
-
-    private static string? ReadString(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
 }

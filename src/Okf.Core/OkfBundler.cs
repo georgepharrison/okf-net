@@ -313,7 +313,7 @@ public static class OkfBundler
                 findings.Add(new OkfDistributionFinding(
                     OkfDistributionIssue.Modified,
                     file.Path,
-                    $"recorded {Short(file.Sha256)}, found {Short(actual)}."));
+                    $"recorded {OkfCaptureManifest.Short(file.Sha256)}, found {OkfCaptureManifest.Short(actual)}."));
             }
         }
 
@@ -770,6 +770,4 @@ public static class OkfBundler
 
     private static OkfDistributionVerification Unreadable(string source, string detail) =>
         new(source, null, [new OkfDistributionFinding(OkfDistributionIssue.Unreadable, source, detail)], 0);
-
-    private static string Short(string sha256) => sha256.Length > 12 ? sha256[..12] + "…" : sha256;
 }
