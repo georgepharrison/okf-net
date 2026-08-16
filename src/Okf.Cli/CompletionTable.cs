@@ -129,6 +129,7 @@ internal static class CompletionTable
                 Help,
                 HelpShort,
                 new("--name", "The bundle directory to create", CompletionValue.Text),
+                new("--no-agents-md", "Skip writing the AGENTS.md/CLAUDE.md pointer", CompletionValue.None),
                 new("--personal", "Scaffold the personal vault rather than a project one", CompletionValue.None),
                 Verbose,
                 VerboseShort,
@@ -307,6 +308,7 @@ internal static class CompletionTable
                 new("--force", "Overwrite a file whose bytes differ", CompletionValue.None),
                 new("--host", "Where to write", CompletionValue.Host),
                 new("--names", "List names only, one per line", CompletionValue.None),
+                new("--no-agents-md", "Skip writing the AGENTS.md/CLAUDE.md pointer", CompletionValue.None),
                 new("--scope", "Install for this user or beside this project", CompletionValue.InstallScope),
             ],
             CompletionValue.Skill)

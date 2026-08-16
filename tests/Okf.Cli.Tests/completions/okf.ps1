@@ -38,7 +38,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
         'init' {
             switch ($previous) {
                 '--name' { $candidates = @() }
-                default { $candidates = @('--help', '-h', '--name', '--personal', '--verbose', '-v') }
+                default { $candidates = @('--help', '-h', '--name', '--no-agents-md', '--personal', '--verbose', '-v') }
             }
         }
         'lint' {
@@ -141,7 +141,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
                 '--dir' { $candidates = @() }
                 '--host' { $candidates = @('all', 'claude', 'generic', 'pi') }
                 '--scope' { $candidates = @('project', 'user') }
-                default { $candidates = @('--help', '-h', '--dir', '--force', '--host', '--names', '--scope', 'install', 'list', 'path') }
+                default { $candidates = @('--help', '-h', '--dir', '--force', '--host', '--names', '--no-agents-md', '--scope', 'install', 'list', 'path') }
             }
             if (-not $previous.StartsWith('-') -and $sub -eq 'path') {
                 $candidates += @(& okf skills list --names 2>$null)

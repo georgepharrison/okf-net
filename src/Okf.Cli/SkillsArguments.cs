@@ -60,7 +60,8 @@ internal sealed class SkillsArguments
     public bool ShowHelp { get; private set; }
 
     /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
-    public static readonly string[] Flags = ["--help", "-h", "--force", "--names", "--host", "--dir", "--scope"];
+    public static readonly string[] Flags =
+        ["--help", "-h", "--force", "--names", "--host", "--dir", "--scope", "--no-agents-md"];
 
     /// <summary>Parses <c>okf skills</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>skills</c>.</param>

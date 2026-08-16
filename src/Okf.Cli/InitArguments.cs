@@ -38,7 +38,8 @@ internal sealed class InitArguments
     /// against this array, and this array against the parser's own <c>case</c> labels
     /// (issue #51), so an option cannot ship without a completion entry.
     /// </summary>
-    public static readonly string[] Flags = ["--help", "-h", "--personal", "--verbose", "-v", "--name"];
+    public static readonly string[] Flags =
+        ["--help", "-h", "--personal", "--verbose", "-v", "--name", "--no-agents-md"];
 
     /// <summary>Parses <c>okf init</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>init</c>.</param>

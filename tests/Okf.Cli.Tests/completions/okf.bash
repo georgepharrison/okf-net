@@ -73,7 +73,7 @@ _okf() {
                 --name) return ;;
             esac
             case "$cur" in
-                -*) __okf_words "--help -h --name --personal --verbose -v" "$cur"; return ;;
+                -*) __okf_words "--help -h --name --no-agents-md --personal --verbose -v" "$cur"; return ;;
             esac
             __okf_files "$cur"
             ;;
@@ -213,7 +213,7 @@ _okf() {
                 --scope) __okf_words "project user" "$cur"; return ;;
             esac
             case "$cur" in
-                -*) __okf_words "--help -h --dir --force --host --names --scope" "$cur"; return ;;
+                -*) __okf_words "--help -h --dir --force --host --names --no-agents-md --scope" "$cur"; return ;;
             esac
             if [ -z "$sub" ]; then
                 __okf_words "install list path" "$cur"

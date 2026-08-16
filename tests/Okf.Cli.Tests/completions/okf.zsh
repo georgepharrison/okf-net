@@ -82,6 +82,7 @@ _okf() {
                     '--help:Show this help'
                     '-h:Show this help'
                     '--name:The bundle directory to create'
+                    '--no-agents-md:Skip writing the AGENTS.md/CLAUDE.md pointer'
                     '--personal:Scaffold the personal vault rather than a project one'
                     '--verbose:Report vault resolution and effective configuration'
                     '-v:Report vault resolution and effective configuration'
@@ -366,6 +367,7 @@ _okf() {
                     '--force:Overwrite a file whose bytes differ'
                     '--host:Where to write'
                     '--names:List names only, one per line'
+                    '--no-agents-md:Skip writing the AGENTS.md/CLAUDE.md pointer'
                     '--scope:Install for this user or beside this project'
                 )
                 _describe -t options 'option' options
