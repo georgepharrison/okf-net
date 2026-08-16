@@ -234,6 +234,13 @@ public class OkfSiteBuilderTests
     // reader's disk, and neither is on the allowlist.
     [InlineData("[x](file:///etc/passwd)")]
     [InlineData("[x](about:blank)")]
+    // An angle-bracket destination may carry spaces, and a browser drops ASCII whitespace
+    // before it decides what scheme a URL has, so the space is not a wall the allowlist can
+    // stand behind.
+    [InlineData("[x](<java script:alert(1)>)")]
+    // RFC 3986 §3.1 lets a scheme carry `+`, `-` and `.` after its first letter, and
+    // `view-source:` is one that navigates.
+    [InlineData("[x](view-source:https://example.invalid/)")]
     public void ADestinationWithAnUnallowedSchemeNeverReachesAnAttribute(string markdown)
     {
         using var bundle = new TempBundle("kb");
@@ -306,8 +313,181 @@ public class OkfSiteBuilderTests
     [InlineData("kb/deep/nested.html", "kb/hub.html", "../hub.html")]
     [InlineData("kb/deep/nested.html", "index.html", "../../index.html")]
     [InlineData("a/b/c.html", "x/y/z.html", "../../x/y/z.html")]
+    // A page linking to itself walks nowhere.
+    [InlineData("kb/hub.html", "kb/hub.html", "hub.html")]
+    // The last segment of `from` is a file name and the last segment of `to` is a file name,
+    // so neither is ever a directory to walk into — even when a directory in the other path
+    // is named exactly like it. A bundle directory called `notes.html` is legal content, and
+    // matching on how a segment looks rather than on where it sits would swallow a level.
+    [InlineData("a/b.html", "a/b.html/c.html", "b.html/c.html")]
+    [InlineData("a/b.html/c.html", "a/b.html", "../b.html")]
+    [InlineData("a.html", "a.html/b.html", "a.html/b.html")]
     public void RelativeHrefWalksUpOnlyAsFarAsItMust(string from, string to, string expected) =>
         Assert.Equal(expected, OkfSiteBuilder.RelativeHref(from, to));
+
+    [Theory]
+    [InlineData("kb", "hub.md", "kb/hub.html")]
+    [InlineData("kb", "deep/nested.md", "kb/deep/nested.html")]
+    // Only a trailing `.md` is an extension to drop. §6.3 makes non-markdown content bundle
+    // content, so a name that merely contains `md` keeps all of it and gains `.html`.
+    [InlineData("kb", "notes.txt", "kb/notes.txt.html")]
+    [InlineData("kb", "guide.mdown", "kb/guide.mdown.html")]
+    // Each segment is escaped on its own: a `#` that survived would cut the href short, and
+    // an escaped `/` would flatten the tree the site mirrors.
+    [InlineData("my kb", "a b/c#d.md", "my%20kb/a%20b/c%23d.html")]
+    public void AnHrefDropsOnlyAMarkdownExtensionAndEscapesEverySegment(
+        string slug,
+        string relativePath,
+        string expected) =>
+        Assert.Equal(expected, OkfSiteBuilder.Href(slug, relativePath));
+
+    [Fact]
+    public void AnIndexTakesItsOwnDirectorysNameHoweverDeepItSits()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle
+            .Add("index.md", "# Concept\n")
+            .Add("one/index.md", "# Concept\n")
+            .Add("one/two/index.md", "# Concept\n")
+            .Add("one/two/leaf.md", "---\ntype: Concept\ntitle: Leaf\n---\n\nLeaf.\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // An index is its directory's page, so it is named after that directory — the last
+        // segment of it, never the path that led there and never the one above.
+        Assert.Equal("kb", model.Pages.Single(page => page.Href == "kb/index.html").Title);
+        Assert.Equal("one", model.Pages.Single(page => page.Href == "kb/one/index.html").Title);
+        Assert.Equal("two", model.Pages.Single(page => page.Href == "kb/one/two/index.html").Title);
+
+        // ... and for the same reason it stops one level short in the trail: the crumb it
+        // would add for its own directory is the crumb it already is.
+        var deep = model.Pages.Single(page => page.Href == "kb/one/two/index.html");
+        Assert.Equal(["kb", "one", "two"], deep.Crumbs.Select(crumb => crumb.Label));
+        Assert.Equal(["../../index.html", "../index.html", null], deep.Crumbs.Select(crumb => crumb.Href));
+
+        var leaf = model.Pages.Single(page => page.Href == "kb/one/two/leaf.html");
+        Assert.Equal(["kb", "one", "two", "Leaf"], leaf.Crumbs.Select(crumb => crumb.Label));
+        Assert.Equal(["../../index.html", "../index.html", "index.html", null], leaf.Crumbs.Select(crumb => crumb.Href));
+    }
+
+    [Fact]
+    public void SingleFileBreadcrumbsRouteOnTheFragmentToo()
+    {
+        using var fixture = new SiteFixture();
+        var nested = fixture.Build(singleFile: true).Pages.Single(page => page.Href == "kb/deep/nested.html");
+
+        // There is no `kb/index.html` to point a crumb at in a one-file site, so the trail
+        // routes the same way every other internal link there does.
+        Assert.Equal(["#c=kb%2Findex", "#c=kb%2Fdeep%2Findex", null], nested.Crumbs.Select(crumb => crumb.Href));
+    }
+
+    [Fact]
+    public void ALogIsCalledTheUpdateLogOnlyWhenItDoesNotNameItself()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle
+            .Add("log.md", "# Directory Update Log\n")
+            .Add("deep/log.md", "---\ntitle: What changed\n---\n\n# Changes\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // §9 reserves the name, not the heading: a log with no frontmatter gets the reserved
+        // file's own label, and one that states a title keeps it.
+        Assert.Equal("Update log", model.Pages.Single(page => page.Href == "kb/log.html").Title);
+        Assert.Equal("What changed", model.Pages.Single(page => page.Href == "kb/deep/log.html").Title);
+    }
+
+    [Fact]
+    public void TheGeneratedIndexMarkerIsStrippedFromAnIndexAndFromNothingElse()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle
+            .Add("index.md", $"{OkfIndexGenerator.GeneratedMarker}\n\n# Concept\n")
+            .Add("about.md", $"---\ntype: Concept\ntitle: About\n---\n\n{OkfIndexGenerator.GeneratedMarker}\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // AD-38 escapes raw HTML rather than emitting it, so okf-net's own machine marker
+        // would otherwise show up as literal text on the index it marks. It is the one
+        // comment whose provenance the generator knows; a comment in a concept body is the
+        // author's, and removing it would be the generator editing the knowledge.
+        Assert.DoesNotContain(
+            "generated by okf",
+            model.Pages.Single(page => page.Href == "kb/index.html").BodyHtml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "generated by okf",
+            model.Pages.Single(page => page.Href == "kb/about.html").BodyHtml,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    // `.`, `_` and `-` are the punctuation a path segment carries safely.
+    [InlineData("my.kb_v2", "my.kb_v2/a.html")]
+    // Anything else — a space, a `#`, a `/` — becomes a hyphen, or a bundle's name would
+    // decide where its own pages land.
+    [InlineData("a b", "a-b/a.html")]
+    // A name that sanitizes away entirely still needs somewhere for its pages to go; an
+    // empty slug would put them at the site root, on top of the site's own files.
+    [InlineData("---", "bundle/a.html")]
+    public void ABundleNameBecomesExactlyOneSafePathSegment(string name, string expected)
+    {
+        using var bundle = new TempBundle(name);
+        bundle.Add("a.md", "---\ntype: Concept\ntitle: A\n---\n\nA.\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        Assert.Equal([expected], model.Pages.Select(page => page.Href));
+    }
+
+    [Fact]
+    public void NoInternalDestinationIsEverDressedAsOneThatLeavesTheSite()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle
+            .Add("y.md", "---\ntype: Concept\ntitle: Y\n---\n\nY.\n")
+            .Add("deep/x.md", """
+                ---
+                type: Concept
+                title: X
+                ---
+
+                An [image](chart.png), an [anchor](#top), a [sibling page](../y.md#part), a
+                [missing one](./gone.md) and one that [climbs out](/../secrets.md).
+                """);
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+        var page = model.Pages.Single(candidate => candidate.Href == "kb/deep/x.html");
+
+        // A destination that is not markdown names something the site generates no page for
+        // — an image, an attachment, a heading on this page — and §6.1 obliges a consumer to
+        // leave what it cannot resolve exactly as it was written.
+        Assert.Contains("<a href=\"chart.png\">image</a>", page.BodyHtml, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"#top\">anchor</a>", page.BodyHtml, StringComparison.Ordinal);
+
+        // A resolved link keeps the fragment it was written with: the heading was the point.
+        Assert.Contains("<a href=\"../y.html#part\">sibling page</a>", page.BodyHtml, StringComparison.Ordinal);
+        Assert.Equal(["kb/y"], page.LinksTo);
+
+        // A broken link is marked, never repointed: rewriting it to where the page *would*
+        // have been produces a link that looks live and is not.
+        Assert.Contains("<a href=\"./gone.md\" class=\"broken\">missing one</a>", page.BodyHtml, StringComparison.Ordinal);
+
+        // Nothing above leaves the site, so nothing above may be dressed as if it did —
+        // `target="_blank"` on an internal link is a second tab a reader did not ask for.
+        Assert.DoesNotContain("rel=\"noopener", page.BodyHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("target=\"_blank\"", page.BodyHtml, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void ABundleRootIndexAlsoRendersWithItsLinksResolvedFromTheSiteRoot()
@@ -355,6 +535,27 @@ public class OkfSiteBuilderTests
         // Two pages that collided on one href would silently overwrite each other on disk.
         Assert.Equal(
             ["kb-2/b.html", "kb/a.html"],
+            model.Pages.Select(page => page.Href));
+    }
+
+    [Fact]
+    public void TheSlugSuffixKeepsCountingPastTheSecondCollision()
+    {
+        using var first = new TempBundle("kb");
+        using var second = new TempBundle("kb");
+        using var third = new TempBundle("kb");
+        first.Add("a.md", "---\ntype: Concept\n---\n\nA.\n");
+        second.Add("b.md", "---\ntype: Concept\n---\n\nB.\n");
+        third.Add("c.md", "---\ntype: Concept\n---\n\nC.\n");
+
+        var model = OkfSiteBuilder.Build(
+            new OkfWorkingSet([first.Bundle, second.Bundle, third.Bundle], null, "fixture"),
+            new OkfSiteOptions { Today = SiteFixture.Today });
+
+        // A third bundle of the same name has to reach a third slug. A counter that stopped
+        // moving would loop for ever on a name already taken, or hand two bundles one slug.
+        Assert.Equal(
+            ["kb-2/b.html", "kb-3/c.html", "kb/a.html"],
             model.Pages.Select(page => page.Href));
     }
 
