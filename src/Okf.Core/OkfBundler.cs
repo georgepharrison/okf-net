@@ -155,17 +155,15 @@ public static class OkfBundler
     private const int ZipFileAttributes = ((0b1000 << 12) | 0b110_100_100) << 16;
 
     /// <summary>
-    /// Names that are never knowledge: editor backups, swap files, and merge leftovers.
-    /// Deliberately a short list matched by <em>name</em>, never by content — a file whose
-    /// name does not say it is junk gets packaged, because a producer who put it in a
-    /// bundle root meant it. Dotfiles and dot-directories are already excluded by the walk
-    /// (<see cref="OkfBundle.ContentFiles" />), which covers <c>.DS_Store</c>, editor
-    /// state directories, and <c>.git</c>.
+    /// Name endings that are never knowledge: editor backups, swap files, and merge
+    /// leftovers. Deliberately a short list matched by <em>name</em>, never by content — a
+    /// file whose name does not say it is junk gets packaged, because a producer who put
+    /// it in a bundle root meant it. Tool state and operating-system droppings —
+    /// <c>.git</c>, <c>.obsidian</c>, <c>.DS_Store</c>, <c>Thumbs.db</c> — never reach
+    /// here: <see cref="OkfBundle.IgnoredMetadataNames" /> keeps the walk itself off them,
+    /// so one list serves the bundler, the linter, the index, search and the site.
     /// </summary>
     private static readonly string[] JunkSuffixes = ["~", ".swp", ".swo", ".swn", ".orig", ".rej", ".bak"];
-
-    /// <summary>Names that are junk outright, whatever they end in.</summary>
-    private static readonly string[] JunkNames = ["Thumbs.db", "desktop.ini"];
 
     /// <summary>Plans a distribution: what would be packaged, and what would dangle.</summary>
     /// <param name="workingSet">The resolved vault and bundles.</param>
@@ -492,8 +490,7 @@ public static class OkfBundler
     private static bool IsJunk(string path)
     {
         var name = Path.GetFileName(path);
-        return JunkNames.Contains(name, StringComparer.OrdinalIgnoreCase)
-            || JunkSuffixes.Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+        return JunkSuffixes.Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>The distribution's contents in write order: the files, then the manifest, sorted by path.</summary>

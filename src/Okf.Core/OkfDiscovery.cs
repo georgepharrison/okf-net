@@ -182,8 +182,10 @@ public static class OkfDiscovery
     private static OkfWorkingSet FromVault(string vault, string resolution)
     {
         var bundlesDirectory = Path.Combine(vault, BundlesDirectoryName);
+        // The same list the walk inside a bundle uses, for the same reason: a leading dot
+        // hides nothing, and only named tool state is passed over.
         var bundles = Directory.EnumerateDirectories(bundlesDirectory)
-            .Where(directory => !Path.GetFileName(directory).StartsWith('.'))
+            .Where(directory => !OkfBundle.IgnoredMetadataNames.Contains(Path.GetFileName(directory)))
             .OrderBy(directory => directory, StringComparer.Ordinal)
             .Select(directory => new OkfBundle(directory))
             .ToList();

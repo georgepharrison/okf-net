@@ -109,6 +109,23 @@ public class OkfIndexGeneratorTests
         Assert.DoesNotContain("log.md", root.Content, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A dot-prefixed concept is a concept everywhere the walk reaches, so it is listed
+    /// and its directory gets an index of its own (work item #42).
+    /// </summary>
+    [Fact]
+    public void DotPrefixedConceptsAreListedAndTheirDirectoriesIndexed()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(".hidden.md", Concept("Reference", "Hidden"))
+            .Add(".drafts/sketch.md", Concept("Reference", "Sketch"));
+
+        var root = Root(bundle);
+
+        Assert.Equal([".hidden.md", ".drafts/index.md"], root.Entries.Select(entry => entry.Link));
+        Assert.Equal(["sketch.md"], Index(bundle, ".drafts/index.md").Entries.Select(entry => entry.Link));
+    }
+
     [Fact]
     public void OnlyTheBundleRootIndexCarriesFrontmatter()
     {

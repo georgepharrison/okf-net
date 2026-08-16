@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Okf.Core;
@@ -22,6 +23,25 @@ public sealed class OkfBundle
     /// it is validated and listed like any other.
     /// </summary>
     public const string AboutFileName = "about.md";
+
+    /// <summary>
+    /// The only names the walk refuses to read: version-control and editor state
+    /// directories, and the files an operating system drops into a directory nobody asked
+    /// it to. Matched on the whole name, case-insensitively, for files and directories
+    /// alike — a git worktree spells <c>.git</c> as a file.
+    /// </summary>
+    /// <remarks>
+    /// A leading dot is not itself a reason to skip anything. Spec §11 conforms every
+    /// non-reserved <c>.md</c> file in the tree, so a walk that skipped
+    /// <c>.hidden.md</c> would report a bundle conformant without having read it. This
+    /// list is the whole of the deviation from that, and it is kept short and literal for
+    /// the same reason the bundler's junk list is: a name that does not say it is tool
+    /// state belongs to the producer who wrote it. <c>.gitignore</c> and
+    /// <c>.editorconfig</c> are therefore content, and ship.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> IgnoredMetadataNames = FrozenSet.ToFrozenSet(
+        [".DS_Store", ".git", ".hg", ".idea", ".obsidian", ".svn", ".vscode", "Thumbs.db", "desktop.ini"],
+        StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] Conventional = [AboutFileName];
 
@@ -74,21 +94,23 @@ public sealed class OkfBundle
 
     /// <summary>
     /// Every <c>.md</c> file in the tree, in a deterministic order (ordinal by
-    /// bundle-relative path). Dot-directories are skipped: <c>.git</c> and friends are
-    /// not bundle content. Symlinked subdirectories are skipped too — following them
-    /// either walks out of the bundle root, which nothing may do, or walks a cycle back
-    /// into it, which never terminates on its own.
+    /// bundle-relative path) — including a dot-prefixed one, and one inside a
+    /// dot-directory, because spec §11 conforms every non-reserved <c>.md</c> file in the
+    /// tree. Only <see cref="IgnoredMetadataNames" /> is skipped. Symlinked subdirectories
+    /// are skipped too — following them either walks out of the bundle root, which nothing
+    /// may do, or walks a cycle back into it, which never terminates on its own.
     /// </summary>
     /// <returns>The absolute paths of the bundle's markdown files.</returns>
     public IReadOnlyList<string> MarkdownFiles() => Walk("*.md");
 
     /// <summary>
     /// Every file in the tree, not only the markdown, under exactly the rules
-    /// <see cref="MarkdownFiles" /> walks by: no dotfiles, no dot-directories, and no
-    /// symlink that leaves the bundle. A bundle's content is more than its concepts —
-    /// spec §6.3's <c>references/</c> convention explicitly covers code, and Google's own
-    /// bundles carry <c>.py</c> attesters and a <c>viz.html</c> — so the bundler ships
-    /// what the walk sees rather than what the linter reads.
+    /// <see cref="MarkdownFiles" /> walks by: nothing named in
+    /// <see cref="IgnoredMetadataNames" />, and no symlink that leaves the bundle. A
+    /// bundle's content is more than its concepts — spec §6.3's <c>references/</c>
+    /// convention explicitly covers code, and Google's own bundles carry <c>.py</c>
+    /// attesters and a <c>viz.html</c> — so the bundler ships what the walk sees rather
+    /// than what the linter reads.
     /// </summary>
     /// <returns>The absolute paths of the bundle's files, in ordinal path order.</returns>
     public IReadOnlyList<string> ContentFiles() => Walk("*");
@@ -287,7 +309,7 @@ public sealed class OkfBundle
     {
         foreach (var file in Directory.EnumerateFiles(directory, pattern))
         {
-            if (Path.GetFileName(file).StartsWith('.'))
+            if (IgnoredMetadataNames.Contains(Path.GetFileName(file)))
             {
                 continue;
             }
@@ -309,7 +331,7 @@ public sealed class OkfBundle
             // re-lints the same files under a longer name — and pointing one outside the
             // bundle would lint files the bundle does not contain. `LinkTarget` is
             // non-null exactly for symlinks and other reparse points.
-            if (!child.Name.StartsWith('.') && child.LinkTarget is null)
+            if (!IgnoredMetadataNames.Contains(child.Name) && child.LinkTarget is null)
             {
                 Collect(child.FullName, pattern, files);
             }
