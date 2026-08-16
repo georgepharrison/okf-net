@@ -599,7 +599,9 @@ public static class OkfIndexGenerator
         // nowhere else. No synthesis, no borrowing a child's description — generation
         // stays deterministic and offline (PRD CLI-16).
         var about = Path.Combine(directory, OkfBundle.AboutFileName);
-        return Frontmatter(about, options) is { } frontmatter ? Blurb(FrontmatterValues.Scalar(frontmatter, "description")) : null;
+        return Frontmatter(about, options) is { } frontmatter
+            ? Blurb(FrontmatterValues.Scalar(frontmatter, "description"))
+            : null;
     }
 
     private static string Section(string? type) => Flatten(type) is { Length: > 0 } text

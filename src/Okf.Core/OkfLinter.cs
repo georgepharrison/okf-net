@@ -321,7 +321,8 @@ public sealed class OkfLinter
         {
             diagnostics.Add(VaultDiagnostic(
                 $"`{file.Path}`, ingested under capture `{entry.Id}`, no longer matches its recorded sha256 " +
-                $"(recorded {OkfCaptureManifest.Short(file.Sha256)}, on disk {OkfCaptureManifest.Short(actual)}). The artifact changed after ingestion, " +
+                $"(recorded {OkfCaptureManifest.Short(file.Sha256)}, on disk {OkfCaptureManifest.Short(actual)}). " +
+                "The artifact changed after ingestion, " +
                 "or the record did; resolve it by hand, never by rewriting the manifest.",
                 manifest.Path,
                 LineOf(manifestText, file.Sha256)));
@@ -376,7 +377,9 @@ public sealed class OkfLinter
         new(OkfRules.RawItemMutated, this.options.Severities.Resolve(OkfRules.RawItemMutated), message, path, line);
 
     private static string? NestedText(OkfMapping mapping, string key, string child) =>
-        mapping.TryGetValue(key, out var value) && value is OkfMapping nested ? FrontmatterValues.Scalar(nested, child) : null;
+        mapping.TryGetValue(key, out var value) && value is OkfMapping nested
+            ? FrontmatterValues.Scalar(nested, child)
+            : null;
 
     private static DateOnly? Date(string? text)
     {
@@ -843,7 +846,9 @@ public sealed class OkfLinter
         foreach (var source in Sources(frontmatter))
         {
             position++;
-            var name = FrontmatterValues.Scalar(source, "id") is { } id ? $"`{id}`" : $"#{position.ToString(CultureInfo.InvariantCulture)}";
+            var name = FrontmatterValues.Scalar(source, "id") is { } id
+                ? $"`{id}`"
+                : $"#{position.ToString(CultureInfo.InvariantCulture)}";
 
             if (FrontmatterValues.Scalar(source, "resource") is not { } resource)
             {

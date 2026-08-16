@@ -456,7 +456,10 @@ public static class OkfInboxScanner
             if (OkfLifecycleInstant.Parse(lastModified) is { } modified
                 && OkfLifecycleInstant.IsAfterAtEitherPrecision(modified, generated))
             {
-                drifted.Add(new OkfDriftedSource(FrontmatterValues.Scalar(source, "id"), FrontmatterValues.Scalar(source, "resource"), lastModified!));
+                drifted.Add(new OkfDriftedSource(
+                    FrontmatterValues.Scalar(source, "id"),
+                    FrontmatterValues.Scalar(source, "resource"),
+                    lastModified!));
             }
         }
 
