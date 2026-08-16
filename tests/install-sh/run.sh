@@ -82,10 +82,26 @@ make_release() { # make_release <version>
   # ones do, so the installer's final "prints the installed version" step is exercised
   # rather than mocked away. Two of them, with DIFFERENT bytes — that is what makes "did
   # it pick the right asset" an answerable question rather than a coincidence.
+  #
+  # They also answer `okf skills install`, which the installer runs once the binary is in
+  # place (#41). Every invocation is appended to $OKF_STUB_LOG when that is set — the
+  # environment is inherited through sh -> install.sh -> the binary — so a test can assert
+  # WHICH subcommands the installer called rather than inferring it from an exit code. The
+  # log lives outside the install directory on purpose: a file beside `okf` would break the
+  # "second run leaves exactly one file" assertion further down.
+  #
+  # OKF_STUB_SKILLS_FAIL=1 makes the skills step fail, which is how "a failed skills
+  # install is a warning, not a failed install" gets exercised without a second fixture
+  # release whose digests would all have to be recomputed.
   for name in okf-linux-x64 okf-osx-arm64; do
     cat >"$dir/$name" <<EOF
 #!/bin/sh
+[ -n "\${OKF_STUB_LOG:-}" ] && printf '%s\n' "\$*" >>"\$OKF_STUB_LOG"
 [ "\${1:-}" = version ] && echo "$v+abc1234 ($name)" && exit 0
+if [ "\${1:-}" = skills ] && [ "\${2:-}" = install ]; then
+  [ "\${OKF_STUB_SKILLS_FAIL:-0}" = 1 ] && echo "okf: error: nope" >&2 && exit 2
+  echo "skills installed" && exit 0
+fi
 echo "okf $v" && exit 0
 EOF
     chmod +x "$dir/$name"
@@ -189,10 +205,14 @@ curl -fsS "$base/latest.json" >/dev/null || { echo "fixture server never came up
 
 out=""
 rc=0
+stub_log=""
 run() {
   local shell="$1" dir="$2"; shift 2
+  stub_log="$work/stub-$(basename "$dir").log"
+  : >"$stub_log"
   set +e
-  out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" "$shell" "$installer" "$@" 2>&1)"
+  out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_LOG="$stub_log" \
+         "$shell" "$installer" "$@" 2>&1)"
   rc=$?
   set -e
 }
@@ -262,6 +282,43 @@ set -e
 check_eq "exits 0 installing through a symlinked dir" "0" "$rc"
 check_not_contains "a symlinked install dir is still the dir it points at" \
   "is not on your PATH" "$out"
+
+note "[$sh_bin] the installer installs the agent skills"
+# The skills ship inside the binary (#41), so the installer runs `okf skills install`
+# instead of downloading anything. The stub records its own argv, which is what makes
+# "the installer called it, with those arguments" answerable rather than inferred.
+dir="$work/bin-skills-$sh_bin"
+run "$sh_bin" "$dir"
+check_eq "exits 0" "0" "$rc"
+check_contains "runs \`okf skills install\`" "skills install" "$(cat "$stub_log")"
+check_contains "and says what it is doing" "installing the agent skills" "$out"
+
+dir="$work/bin-skip-skills-$sh_bin"
+skip_log="$work/skip-skills-$sh_bin.log"
+: >"$skip_log"
+set +e
+out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_LOG="$skip_log" \
+       OKF_SKIP_SKILLS=1 "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "OKF_SKIP_SKILLS=1 still exits 0" "0" "$rc"
+check_not_contains "OKF_SKIP_SKILLS=1 calls no skills subcommand" "skills install" "$(cat "$skip_log")"
+check_contains "but the binary was still installed and asked its version" "version" "$(cat "$skip_log")"
+check_contains "and the run says it skipped them" "OKF_SKIP_SKILLS=1" "$out"
+
+# A failed skills step must not fail an install that already landed verified bytes: the
+# binary works, and the skills are one command away.
+dir="$work/bin-skills-fail-$sh_bin"
+set +e
+out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_SKILLS_FAIL=1 \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "a failed skills install still exits 0" "0" "$rc"
+check_contains "warns instead of failing" "could not install the agent skills" "$out"
+check_contains "and names the command to re-run" "$dir/okf skills install" "$out"
+if [[ -x "$dir/okf" ]]; then ok "and the binary is installed anyway"
+else bad "and the binary is installed anyway" "no executable at $dir/okf"; fi
 
 note "[$sh_bin] a trailing slash on the base URL"
 dir="$work/bin-baseslash-$sh_bin"

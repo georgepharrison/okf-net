@@ -3,9 +3,10 @@
 #
 #   curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 #
-# Downloads the newest `okf` release, verifies it against the release manifest, and
-# installs it to ~/.local/bin/okf. Re-running is safe: it reinstalls the same version over
-# itself rather than accumulating anything.
+# Downloads the newest `okf` release, verifies it against the release manifest, installs
+# it to ~/.local/bin/okf, and then runs `okf skills install` to place the agent skills the
+# binary carries. Re-running is safe: it reinstalls the same version over itself rather
+# than accumulating anything.
 #
 # This file is served BY a release as well as living in the repository: the tag pipeline
 # uploads it alongside the binary, so the installer a release hands you is the one that
@@ -20,6 +21,7 @@
 # Environment:
 #   OKF_INSTALL_URL   base URL to install from   (default https://get.okf.tychostation.dev)
 #   OKF_INSTALL_DIR   directory to install into  (default $HOME/.local/bin)
+#   OKF_SKIP_SKILLS   set to 1 to install the binary only, no agent skills
 #
 # POSIX sh on purpose — no bashisms. The one thing an installer may not assume is a shell,
 # and `curl | sh` on a Debian box runs dash.
@@ -53,6 +55,7 @@ usage: install.sh [--version <version>] [--dry-run]
 environment:
   OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
   OKF_INSTALL_DIR   install directory         (default $HOME/.local/bin)
+  OKF_SKIP_SKILLS   set to 1 to skip `okf skills install`
 EOF
 }
 
@@ -337,6 +340,29 @@ if reported="$("$dest" version 2>/dev/null)"; then
   say "    $(basename "$dest") ${reported}"
 else
   warn "install.sh: ${dest} was installed but did not answer \`okf version\`"
+fi
+
+# The agent skills (#41). They ship INSIDE the binary, so this is a set of file writes and
+# not a second download: `okf skills install` writes okf's own copy under
+# ~/.local/share/okf/skills, and additionally into Claude Code's and pi's skill directories
+# when this machine already has them. It asks nothing — a prompt inside `curl … | sh` is a
+# hang, and the interactive walkthrough is a separate issue.
+#
+# A failure here is a WARNING and never a failed install. The binary is downloaded,
+# verified and in place by this point, and skills that did not land are one command away;
+# exiting non-zero would tell a user their okf is broken when it is not.
+#
+# OKF_SKIP_SKILLS=1 opts out, for anyone who manages their agent's skill directories
+# themselves and does not want an installer writing into them.
+if [ "${OKF_SKIP_SKILLS:-0}" = 1 ]; then
+  say "==> skills: skipped (OKF_SKIP_SKILLS=1)"
+else
+  say "==> installing the agent skills"
+  if ! "$dest" skills install; then
+    warn "install.sh: could not install the agent skills. okf itself is installed;
+    run this when you want them:
+        ${dest} skills install"
+  fi
 fi
 
 # A PATH hint, and only when it is warranted. Compare against the real PATH entries rather
