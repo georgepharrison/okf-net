@@ -271,7 +271,7 @@ public class SkillsCommandTests
         Assert.Contains("okf skills install", init.Output, StringComparison.Ordinal);
 
         var recipe = File.ReadAllText(Path.Combine(project, "okf", "custodian", "recipe.json"));
-        Assert.Contains("\"resource\": \"okf skill okf-capture\"", recipe, StringComparison.Ordinal);
+        Assert.Contains("\"resource\": \"okf skills path okf-capture\"", recipe, StringComparison.Ordinal);
         Assert.DoesNotContain("skills/okf-capture/SKILL.md", recipe, StringComparison.Ordinal);
         Assert.DoesNotContain(home.Root, recipe, StringComparison.Ordinal);
         Assert.DoesNotContain("~/", recipe, StringComparison.Ordinal);
@@ -317,6 +317,29 @@ public class SkillsCommandTests
                 File.Exists(Path.Combine(project, resource)),
                 $"the recipe points at '{resource}', which does not exist in the project");
         }
+    }
+
+    [Fact]
+    public void TheDescriptorInAScaffoldedRecipeIsACommandThisCliRunsAndItResolves()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("descriptor");
+        Cli.RunIn(project, home.Root, "init");
+
+        var descriptor = ResourcesOf(File.ReadAllText(
+            Path.Combine(project, "okf", "custodian", "recipe.json")))[0].Split(' ');
+
+        // A descriptor is only honest if it is the command that answers it. Run it — the
+        // binary's own name dropped, exactly as a person would type the rest — and the
+        // answer has to be a path that is really there.
+        Assert.Equal("okf", descriptor[0]);
+        Cli.RunIn(project, home.Root, "skills", "install");
+        var run = Cli.RunIn(project, home.Root, descriptor[1..]);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.True(
+            File.Exists(run.OutputLines.Single()),
+            $"`{string.Join(' ', descriptor)}` printed '{run.Output.Trim()}', which is not a file");
     }
 
     private static IReadOnlyList<string> ResourcesOf(string recipe) =>

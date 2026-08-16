@@ -2694,7 +2694,7 @@ means one place answers "what skills exist", and the CLI renders that answer.
 The order is a project-relative `skills/<name>/SKILL.md` — this repository's own layout,
 and what a project vendoring its skills would commit — then a project-scoped host install
 (`.claude/skills/<name>/SKILL.md`, `.pi/agent/skills/<name>/SKILL.md`), and otherwise the
-descriptor form SPEC §5.1 allows in place of a path: `okf skill okf-capture`, with the
+descriptor form SPEC §5.1 allows in place of a path: `okf skills path okf-capture`, with the
 resolver named in a comment beside it and printed after the run.
 
 What is *not* considered is the user-level copy, and that is the load-bearing half.

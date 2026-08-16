@@ -49,5 +49,5 @@ would rather vendor them commits. A file you have edited is reported
 In this repository the files here *are* the installed copy: `okf/custodian/recipe.json`
 points at `skills/<name>/SKILL.md`, and `okf init` writes that same path into
 any project that has one. A project that has none gets the instruction
-`okf skill <name>` in its recipe instead, because an absolute path in a
+`okf skills path <name>` in its recipe instead, because an absolute path in a
 committed file resolves for exactly one person.

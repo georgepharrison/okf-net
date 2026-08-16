@@ -842,7 +842,8 @@ flowchart TB
   `skipped (modified)` and the run exits 0 unless `--force`, the same never-overwrite
   discipline as `okf init`. `okf init` resolves each recipe pointer against the **project**
   only — `skills/<name>/SKILL.md`, then a project-scoped host install — and otherwise writes
-  the §5.1 descriptor `okf skill <name>`, because an absolute or `~` path in a committed
+  the §5.1 descriptor `okf skills path <name>` — the command that resolves it — because an
+  absolute or `~` path in a committed
   file resolves on one machine. Both installers run `okf skills install` after the version
   check, non-interactively, and treat its failure as a warning naming the command to re-run.
 - **Source:** [shipping the skills](decisions.md#proposed-decisions-shipping-the-skills-work-item-41-2026-08-15)

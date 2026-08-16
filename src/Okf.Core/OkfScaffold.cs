@@ -764,7 +764,7 @@ public static class OkfScaffold
                         File.Exists(Path.Combine(projectRoot, candidate.Replace('/', Path.DirectorySeparatorChar))));
 
                 return relative is null
-                    ? new OkfSkillPointer(skill.Name, $"okf skill {skill.Name}", IsPath: false)
+                    ? new OkfSkillPointer(skill.Name, $"okf skills path {skill.Name}", IsPath: false)
                     : new OkfSkillPointer(skill.Name, relative, IsPath: true);
             }),
         ];
