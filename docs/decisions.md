@@ -2777,3 +2777,44 @@ is this repository's documentation *about* the skills and names repo-relative pa
 - **The skills are not read from disk by any other command.** `okf mcp` and the CLI describe
   the format in their own words; nothing loads a `SKILL.md` at run time, so an edited or
   missing skill cannot change what the toolset does.
+
+### Proposed decisions: release notes (work item #52, 2026-08-16)
+
+Every GitLab Release this project had ever cut — all 34, v1.0.0-rc.1 through v1.0.0-rc.34
+— carried a description that was the `## version (compare-link) (date)` header and nothing
+else. The commits were conventional throughout and `.releaserc.yml` named every section by
+hand, so the config was never the suspect it looked like: the notes were being generated,
+and then discarded by a template the generator could not drive.
+
+**The pin is the fix, and the version drift was the bug.** The `release` job installed five
+independently versioned npm packages with no constraint on any of them, and one of those
+five — the `conventionalcommits` preset — is not a dependency of semantic-release at all.
+It is resolved by name at run time, from whatever npm happened to put in the global
+directory that morning. `@semantic-release/release-notes-generator@14` renders through
+`conventional-changelog-writer@^8`; `conventional-changelog-conventionalcommits@10` emits
+the writer-9 shape. The mismatch cost nothing loudly — Handlebars accepts a function where
+a partial string is expected, so the header rendered — and everything quietly: the preset's
+`template` was ignored in favour of writer 8's default `mainTemplate`, which renders commit
+groups without their headings, and each commit partial was invoked with arguments it did
+not expect. Header, then nothing. All five packages are now pinned to the exact versions a
+dry run was shown to produce sectioned notes with, and the comment on the pin says what a
+future bump has to re-prove.
+
+**No CHANGELOG.md, and the GitLab Release stays the only place the notes live.** Adding
+`@semantic-release/changelog` would put a commit back into the release pipeline — a push to
+`main` from CI, a second source of truth to keep honest, and a file whose merge conflicts
+are pure cost. The release notes are a fact about a tag, and GitLab already stores facts
+about tags.
+
+**What the 1.0.0 flip renders, measured rather than assumed.** Flipping `main` to a plain
+release branch does not make semantic-release count from v1.0.0-rc.34: prerelease tags do
+not establish a previous release on the release channel, so it reports "There is no
+previous release", takes all 204 commits of history, and computes 1.0.0. The notes come out
+as 161 entries — Features 32, Bug Fixes 47, Documentation 65, Refactoring 3, CI/CD 14 —
+which is the whole-history release note #52 asked for, with no manual assembly. This
+removes the last unknown blocking #10.
+
+**Types absent from `presetConfig.types` are absent from the notes.** The list replaces the
+preset's defaults rather than extending them, so `test:`, `build:` and `style:` commits do
+not appear. Kept: those describe work on the toolset's own scaffolding, and a release note
+is read by someone deciding whether to upgrade.
