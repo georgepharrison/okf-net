@@ -94,6 +94,33 @@ public class OkfCaptureWriterTests
     }
 
     [Fact]
+    public void AManifestWrittenWithCrlfGainsAnEntryInItsOwnLineEnding()
+    {
+        // The splice inserts text, and inserted text carries whichever line ending the
+        // rest of the document uses. A writer that always inserted LF would leave the one
+        // new entry as the only mixed-ending region of the immutability record.
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-a-second-page.html", "<html>second</html>\n");
+        var crlf = Dogfood.ReplaceLineEndings("\r\n");
+
+        var written = OkfCaptureWriter.Add(crlf, raw.Root, raw.Addition("2026-08-16-a-second-page.html")).Text!;
+
+        // Strip the CRLFs and no bare LF is left: every line ending in the result, the
+        // inserted entry's included, is the one the file already used.
+        Assert.DoesNotContain(
+            "\n",
+            written.Replace("\r\n", string.Empty, StringComparison.Ordinal),
+            StringComparison.Ordinal);
+
+        // And the same deletion oracle the LF case uses: removing the inserted span gives
+        // the CRLF input back byte for byte.
+        var insertion = written.IndexOf("\r\n    {\r\n      \"id\": \"2026-08-16-a-second-page\"", StringComparison.Ordinal);
+        var end = written.IndexOf("\r\n  ]", StringComparison.Ordinal);
+        Assert.True(insertion > 0 && end > insertion, "the appended entry was not found in the CRLF result");
+        Assert.Equal(crlf, written[..insertion].TrimEnd(',') + written[end..]);
+    }
+
+    [Fact]
     public void ClosingRewritesTheIngestionValueAndNothingElse()
     {
         using var raw = new RawZone();
