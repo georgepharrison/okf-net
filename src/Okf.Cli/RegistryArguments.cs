@@ -75,13 +75,8 @@ internal sealed class RegistryArguments
                 case "--format" or "--format=json" or "--format=text":
                     var format = argument.Length > "--format".Length
                         ? argument["--format=".Length..]
-                        : Next(args, ref index, "--format");
-                    parsed.Json = format switch
-                    {
-                        "json" => true,
-                        "text" => false,
-                        _ => throw new OkfConfigException($"Unknown --format value '{format}'; expected 'text' or 'json'."),
-                    };
+                        : CliArguments.Next(args, ref index, "--format");
+                    parsed.Json = CliArguments.ParseFormat(format);
                     break;
 
                 default:
@@ -116,15 +111,5 @@ internal sealed class RegistryArguments
         }
 
         return parsed;
-    }
-
-    private static string Next(string[] args, ref int index, string option)
-    {
-        if (index + 1 >= args.Length)
-        {
-            throw new OkfConfigException($"Option '{option}' requires a value.");
-        }
-
-        return args[++index];
     }
 }

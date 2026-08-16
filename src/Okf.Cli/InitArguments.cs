@@ -52,7 +52,7 @@ internal sealed class InitArguments
         for (var index = 0; index < args.Length; index++)
         {
             var argument = args[index];
-            var (name, inlineValue) = Split(argument);
+            var (name, inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -78,7 +78,7 @@ internal sealed class InitArguments
                         throw new OkfConfigException("Option '--name' was given more than once.");
                     }
 
-                    parsed.Name = inlineValue ?? Next(args, ref index, name);
+                    parsed.Name = inlineValue ?? CliArguments.Next(args, ref index, name);
                     break;
 
                 default:
@@ -110,23 +110,5 @@ internal sealed class InitArguments
         }
 
         return parsed;
-    }
-
-    private static (string Name, string? Value) Split(string argument)
-    {
-        var separator = argument.IndexOf('=', StringComparison.Ordinal);
-        return argument.StartsWith("--", StringComparison.Ordinal) && separator > 0
-            ? (argument[..separator], argument[(separator + 1)..])
-            : (argument, null);
-    }
-
-    private static string Next(string[] args, ref int index, string option)
-    {
-        if (index + 1 >= args.Length)
-        {
-            throw new OkfConfigException($"Option '{option}' requires a value.");
-        }
-
-        return args[++index];
     }
 }

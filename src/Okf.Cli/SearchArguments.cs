@@ -58,7 +58,7 @@ internal sealed class SearchArguments
         for (var index = 0; index < args.Length; index++)
         {
             var argument = args[index];
-            var (name, inlineValue) = Split(argument);
+            var (name, inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -75,17 +75,12 @@ internal sealed class SearchArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? Next(args, ref index, name);
-                    parsed.Json = format switch
-                    {
-                        "json" => true,
-                        "text" => false,
-                        _ => throw new OkfConfigException($"Unknown --format value '{format}'; expected 'text' or 'json'."),
-                    };
+                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.Json = CliArguments.ParseFormat(format);
                     break;
 
                 case "--limit":
-                    var limit = inlineValue ?? Next(args, ref index, name);
+                    var limit = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Limit = int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
                         && count > 0
                         ? count
@@ -93,7 +88,7 @@ internal sealed class SearchArguments
                     break;
 
                 case "--scope":
-                    var scope = inlineValue ?? Next(args, ref index, name);
+                    var scope = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Scope = OkfScopeKindExtensions.TryParse(scope, out var kind)
                         ? kind
                         : throw new OkfConfigException(
@@ -102,11 +97,11 @@ internal sealed class SearchArguments
                     break;
 
                 case "--type":
-                    parsed.types.Add(inlineValue ?? Next(args, ref index, name));
+                    parsed.types.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--tag":
-                    parsed.tags.Add(inlineValue ?? Next(args, ref index, name));
+                    parsed.tags.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 default:
@@ -159,23 +154,5 @@ internal sealed class SearchArguments
         }
 
         return query;
-    }
-
-    private static (string Name, string? Value) Split(string argument)
-    {
-        var separator = argument.IndexOf('=', StringComparison.Ordinal);
-        return argument.StartsWith("--", StringComparison.Ordinal) && separator > 0
-            ? (argument[..separator], argument[(separator + 1)..])
-            : (argument, null);
-    }
-
-    private static string Next(string[] args, ref int index, string option)
-    {
-        if (index + 1 >= args.Length)
-        {
-            throw new OkfConfigException($"Option '{option}' requires a value.");
-        }
-
-        return args[++index];
     }
 }
