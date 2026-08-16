@@ -1,0 +1,262 @@
+# okf-net code style and analyzer severities (issue #31).
+#
+# ONE mechanism, deliberately: every analyzer severity in this repository is set
+# here. `.globalconfig` was the other candidate and is rejected on two counts. It
+# has no glob sections — its only scoping is by absolute file path — and the
+# severities below have to be scoped by path, because test code is held to a
+# different bar than shipped code (see `[tests/**/*.cs]`). And it would lose
+# anyway: `AnalysisLevel=latest-all` is itself implemented as a per-rule global
+# AnalyzerConfig the SDK generates, and between two configs naming the same rule
+# the `.editorconfig` is the one that wins. A downgrade written here takes effect;
+# the same line in a `.globalconfig` is a coin toss nobody should have to read the
+# SDK targets to call.
+#
+# `Directory.Build.props` sets `AnalysisLevel=latest-all`, which turns on every
+# rule the SDK ships including the default-off ones, and
+# `CodeAnalysisTreatWarningsAsErrors=true`, which makes each of them fail the
+# build. Everything below is therefore a DOWNGRADE from that maximum, and each
+# one carries the reason it was granted. A rule that merely does not fire today
+# is not listed — an unfired rule needs no exemption, and listing it would hide
+# the day it starts firing.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{yml,yaml,json,sh}]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# Two trailing spaces are a hard line break in markdown, not whitespace to strip.
+trim_trailing_whitespace = false
+
+[*.{csproj,props,targets}]
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+tab_width = 4
+max_line_length = 100
+
+#### Language and formatting preferences ####
+#
+# Preferences, not law: `suggestion` is what the IDE offers and what a build
+# ignores. The two exceptions promoted to `warning` below are the ones the whole
+# tree already satisfies, so promoting them ratchets rather than churns.
+
+# File-scoped namespaces: 146 of 146 files already use them.
+csharp_style_namespace_declarations = file_scoped:warning
+# Braces on every block: no single-statement `if` without them.
+csharp_prefer_braces = true:warning
+
+# `var` is used freely today (~3700 sites). Ringo's standing preference is the
+# opposite — explicit types plus target-typed `new` (issue #31, 2026-08-15) — but
+# flipping it is a tree-wide rewrite, which is the second half of #31 and not
+# this change. Until then the preference matches the code so IDE0007/IDE0008 do
+# not report every file.
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = when_on_single_line:suggestion
+csharp_style_expression_bodied_operators = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+csharp_style_expression_bodied_indexers = when_on_single_line:suggestion
+csharp_style_expression_bodied_accessors = when_on_single_line:suggestion
+csharp_style_expression_bodied_lambdas = when_on_single_line:suggestion
+csharp_style_expression_bodied_local_functions = when_on_single_line:suggestion
+
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_not_pattern = true:suggestion
+csharp_style_prefer_range_operator = true:suggestion
+csharp_style_prefer_index_operator = true:suggestion
+csharp_style_inlined_variable_declaration = true:suggestion
+csharp_style_deconstructed_variable_declaration = true:suggestion
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+csharp_style_prefer_local_over_anonymous_function = true:suggestion
+csharp_style_prefer_readonly_struct = true:suggestion
+csharp_style_prefer_primary_constructors = false:suggestion
+csharp_prefer_simple_using_statement = true:suggestion
+csharp_prefer_static_local_function = true:suggestion
+csharp_using_directive_placement = outside_namespace:suggestion
+
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+dotnet_style_predefined_type_for_locals_parameters_members = true:suggestion
+dotnet_style_predefined_type_for_member_access = true:suggestion
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_prefer_collection_expression = when_types_loosely_match:suggestion
+dotnet_style_explicit_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:suggestion
+dotnet_style_prefer_auto_properties = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_prefer_conditional_expression_over_return = true:suggestion
+dotnet_style_prefer_compound_assignment = true:suggestion
+dotnet_style_prefer_simplified_boolean_expressions = true:suggestion
+dotnet_style_prefer_simplified_interpolation = true:suggestion
+dotnet_style_readonly_field = true:suggestion
+dotnet_style_namespace_match_folder = true:suggestion
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_labels = one_less_than_current
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_before_colon_in_inheritance_clause = true
+csharp_space_after_colon_in_inheritance_clause = true
+csharp_space_around_binary_operators = before_and_after
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = true
+
+#### Naming ####
+#
+# Rules are matched in the order they appear, first match wins, so the narrow
+# groups (interfaces, type parameters, constants) come before the broad ones.
+#
+# Private fields are camelCase with NO underscore, because that is what all 44 of
+# them are today and `this.` already disambiguates at the constructor. Ringo's
+# standing preference is `_camelCase` (issue #31, 2026-08-15); flipping this line
+# and running the fixer is the whole change when he calls it.
+#
+# There is deliberately no rule requiring an `Async` suffix: the codebase has no
+# `await` in it at all, so the rule would only ever fire on code nobody has
+# written yet, in a shape nobody has chosen yet.
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+dotnet_naming_style.camel_case.capitalization = camel_case
+dotnet_naming_style.i_prefixed.capitalization = pascal_case
+dotnet_naming_style.i_prefixed.required_prefix = I
+dotnet_naming_style.t_prefixed.capitalization = pascal_case
+dotnet_naming_style.t_prefixed.required_prefix = T
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+dotnet_naming_symbols.type_parameters.applicable_kinds = type_parameter
+dotnet_naming_symbols.type_parameters.applicable_accessibilities = *
+dotnet_naming_symbols.constant_fields.applicable_kinds = field
+dotnet_naming_symbols.constant_fields.applicable_accessibilities = *
+dotnet_naming_symbols.constant_fields.required_modifiers = const
+dotnet_naming_symbols.types.applicable_kinds = class, struct, enum, delegate
+dotnet_naming_symbols.types.applicable_accessibilities = *
+dotnet_naming_symbols.non_field_members.applicable_kinds = property, event, method
+dotnet_naming_symbols.non_field_members.applicable_accessibilities = *
+dotnet_naming_symbols.visible_fields.applicable_kinds = field
+dotnet_naming_symbols.visible_fields.applicable_accessibilities = public, internal, protected, protected_internal, private_protected
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_symbols.locals_and_parameters.applicable_kinds = local, parameter
+dotnet_naming_symbols.locals_and_parameters.applicable_accessibilities = *
+
+dotnet_naming_rule.interfaces_are_i_prefixed.symbols = interfaces
+dotnet_naming_rule.interfaces_are_i_prefixed.style = i_prefixed
+dotnet_naming_rule.interfaces_are_i_prefixed.severity = warning
+
+dotnet_naming_rule.type_parameters_are_t_prefixed.symbols = type_parameters
+dotnet_naming_rule.type_parameters_are_t_prefixed.style = t_prefixed
+dotnet_naming_rule.type_parameters_are_t_prefixed.severity = warning
+
+dotnet_naming_rule.constants_are_pascal_case.symbols = constant_fields
+dotnet_naming_rule.constants_are_pascal_case.style = pascal_case
+dotnet_naming_rule.constants_are_pascal_case.severity = warning
+
+dotnet_naming_rule.types_are_pascal_case.symbols = types
+dotnet_naming_rule.types_are_pascal_case.style = pascal_case
+dotnet_naming_rule.types_are_pascal_case.severity = warning
+
+dotnet_naming_rule.members_are_pascal_case.symbols = non_field_members
+dotnet_naming_rule.members_are_pascal_case.style = pascal_case
+dotnet_naming_rule.members_are_pascal_case.severity = warning
+
+dotnet_naming_rule.visible_fields_are_pascal_case.symbols = visible_fields
+dotnet_naming_rule.visible_fields_are_pascal_case.style = pascal_case
+dotnet_naming_rule.visible_fields_are_pascal_case.severity = warning
+
+dotnet_naming_rule.private_fields_are_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_are_camel_case.style = camel_case
+dotnet_naming_rule.private_fields_are_camel_case.severity = warning
+
+dotnet_naming_rule.locals_and_parameters_are_camel_case.symbols = locals_and_parameters
+dotnet_naming_rule.locals_and_parameters_are_camel_case.style = camel_case
+dotnet_naming_rule.locals_and_parameters_are_camel_case.severity = warning
+
+#### Analyzer downgrades ####
+#
+# Each line states why. Two reasons recur and mean exactly what they say:
+#
+#   "public API frozen 2026-08-15" — the 1.0.0 review froze Okf.Core's public
+#   surface. A rule that can only be satisfied by changing a public signature is
+#   suppressed, never applied, until the freeze is lifted.
+#
+#   "changes behaviour" — the rule's fix is not semantics-preserving here.
+
+dotnet_diagnostic.CA1054.severity = none  # public API frozen 2026-08-15; and a Uri-typed manifest URL would be re-escaped on the way through, so the string the artifact host published would stop round-tripping byte-for-byte
+dotnet_diagnostic.CA1056.severity = none  # same as CA1054: OkfUpgradeAsset.Url, OkfUpgradeOptions.BaseUrl and OkfCaptureAddition.OriginalUrl are frozen public string properties carrying text that must survive verbatim
+dotnet_diagnostic.CA1036.severity = none  # public API frozen 2026-08-15; and defining == on OkfDiagnostic would silently retarget every existing reference-equality comparison of it to ordering-based equality
+dotnet_diagnostic.CA1815.severity = none  # public API frozen 2026-08-15; and OkfLifecycleInstant compares at two precisions that deliberately disagree (date-as-written vs instant), so a single Equals would have to pick one and become a trap
+dotnet_diagnostic.CA1032.severity = none  # the exception ctor overloads this asks for are dead API: OkfUpgradeException and McpProtocolException are only ever thrown by okf-net, always with a message
+dotnet_diagnostic.CA1062.severity = none  # redundant under nullable reference types, which Directory.Build.props enables everywhere and TreatWarningsAsErrors already makes a build failure
+dotnet_diagnostic.CA1308.severity = none  # changes behaviour: OkfSeverity.TryParse switches on lowercase spec tokens and OkfUpgrade.Name builds the lowercase asset name `okf-linux-x64`; ToUpperInvariant would need every literal inverted and the asset name would be wrong until it was
+dotnet_diagnostic.IDE0130.severity = none  # namespace-per-folder is what vertical slicing decides, which is step G of the polish plan (#59), not a rename to do ahead of it
+
+#### Test code ####
+#
+# Ringo's call (2026-08-16): analyzer style, naming, globalization and design
+# findings do not apply to test code. What stays an error is what a failing
+# analyzer actually predicts about a test: the xUnit analyzers, because
+# xUnit1xxx/xUnit2xxx catch the vacuous and wrong assertions AD-44 exists to
+# prevent; the disposal and sync-over-async rules, because an undisposed listener
+# or a blocked thread is where a flaky test comes from; and every compiler
+# diagnostic, nullable included.
+
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none  # test names are sentences: `TryResolve_refuses_a_backslash_traversal` says what broke when it goes red
+dotnet_diagnostic.CA1303.severity = none  # test code is not localized
+dotnet_diagnostic.CA1305.severity = none  # a test may format however it likes; nothing it prints is shipped
+dotnet_diagnostic.CA1307.severity = none  # ditto for comparison clarity in tests
+dotnet_diagnostic.CA1310.severity = none  # ditto
+dotnet_diagnostic.CA1311.severity = none  # ditto
+dotnet_diagnostic.CA1861.severity = none  # a constant array in a test body is the fixture, and hoisting it to a static field moves it away from the assertion that reads it
+dotnet_diagnostic.CA1859.severity = none  # nothing in a test is on a hot path
+dotnet_diagnostic.CA1822.severity = none  # a test helper that could be static is not worth an edit
+dotnet_diagnostic.CA1515.severity = none  # xUnit requires public test classes
+dotnet_diagnostic.CA2007.severity = none  # no synchronization context under the test host
+dotnet_diagnostic.CA1062.severity = none  # already off everywhere; nullable covers it
+dotnet_diagnostic.CA1054.severity = none  # [InlineData] feeds test parameters as strings by construction
+dotnet_diagnostic.CA1056.severity = none  # ditto
+dotnet_diagnostic.CA1034.severity = none  # nested types in tests are fixtures, scoped to the class that uses them
+dotnet_diagnostic.CA1812.severity = none  # xUnit instantiates fixtures by reflection, which the analyzer cannot see
+
+# There is no `[spikes/**/*.cs]` section: exempting a whole directory needs the
+# bulk key `dotnet_analyzer_diagnostic.severity`, and a bulk key loses to the
+# per-rule entries `AnalysisLevel=latest-all` generates, so the section would
+# parse cleanly and do nothing. `spikes/Directory.Build.props` does that job
+# instead, and says so.

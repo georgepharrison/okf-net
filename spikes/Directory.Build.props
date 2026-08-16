@@ -1,0 +1,32 @@
+<Project>
+
+  <!--
+    `spikes/` is outside `Okf.sln` on purpose (AD-43): nothing under it ships, no
+    CI job builds it, and a throwaway that already answered its question is not
+    worth an analyzer sweep. The repo-root `Directory.Build.props` reaches it
+    anyway — it is above it in the tree — so without this a spike build would
+    fail on findings nobody is going to act on (CA2100 on the spike's own SQL,
+    CA1031 on its `Main`).
+
+    Two things stay exactly as the root file set them, deliberately: `Nullable`,
+    and `TreatWarningsAsErrors` for the COMPILER's own diagnostics. A spike that
+    stops compiling cleanly is still a broken spike.
+
+    This is MSBuild rather than a `[spikes/**/*.cs]` section in the root
+    `.editorconfig` because a path-scoped section cannot express it. The bulk key
+    `dotnet_analyzer_diagnostic.severity` is the only way to name every rule at
+    once, and a bulk key loses to a specific one — `AnalysisLevel=latest-all` is
+    implemented as a per-rule global AnalyzerConfig the SDK generates, so its
+    `dotnet_diagnostic.CA2100.severity = warning` outranks any bulk line written
+    here. Verified by building the spike with such a section in place and
+    watching CA2100 come through it regardless. The per-rule lines in the root
+    `.editorconfig` have no such problem, which is why `[tests/**/*.cs]` works.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

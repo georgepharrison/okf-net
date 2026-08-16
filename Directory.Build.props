@@ -1,6 +1,32 @@
 <Project>
 
   <!--
+    Analysis gate (issue #31). AD-8 already makes the AOT and trim analyzers a
+    build-time gate rather than a release-time surprise; this does the same for
+    the Roslyn correctness and style analyzers, and does it in one place so a
+    new project cannot join the solution with a weaker setting than its
+    siblings.
+
+    `latest-all` enables every rule the SDK's analyzer package ships, including
+    the ones off by default. Everything downgraded from that maximum lives in
+    .globalconfig, one line per rule with the reason it was downgraded — so the
+    exceptions are a readable list rather than a property nobody re-reads.
+
+    `EnforceCodeStyleInBuild` is what makes the IDExxxx style rules reach a
+    command-line build at all; without it .editorconfig is advice the IDE gives
+    and CI never checks. `CodeAnalysisTreatWarningsAsErrors` is separate from
+    `TreatWarningsAsErrors` and defaults to false, so analyzer findings would
+    otherwise stay warnings while compiler findings failed the build.
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
     Version stamping (issue #10 / PRD CLI-17).
 
     The whole flow is the SDK's own, deliberately: this file adds a default and
