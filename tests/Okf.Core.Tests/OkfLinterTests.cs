@@ -1003,6 +1003,43 @@ public class OkfLinterTests
         }));
     }
 
+    /// <summary>
+    /// §6.1 holds every internal link and §5.1 every citation, wherever on the line they
+    /// are written. A heading that carries both is the case PRD ACC-1 cares about: before
+    /// the scanner read one, the broken link went unreported and the cited source was
+    /// falsely reported uncited.
+    /// </summary>
+    [Fact]
+    public void ALinkAndACitationWrittenInAHeadingAreBothRead()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "heading.md",
+            """
+            ---
+            type: Reference
+            title: Heading
+            description: A concept.
+            tags: [fixture]
+            sources:
+              - id: s1
+                resource: https://example.invalid/x
+            ---
+
+            # Heading
+
+            ## See [orders](does-not-exist.md) and cite[^s1]
+
+            [^s1]: The source.
+            """);
+
+        var diagnostics = bundle.Lint();
+
+        var broken = Assert.Single(diagnostics);
+        Assert.Equal(OkfRules.BrokenInternalLink, broken.RuleId);
+        Assert.Equal(13, broken.Line);
+    }
+
     private static string Concept(string title, string extra = "") =>
         $"""
         ---

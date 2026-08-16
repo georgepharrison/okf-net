@@ -132,6 +132,26 @@ public class MarkdownScannerTests
         Assert.Equal([5], scan.Links.Select(link => link.Line));
     }
 
+    /// <summary>
+    /// CommonMark parses inline links and footnote references inside an ATX heading, so
+    /// the scanner reports the heading AND what is written in it.
+    /// </summary>
+    [Fact]
+    public void AHeadingIsStillScannedForLinksAndFootnotes()
+    {
+        var scan = MarkdownScanner.Scan("## See [orders](orders.md) and cite[^s1]\n", 3);
+
+        Assert.Equal(2, scan.Headings.Single().Level);
+        Assert.Equal(["orders.md"], scan.Links.Select(link => link.Target));
+        Assert.Equal([3], scan.Links.Select(link => link.Line));
+        Assert.Equal([("s1", false)], scan.Footnotes.Select(note => (note.Label, note.IsDefinition)));
+    }
+
+    /// <summary>A heading opens with <c>#</c>, so it can never also be a bullet.</summary>
+    [Fact]
+    public void AHeadingIsNotAlsoReadAsABullet() =>
+        Assert.Empty(MarkdownScanner.Scan("# - Revenue\n", 1).Bullets);
+
     /// <summary>The fence markers are structure, so an empty block is an empty body.</summary>
     [Fact]
     public void AnEmptyFencedBlockHasNoContent() =>
