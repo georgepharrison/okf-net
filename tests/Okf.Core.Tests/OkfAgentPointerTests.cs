@@ -198,6 +198,109 @@ public class OkfAgentPointerTests
         Assert.Equal("# Something else entirely\n", File.ReadAllText(path));
     }
 
+    /// <summary>
+    /// A current fence with the file continuing after it is still current. The comparison
+    /// reads exactly the fence's own lines, so prose below it can neither be mistaken for
+    /// part of the block nor make an unchanged file look stale.
+    /// </summary>
+    [Fact]
+    public void ACurrentFenceWithProseAfterItIsUnchanged()
+    {
+        using var tree = new TempTree();
+        var before = "# Rules\n\n" + OkfAgentPointer.Block + "\n\nMore rules.\n";
+        var path = tree.Write("AGENTS.md", before);
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Unchanged, file.Status);
+        Assert.Equal(before, File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// The doc-comment's rule that an end marker before any begin is not a fence, applied
+    /// where it actually happens: a file that already has its block and mentions the closing
+    /// marker again on a line of its own lower down still has one fence, and is spliced
+    /// rather than refused.
+    /// </summary>
+    [Fact]
+    public void AStrayEndMarkerBelowACompleteFenceIsNotASecondFence()
+    {
+        using var tree = new TempTree();
+        var path = tree.Write(
+            "AGENTS.md",
+            "<!-- okf:begin -->\nstale\n<!-- okf:end -->\n\nProse.\n\n<!-- okf:end -->\n");
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Updated, file.Status);
+        Assert.Equal(
+            OkfAgentPointer.Block + "\n\nProse.\n\n<!-- okf:end -->\n",
+            File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void AFileOpeningWithABlankLineIsSplitFromItsFirstByte()
+    {
+        using var tree = new TempTree();
+        var path = tree.Write("AGENTS.md", "\n# Rules\n");
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Updated, file.Status);
+        Assert.Equal("\n# Rules\n\n" + OkfAgentPointer.Block + "\n", File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// CRLF is the file's convention when any line carries it — the final line of a file
+    /// with no trailing newline carries no terminator at all, and that must not be read as
+    /// the file having gone over to LF.
+    /// </summary>
+    [Fact]
+    public void ACrlfFileWithNoTrailingNewlineKeepsCrlf()
+    {
+        using var tree = new TempTree();
+        var path = tree.Write("AGENTS.md", "# Rules\r\n\r\nDo the thing.");
+
+        OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        var text = File.ReadAllText(path);
+        Assert.Equal(
+            "# Rules\r\n\r\nDo the thing.\r\n\r\n"
+            + OkfAgentPointer.Block.Replace("\n", "\r\n", StringComparison.Ordinal) + "\r\n",
+            text);
+        Assert.DoesNotContain("\n", text.Replace("\r\n", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The write is atomic and self-cleaning on both paths: it creates the directory it was
+    /// pointed at, writes UTF-8 with no byte-order mark, and leaves no temp file behind even
+    /// when the write fails.
+    /// </summary>
+    [Fact]
+    public void TheWriteCreatesItsDirectoryAndLeavesNoBomAndNoTemporaryFile()
+    {
+        using var tree = new TempTree();
+        var project = Path.Combine(tree.Root, "absent", "deeper");
+
+        var file = OkfAgentPointer.WriteAgentsMd(project);
+
+        var bytes = File.ReadAllBytes(file.Path);
+        Assert.Equal(OkfAgentPointerStatus.Created, file.Status);
+        Assert.NotEqual<byte[]>([0xEF, 0xBB, 0xBF], bytes[..3]);
+        Assert.Equal(["AGENTS.md"], Directory.EnumerateFiles(project).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void AFailedWriteLeavesNoTemporaryFileBehind()
+    {
+        using var tree = new TempTree();
+        var project = tree.CreateDirectory("blocked");
+        Directory.CreateDirectory(Path.Combine(project, "AGENTS.md"));
+
+        Assert.ThrowsAny<IOException>(() => OkfAgentPointer.WriteAgentsMd(project));
+        Assert.Empty(Directory.EnumerateFiles(project));
+    }
+
     [Fact]
     public void WriteReportsAgentsMdThenClaudeMdInThatOrder()
     {

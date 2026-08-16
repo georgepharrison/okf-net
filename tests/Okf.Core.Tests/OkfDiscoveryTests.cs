@@ -33,6 +33,23 @@ public sealed class OkfDiscoveryTests : IDisposable
         Assert.Equal(Path.Combine(this.root, "project", "okf"), OkfDiscovery.Resolve(null, environment).VaultRoot);
     }
 
+    /// <summary>
+    /// The name <c>okf</c> is not enough on its own: a directory called that which holds no
+    /// <c>bundles/</c> is somebody's notes folder, and the walk goes past it to the real
+    /// vault above rather than stopping on the name.
+    /// </summary>
+    [Fact]
+    public void ADirectoryCalledOkfWithNoBundlesIsWalkedPast()
+    {
+        var stray = Path.Combine(this.root, "project", "src", "okf");
+        Directory.CreateDirectory(stray);
+
+        var resolved = OkfDiscovery.Resolve(null, Environment(stray));
+
+        Assert.Equal(Path.Combine(this.root, "project", "okf"), resolved.VaultRoot);
+        Assert.Equal(["alpha", "beta"], resolved.Bundles.Select(bundle => bundle.Name));
+    }
+
     [Fact]
     public void AnExplicitProjectRootExpandsToItsVault()
     {

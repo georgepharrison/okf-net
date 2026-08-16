@@ -178,6 +178,26 @@ public class OkfSkillInstallerTests
         Assert.Equal([OkfSkillHost.Data, OkfSkillHost.Claude, OkfSkillHost.Pi], hosts);
     }
 
+    /// <summary>
+    /// Detection looks in the scope it was asked about: a project's own <c>.claude</c> is
+    /// what <c>--scope project</c> reports, and a home directory's is not.
+    /// </summary>
+    [Fact]
+    public void HostsAreDetectedInTheScopeAskedAbout()
+    {
+        using var tree = new TempTree();
+        tree.CreateDirectory("project/.claude");
+        tree.CreateDirectory("home/.pi/agent");
+        var environment = Environment(tree, Path.Combine(tree.Root, "project"));
+
+        Assert.Equal(
+            [OkfSkillHost.Data, OkfSkillHost.Claude],
+            OkfSkillInstaller.DetectHosts(environment, OkfSkillScope.Project));
+        Assert.Equal(
+            [OkfSkillHost.Data, OkfSkillHost.Pi],
+            OkfSkillInstaller.DetectHosts(environment, OkfSkillScope.User));
+    }
+
     [Fact]
     public void ProjectScopeWritesBesideTheProjectAndNotTheHome()
     {

@@ -396,6 +396,80 @@ public sealed class OkfUpgradeTests
         Assert.Equal(OldBytes, File.ReadAllText(target));
     }
 
+    /// <summary>
+    /// The cap is a cap and not a fence one byte inside it: a manifest of exactly
+    /// <see cref="OkfUpgrade.MaximumManifestBytes" /> is read, and the byte after that is
+    /// where the refusal starts.
+    /// </summary>
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void TheManifestSizeCapIsRefusedOnlyOnceItIsPassed(int overBy, bool expectRead)
+    {
+        using var tree = new TempTree();
+        var target = Install(tree, OldBytes);
+        var host = new FakeHost(NewBytes)
+        {
+            Manifest = PaddedManifest(OkfUpgrade.MaximumManifestBytes + overBy),
+        };
+
+        if (expectRead)
+        {
+            Assert.Equal("1.1.0-rc.1", OkfUpgrade.Resolve(Options(target, "1.0.0"), host.Fetch).AvailableVersion);
+            return;
+        }
+
+        Assert.Contains(
+            "bigger than",
+            Assert.Throws<OkfUpgradeException>(
+                () => OkfUpgrade.Resolve(Options(target, "1.0.0"), host.Fetch)).Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The staging file is a sibling of the target, so a target with no directory to be a
+    /// sibling in is refused before anything is fetched.
+    /// </summary>
+    [Fact]
+    public void ATargetWithNoDirectoryIsRefusedBeforeAnythingIsFetched()
+    {
+        var host = new FakeHost(NewBytes);
+        var plan = new OkfUpgradePlan(
+            "1.0.0",
+            "1.1.0-rc.1",
+            new OkfUpgradeAsset("okf-linux-x64", "v1.1.0-rc.1/okf-linux-x64", Digest(NewBytes), 1, null),
+            new Uri($"{FakeHost.BaseUrl}/latest.json"),
+            new Uri($"{FakeHost.BaseUrl}/v1.1.0-rc.1/okf-linux-x64"),
+            "okf");
+        var fetched = 0;
+
+        var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Apply(
+            plan,
+            uri =>
+            {
+                fetched++;
+                return host.Fetch(uri);
+            }));
+
+        Assert.Contains("has no directory to stage a download in", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(0, fetched);
+    }
+
+    /// <summary>A valid manifest padded with one string property to an exact byte count.</summary>
+    private static string PaddedManifest(int bytes)
+    {
+        const string anchor = "\"version\":";
+        var manifest = new FakeHost(NewBytes).Manifest.Replace(
+            anchor,
+            "\"note\": \"\",\n  " + anchor,
+            StringComparison.Ordinal);
+
+        return manifest.Replace(
+            "\"note\": \"\"",
+            "\"note\": \"" + new string('x', bytes - Encoding.UTF8.GetByteCount(manifest)) + "\"",
+            StringComparison.Ordinal);
+    }
+
     // ---------------------------------------------------------------------
     // Apply.
     // ---------------------------------------------------------------------
