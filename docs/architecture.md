@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Forty-nine numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -826,6 +826,26 @@ flowchart TB
   discovery, and asserted literally by a test so it cannot grow unreviewed. A symlinked
   directory is still never descended, dot-prefixed or not.
 - **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15)
+### AD-50 — The skills ship inside the binary, and a committed pointer never names a home directory
+
+- **Binds:** `skills/*/SKILL.md`, `OkfSkills`, `OkfSkillInstaller`, `okf skills`, `okf init`,
+  both installers
+- **Prevents:** an installed `okf` whose custodian recipe points at files the machine does
+  not have — the whole of #41 — and a second download standing between a fresh install and
+  a working one.
+- **Rule:** `Okf.Core.csproj` globs `../../skills/*/SKILL.md` into `EmbeddedResource`, so a
+  skill added to the repository is embedded by the next build, and a test asserts the
+  embedded set equals the on-disk set name for name and byte for byte. `okf skills install`
+  writes them — never a network call (AD-7) — to `$XDG_DATA_HOME/okf/skills`
+  (`%LOCALAPPDATA%\okf\skills` on Windows) plus each host directory that already exists,
+  resolving every path through `OkfEnvironment`. A file whose bytes differ is
+  `skipped (modified)` and the run exits 0 unless `--force`, the same never-overwrite
+  discipline as `okf init`. `okf init` resolves each recipe pointer against the **project**
+  only — `skills/<name>/SKILL.md`, then a project-scoped host install — and otherwise writes
+  the §5.1 descriptor `okf skill <name>`, because an absolute or `~` path in a committed
+  file resolves on one machine. Both installers run `okf skills install` after the version
+  check, non-interactively, and treat its failure as a warning naming the command to re-run.
+- **Source:** [shipping the skills](decisions.md#proposed-decisions-shipping-the-skills-work-item-41-2026-08-15)
 
 ## Consistency Conventions
 
@@ -978,9 +998,10 @@ flowchart TB
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
-| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI | AD-1, AD-6, AD-16, AD-18, AD-20 | SKILL-1 … SKILL-8 |
+| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50 | SKILL-1 … SKILL-8 |
+| `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32 | SKILL-7, ACC-5, ACC-6 |
-| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43 | CLI-17, Q10 |
+| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 
 `okf register` / `okf unregister` (PRD CLI-2, CLI-3's opt-in) are specified and **not
