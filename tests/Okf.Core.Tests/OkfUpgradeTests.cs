@@ -345,9 +345,107 @@ public sealed class OkfUpgradeTests
         Assert.Contains("not valid JSON", refusal.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A path that climbs out of the base URL is refused rather than fetched. `Uri` collapses
+    /// `..` as it parses, so `../../evil` under `https://mirror.example/okf` resolves to
+    /// `https://mirror.example/evil` — still the right host, because the URL is built by
+    /// appending, but no longer the subtree the operator pointed `OKF_INSTALL_URL` at. On a
+    /// mirror that serves anything besides okf, that is the difference between "the release
+    /// directory" and "anywhere on this host".
+    /// </summary>
+    [Theory]
+    [InlineData("../../evil")]
+    [InlineData("/../evil")]
+    [InlineData("v1.0.0/../../../evil")]
+    public void RefusesAnAssetPathThatClimbsOutOfTheBaseUrl(string path)
+    {
+        var asset = new OkfUpgradeAsset("okf-linux-x64", path, new string('a', 64), 1, null);
+
+        var refusal = Assert.Throws<OkfUpgradeException>(
+            () => OkfUpgrade.AssetUri(OkfUpgrade.BaseUri("https://mirror.example/okf"), asset));
+
+        Assert.Contains("outside https://mirror.example/okf", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RefusesAPinnedVersionThatClimbsOutOfTheBaseUrl()
+    {
+        var refusal = Assert.Throws<OkfUpgradeException>(
+            () => OkfUpgrade.ManifestUri(OkfUpgrade.BaseUri("https://mirror.example/okf"), "1.0.0/../../.."));
+
+        Assert.Contains("outside https://mirror.example/okf", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A manifest is a few kilobytes of JSON, and it is read into a string. Without a bound
+    /// a host answering `latest.json` with an endless body turns that read into an
+    /// out-of-memory, which is a failure mode a self-replacing binary should not have.
+    /// </summary>
+    [Fact]
+    public void RefusesAManifestBiggerThanAnyManifest()
+    {
+        using var tree = new TempTree();
+        var target = Install(tree, OldBytes);
+
+        var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Resolve(
+            Options(target, "1.0.0"),
+            _ => new EndlessStream()));
+
+        Assert.Contains("bigger than", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("a few kilobytes", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(OldBytes, File.ReadAllText(target));
+    }
+
     // ---------------------------------------------------------------------
     // Apply.
     // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// The staging file is written into the directory the user's binary lives in, so an
+    /// unbounded copy hands a hostile or broken host that filesystem: an endless body was
+    /// measured writing 7.4 GB in five seconds before anything was verified. The download is
+    /// abandoned at <see cref="OkfUpgrade.MaximumAssetBytes" /> instead, the target is
+    /// untouched, and no staging file survives.
+    /// </summary>
+    [Fact]
+    public void AbandonsADownloadBiggerThanAnyRelease()
+    {
+        using var tree = new TempTree();
+        var target = Install(tree, OldBytes);
+        var host = new FakeHost(NewBytes);
+        var plan = OkfUpgrade.Resolve(Options(target, "1.0.0"), host.Fetch);
+
+        var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Apply(
+            plan,
+            uri => uri.AbsolutePath.EndsWith("latest.json", StringComparison.Ordinal)
+                ? host.Fetch(uri)
+                : new EndlessStream()));
+
+        Assert.Contains($"bigger than {OkfUpgrade.MaximumAssetBytes / (1024 * 1024)} MB", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(OldBytes, File.ReadAllText(target));
+        Assert.Empty(Directory.GetFiles(tree.Root, ".okf.upgrade.*"));
+    }
+
+    /// <summary>
+    /// AD-19 writes a digest as 64 lowercase hex digits and the `publish` job obeys it, but
+    /// the comparison is the last gate before a binary is renamed over the running one — so
+    /// a manifest that shouted its digest must still verify rather than silently refuse a
+    /// release that is in fact the right one.
+    /// </summary>
+    [Fact]
+    public void VerifiesADigestTheManifestWroteInUppercase()
+    {
+        using var tree = new TempTree();
+        var target = Install(tree, OldBytes);
+        var host = new FakeHost(NewBytes)
+        {
+            Manifest = FakeHost.ManifestFor("1.1.0-rc.1", Digest(NewBytes).ToUpperInvariant()),
+        };
+
+        OkfUpgrade.Apply(OkfUpgrade.Resolve(Options(target, "1.0.0"), host.Fetch), host.Fetch);
+
+        Assert.Equal(NewBytes, File.ReadAllText(target));
+    }
 
     [Fact]
     public void ReplacesTheRunningBinaryWithTheVerifiedBytes()
@@ -537,6 +635,39 @@ public sealed class OkfUpgradeTests
 
     internal static string Digest(string content) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+
+    /// <summary>
+    /// A body that never ends — what a hostile or broken artifact host answers with. Reads
+    /// succeed forever and cost nothing, so what the test measures is whether okf stops.
+    /// </summary>
+    private sealed class EndlessStream : Stream
+    {
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => count;
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 
     /// <summary>
     /// A release host in memory: one manifest naming one asset per platform, and the bytes

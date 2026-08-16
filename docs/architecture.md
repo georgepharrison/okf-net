@@ -933,7 +933,11 @@ flowchart TB
   a digest fetched down the same cleartext channel as the bytes it describes proves nothing.
   The manifest is `latest.json` at `<base>/` or `<base>/v<version>/`, read relative to
   `OKF_INSTALL_URL` — the same variable both installers read, and never the registry `url`
-  the same manifest carries for the host's `sync.sh` (AD-42). Integrity, not authenticity:
+  the same manifest carries for the host's `sync.sh` (AD-42). A manifest is read from an
+  untrusted host, so nothing it says is taken on trust: a `path` that climbs out of the base
+  URL is refused rather than fetched, and both reads are bounded — 1 MB for the manifest,
+  200 MB for an asset — because the staging file is written into the directory the user's
+  binary lives in and an endless body would otherwise fill it. Integrity, not authenticity:
   the `sha256` is AD-19's, the manifest is unsigned, and that is AD-35's and AD-42's
   deferral unchanged. The download is staged **inside the running binary's own directory**
   (a rename is atomic only within a filesystem), verified there, and only then renamed into
@@ -941,8 +945,8 @@ flowchart TB
   first and `okf upgrade` alone deletes that file, at the start of its own install path.
   Nothing outside that directory is read or written, and any refusal — an unusable base URL,
   an unreadable manifest, no asset for this platform, a digest mismatch printing both
-  digests, a target not named `okf`, a directory that cannot be written — happens before a
-  byte moves and is exit 2. `--check` is severity-blind and mechanical in AD-5's sense: 0
+  digests, an oversized or out-of-base asset, a target not named `okf`, a directory that
+  cannot be written — happens before a byte moves and is exit 2. `--check` is severity-blind and mechanical in AD-5's sense: 0
   current, 1 available, no download.
 - **Source:** [`okf upgrade`](decisions.md#proposed-decisions-okf-upgrade-work-item-23-2026-08-16),
   [self-hosted install](decisions.md#proposed-decisions-decided-2026-08-15-review-9-self-hosted-install-work-item-25-2026-08-15)

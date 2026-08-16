@@ -280,8 +280,9 @@ internal static class UpgradeCommand
               0  upgraded, already current, or reported under --check/--dry-run
               1  --check found an upgrade available
               2  refused before writing anything: an unusable base URL, an unreadable
-                 manifest, no asset for this platform, a sha256 mismatch, or an install
-                 directory that cannot be written
+                 manifest, no asset for this platform, a sha256 mismatch, an asset that
+                 is oversized or outside the base URL, or an install directory that
+                 cannot be written
             """);
     }
 }

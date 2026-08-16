@@ -3241,6 +3241,22 @@ no config, no cache, no `~/.local/share`, no PATH edit. A digest mismatch prints
 digests — the two hashes are what tells a truncated download apart from the wrong file —
 and leaves the target byte-identical.
 
+**Nothing the manifest says is taken on trust, including how big the file is.** The
+manifest is fetched from a host okf has no way to authenticate — that is the signing gap
+below — so the reader treats it as hostile input rather than as configuration. Two bounds
+follow. An asset `path` is resolved against the base URL and then *checked* to be under it:
+`Uri` collapses `..` while parsing, so a `path` of `../../evil` under
+`https://mirror/okf` resolves to `https://mirror/evil` — the same host, because the URL is
+built by appending rather than by resolving a reference, but no longer the subtree the
+operator pointed `OKF_INSTALL_URL` at, and on a mirror that serves more than okf that
+distinction is the whole of the containment. And both reads are capped: 1 MB for a
+manifest, 200 MB for an asset, against the 15 MB largest asset any release has carried.
+The cap is not the manifest's own `size` field, because whoever writes a lying digest
+writes a lying size in the same file; it is absolute. Without it `Stream.CopyTo` writes
+whatever the host sends into the directory the user's binary lives in, which was measured
+at **7.4 GB in five seconds** over loopback, before a single byte had been verified. Both
+refusals are exit 2 with nothing installed, like every other refusal here.
+
 **The target's name is checked, and it earned its place the same afternoon.** A
 framework-dependent launch — `dotnet okf.dll`, which is how the build output runs without
 an apphost — makes `Environment.ProcessPath` point at the **`dotnet` muxer**, not at okf.

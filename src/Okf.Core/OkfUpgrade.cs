@@ -58,6 +58,28 @@ public static class OkfUpgrade
     /// </summary>
     private const int MaximumRedirects = 5;
 
+    /// <summary>
+    /// The most an asset may be before the download is abandoned. The largest asset any
+    /// release has carried is the 15 MB osx-arm64 build, so this is an order of magnitude of
+    /// headroom.
+    /// </summary>
+    /// <remarks>
+    /// A bound is needed at all because the staging file is written into the directory the
+    /// user's binary lives in, and a plain <see cref="Stream.CopyTo(Stream)" /> writes
+    /// whatever the host sends: a host answering with an endless body fills that filesystem
+    /// long before a single byte is verified — measured at 7.4 GB in five seconds over
+    /// loopback. The manifest's own <c>size</c> cannot be the bound, because whoever writes
+    /// a lying digest writes a lying size in the same file.
+    /// </remarks>
+    public const long MaximumAssetBytes = 200L * 1024 * 1024;
+
+    /// <summary>
+    /// The most a release manifest may be. It is a few kilobytes of JSON; the bound exists
+    /// so that reading one into a string cannot be turned into an out-of-memory by a host
+    /// that answers <c>latest.json</c> with an endless body.
+    /// </summary>
+    public const int MaximumManifestBytes = 1024 * 1024;
+
     private static readonly Lazy<HttpClient> SharedClient = new(CreateClient);
 
     /// <summary>
@@ -378,8 +400,8 @@ public static class OkfUpgrade
         }
 
         return normalized.Length == 0
-            ? new Uri($"{Root(baseUri)}/{ManifestFileName}")
-            : new Uri($"{Root(baseUri)}/v{normalized}/{ManifestFileName}");
+            ? Under(baseUri, ManifestFileName)
+            : Under(baseUri, $"v{normalized}/{ManifestFileName}");
     }
 
     /// <summary>Where an asset is downloaded from.</summary>
@@ -396,7 +418,41 @@ public static class OkfUpgrade
     {
         ArgumentNullException.ThrowIfNull(baseUri);
         ArgumentNullException.ThrowIfNull(asset);
-        return new Uri($"{Root(baseUri)}/{asset.Path.TrimStart('/')}");
+        return Under(baseUri, asset.Path.TrimStart('/'));
+    }
+
+    /// <summary>
+    /// Resolves a path against the base URL and proves the result did not leave it.
+    /// </summary>
+    /// <param name="baseUri">The normalized base URL.</param>
+    /// <param name="relative">The release-relative path.</param>
+    /// <returns>The absolute URL, which sits under the base.</returns>
+    /// <exception cref="OkfUpgradeException">The path climbs out of the base URL.</exception>
+    /// <remarks>
+    /// <see cref="Uri" /> collapses <c>..</c> as it parses, so an asset whose <c>path</c> is
+    /// <c>../../evil</c> resolves against <c>https://mirror/okf</c> to
+    /// <c>https://mirror/evil</c>. The scheme and the host are safe either way, because the
+    /// URL is built by appending to the base rather than by resolving a reference — but the
+    /// subtree the operator pointed <c>OKF_INSTALL_URL</c> at is not, and on a mirror that
+    /// serves more than okf that is the difference between "the release directory" and
+    /// "anything on this host". So the containment the rest of this file assumes is checked.
+    /// </remarks>
+    private static Uri Under(Uri baseUri, string relative)
+    {
+        var candidate = new Uri($"{Root(baseUri)}/{relative}");
+        var prefix = baseUri.AbsolutePath.TrimEnd('/') + "/";
+
+        if (!string.Equals(candidate.Scheme, baseUri.Scheme, StringComparison.Ordinal)
+            || !string.Equals(candidate.Authority, baseUri.Authority, StringComparison.Ordinal)
+            || !candidate.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            throw new OkfUpgradeException(
+                $"'{relative}' resolves to {candidate}, which is outside {baseUri} — refusing to\n" +
+                "    fetch it. A release manifest may only name paths within the base URL it was\n" +
+                "    served from.");
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -528,8 +584,7 @@ public static class OkfUpgrade
         try
         {
             using var stream = fetch(manifestUri);
-            using var reader = new StreamReader(stream);
-            json = reader.ReadToEnd();
+            json = ReadBounded(stream, manifestUri);
         }
         catch (Exception exception) when (exception is not OkfUpgradeException)
         {
@@ -568,8 +623,65 @@ public static class OkfUpgrade
         using (file)
         {
             using var source = fetch(assetUri);
-            source.CopyTo(file);
+            CopyBounded(source, file, assetUri);
         }
+    }
+
+    /// <summary>
+    /// Copies a download to disk, refusing at <see cref="MaximumAssetBytes" />.
+    /// </summary>
+    /// <remarks>
+    /// The chunk that would cross the bound is never written, so the staging file cannot
+    /// exceed it even by a buffer — which is the point, since the file is being written into
+    /// the directory the user's binary lives in.
+    /// </remarks>
+    private static void CopyBounded(Stream source, Stream destination, Uri assetUri)
+    {
+        var buffer = new byte[81920];
+        var total = 0L;
+
+        int read;
+        while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (total + read > MaximumAssetBytes)
+            {
+                throw new OkfUpgradeException(
+                    $"{assetUri} is bigger than {MaximumAssetBytes / (1024 * 1024)} MB, so the download\n" +
+                    "    was abandoned. No okf release is anywhere near that size; the host is broken\n" +
+                    "    or is not the host you think it is. Nothing was installed.");
+            }
+
+            total += read;
+            destination.Write(buffer, 0, read);
+        }
+    }
+
+    /// <summary>
+    /// Reads a manifest as text, refusing at <see cref="MaximumManifestBytes" />.
+    /// </summary>
+    private static string ReadBounded(Stream source, Uri manifestUri)
+    {
+        var buffer = new byte[8192];
+        using var text = new MemoryStream();
+
+        int read;
+        while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (text.Length + read > MaximumManifestBytes)
+            {
+                throw new OkfUpgradeException(
+                    $"{manifestUri} is bigger than {MaximumManifestBytes / 1024} KB, so it was not\n" +
+                    "    read. A release manifest is a few kilobytes of JSON.");
+            }
+
+            text.Write(buffer, 0, read);
+        }
+
+        // Through a StreamReader rather than Encoding.UTF8.GetString, so a manifest written
+        // with a byte-order mark still parses: JsonDocument refuses a leading U+FEFF.
+        text.Position = 0;
+        using var reader = new StreamReader(text);
+        return reader.ReadToEnd();
     }
 
     private static void Move(OkfUpgradeStep step)
