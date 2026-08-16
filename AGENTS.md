@@ -56,9 +56,7 @@ implementation choices in this repo.
 <!-- okf:begin -->
 This project keeps its knowledge in `okf/`, an OKF vault.
 
-- **Read**: answer from the vault first — reach for `okf-vault`, or `okf search` / `okf inbox` directly when it is not installed.
+- **Read**: before answering or deciding from memory — reach for `okf-vault`, or `okf search` when it is not installed.
 - **Capture**: when the session produced something durable the code cannot re-derive — reach for `okf-capture`.
-- **Maintain**: when asked, or when `okf inbox` is non-empty — reach for `okf-custodian`.
-
-This block is machine-maintained: `okf init` rewrites it.
+- **Maintain**: when `okf inbox` is non-empty — reach for `okf-custodian`.
 <!-- okf:end -->

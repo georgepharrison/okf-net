@@ -34,7 +34,7 @@ public sealed record OkfAgentPointerFile(string Path, OkfAgentPointerStatus Stat
 /// <remarks>
 /// <para><b>The block is a constant, not an embedded resource.</b> The three agent skills
 /// are embedded (AD-50) because they are whole documents a person edits, lints, and reads on
-/// their own; this block is a six-line fragment whose exact bytes are load-bearing (the fence
+/// their own; this block is a seven-line fragment whose exact bytes are load-bearing (the fence
 /// contract), and it is templated exactly the way every other scaffolded file in
 /// <see cref="OkfScaffold" /> is — a C# string, reviewed as code. Nothing about it benefits
 /// from a second file to keep in sync.</para>
@@ -71,11 +71,9 @@ public static class OkfAgentPointer
         <!-- okf:begin -->
         This project keeps its knowledge in `okf/`, an OKF vault.
 
-        - **Read**: answer from the vault first — reach for `okf-vault`, or `okf search` / `okf inbox` directly when it is not installed.
+        - **Read**: before answering or deciding from memory — reach for `okf-vault`, or `okf search` when it is not installed.
         - **Capture**: when the session produced something durable the code cannot re-derive — reach for `okf-capture`.
-        - **Maintain**: when asked, or when `okf inbox` is non-empty — reach for `okf-custodian`.
-
-        This block is machine-maintained: `okf init` rewrites it.
+        - **Maintain**: when `okf inbox` is non-empty — reach for `okf-custodian`.
         <!-- okf:end -->
         """;
 
