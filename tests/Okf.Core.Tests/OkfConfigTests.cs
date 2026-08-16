@@ -29,11 +29,64 @@ public class OkfConfigTests
     [Fact]
     public void AnEmptyOrUnrelatedFileContributesNothing()
     {
-        var config = OkfConfig.Parse("""{ "search": { "scope": "project" } }""", "test");
+        var config = OkfConfig.Parse("""{ "somethingOkfDoesNotModel": { "yet": true } }""", "test");
 
         Assert.True(config.Severities.IsEmpty);
         Assert.Null(config.TagRegistry);
         Assert.Null(config.VerifyActor);
+    }
+
+    /// <summary>
+    /// <c>search.scope</c> is readable in either layer, and its four values are exactly the
+    /// four <c>--scope</c> accepts, so a setting and a flag can never mean different things
+    /// (PRD CLI-3).
+    /// </summary>
+    /// <param name="written">The value as written in the file.</param>
+    /// <param name="expected">The scope it parses to.</param>
+    [Theory]
+    [InlineData("project", OkfScopeKind.Project)]
+    [InlineData("personal", OkfScopeKind.Personal)]
+    [InlineData("registered", OkfScopeKind.Registered)]
+    [InlineData("all", OkfScopeKind.All)]
+    public void ReadsSearchScope(string written, OkfScopeKind expected)
+    {
+        var config = OkfConfig.Parse($$"""{ "search": { "scope": "{{written}}" } }""", "test");
+
+        Assert.Equal(expected, config.SearchScope);
+    }
+
+    /// <summary>A typo must not silently fall back to the default scope.</summary>
+    /// <param name="json">The configuration text.</param>
+    [Theory]
+    [InlineData("""{ "search": { "scope": "everything" } }""")]
+    [InlineData("""{ "search": { "scope": true } }""")]
+    [InlineData("""{ "search": "all" }""")]
+    public void AnUnknownSearchScopeIsRefusedRatherThanIgnored(string json)
+    {
+        var exception = Assert.Throws<OkfConfigException>(() => OkfConfig.Parse(json, "test"));
+
+        Assert.Contains("search", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>autoRegister</c> is recorded and type-checked, and only in the global layer: a
+    /// committed project file that could turn it on would let a clone write to a
+    /// contributor's machine-wide registry (decisions.md §6).
+    /// </summary>
+    [Fact]
+    public void AutoRegisterIsAGlobalOnlySettingAndIsRefusedInAProjectFile()
+    {
+        Assert.False(OkfConfig.Parse("""{ "autoRegister": false }""", "test", globalLayer: true).AutoRegister);
+        Assert.True(OkfConfig.Parse("""{ "autoRegister": true }""", "test", globalLayer: true).AutoRegister);
+        Assert.Null(OkfConfig.Parse("""{ "lint": {} }""", "test", globalLayer: true).AutoRegister);
+
+        var refused = Assert.Throws<OkfConfigException>(
+            () => OkfConfig.Parse("""{ "autoRegister": true }""", "test"));
+        Assert.Contains("global setting", refused.Message, StringComparison.Ordinal);
+
+        var mistyped = Assert.Throws<OkfConfigException>(
+            () => OkfConfig.Parse("""{ "autoRegister": "yes" }""", "test", globalLayer: true));
+        Assert.Contains("boolean", mistyped.Message, StringComparison.Ordinal);
     }
 
     [Fact]

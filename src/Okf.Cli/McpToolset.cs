@@ -111,7 +111,7 @@ internal sealed class McpToolset
               "properties": {
                 "bundle": {
                   "type": "string",
-                  "description": "The bundle's name, as reported by okf_list with no arguments. Optional when exactly one bundle is in scope."
+                  "description": "The bundle's label, as reported by okf_list with no arguments — its name, or its root path when two bundles in scope share a name. Optional when exactly one bundle is in scope."
                 },
                 "path": {
                   "type": "string",
@@ -186,7 +186,7 @@ internal sealed class McpToolset
                 },
                 "bundle": {
                   "type": "string",
-                  "description": "The bundle's name. Optional; needed only when the same path exists in more than one bundle in scope."
+                  "description": "The bundle's label, as reported by okf_list with no arguments. Optional; needed only when the same path exists in more than one bundle in scope."
                 }
               },
               "required": ["path"],
@@ -197,19 +197,30 @@ internal sealed class McpToolset
 
     private readonly OkfEnvironment environment;
     private readonly string? path;
+    private readonly OkfScopeKind scope;
+    private IReadOnlyList<string> notes = [];
 
     /// <summary>Initializes the toolset.</summary>
     /// <param name="environment">The environment vaults and configuration resolve against.</param>
     /// <param name="path">The explicit target path <c>okf mcp</c> was given, if any.</param>
-    public McpToolset(OkfEnvironment environment, string? path)
+    /// <param name="scope">The scope fixed at launch (AD-30); ignored when a path was given.</param>
+    public McpToolset(OkfEnvironment environment, string? path, OkfScopeKind scope = OkfScopeKind.Project)
     {
         ArgumentNullException.ThrowIfNull(environment);
         this.environment = environment;
         this.path = path;
+        this.scope = scope;
     }
 
     /// <summary>The date staleness is judged against; overridable so tests are deterministic.</summary>
     public DateOnly? Today { get; set; }
+
+    /// <summary>
+    /// What the last resolution had to say about entries that did not contribute — a
+    /// registered path that has gone missing. Reported at startup under <c>--verbose</c>,
+    /// never on stdout, which carries JSON-RPC and nothing else.
+    /// </summary>
+    public IReadOnlyList<string> Notes => this.notes;
 
     /// <summary>Resolves the working set exactly as every other command does (PRD MCP-3).</summary>
     /// <returns>The resolved working set.</returns>
@@ -220,8 +231,16 @@ internal sealed class McpToolset
         {
             // Resolved per call rather than cached: the server is long-lived, and a bundle
             // added to the vault while it runs must be visible to the next call, exactly as
-            // it would be to the next `okf search` invocation.
-            return OkfDiscovery.Resolve(this.path, this.environment);
+            // it would be to the next `okf search` invocation. The scope it resolves is the
+            // one fixed at launch, through the same Core entry point `okf search` uses.
+            if (this.path is not null)
+            {
+                return OkfDiscovery.Resolve(this.path, this.environment);
+            }
+
+            var resolution = OkfScope.Resolve(this.scope, this.environment);
+            this.notes = resolution.Notes;
+            return resolution.WorkingSet;
         }
         catch (OkfDiscoveryException exception)
         {
@@ -373,7 +392,7 @@ internal sealed class McpToolset
             // the answer depend on resolution order, so the caller picks.
             _ => McpToolResult.Failed(
                 $"'{relative}' exists in more than one bundle in scope ("
-                + string.Join(", ", hits.Select(hit => hit.Bundle.Name))
+                + string.Join(", ", hits.Select(hit => Label(workingSet, hit.Bundle)))
                 + "). Pass \"bundle\" to say which."),
         };
     }
@@ -421,7 +440,7 @@ internal sealed class McpToolset
         {
             return McpToolResult.Failed(
                 $"{workingSet.Bundles.Count} bundles are in scope ("
-                + string.Join(", ", workingSet.Bundles.Select(item => item.Name))
+                + string.Join(", ", workingSet.Bundles.Select(item => Label(workingSet, item)))
                 + "). Pass \"bundle\" to say which one to list.");
         }
 
@@ -457,13 +476,36 @@ internal sealed class McpToolset
             + ". Find it with okf_search, or list its directory with okf_list.");
 
     private static string NoSuchBundle(OkfWorkingSet workingSet, string wanted) =>
-        $"No bundle named '{wanted}' is in scope. In scope: "
-        + string.Join(", ", workingSet.Bundles.Select(bundle => bundle.Name))
+        (workingSet.Bundles.Count(bundle => string.Equals(bundle.Name, wanted, StringComparison.Ordinal)) > 1
+            ? $"More than one bundle in scope is named '{wanted}'. Name it by its label. "
+            : $"No bundle named '{wanted}' is in scope. ")
+        + "In scope: "
+        + string.Join(", ", workingSet.Bundles.Select(bundle => Label(workingSet, bundle)))
         + ".";
 
-    private static OkfBundle? Bundle(OkfWorkingSet workingSet, string name) =>
-        workingSet.Bundles.FirstOrDefault(
-            bundle => string.Equals(bundle.Name, name, StringComparison.Ordinal));
+    /// <summary>
+    /// How a bundle is named in a tool's arguments and results: its directory name while
+    /// that is unique in scope, and its absolute root when it is not. A multi-vault scope
+    /// can hold two bundles of the same name, and the <c>bundle</c> argument stays a name
+    /// picked out of a listing rather than becoming a path the client chooses — matched
+    /// against the closed set of bundles already in scope, so it can never widen one
+    /// (AD-30).
+    /// </summary>
+    private static string Label(OkfWorkingSet workingSet, OkfBundle bundle) =>
+        workingSet.Bundles.Count(other => string.Equals(other.Name, bundle.Name, StringComparison.Ordinal)) == 1
+            ? bundle.Name
+            : bundle.Root;
+
+    private static OkfBundle? Bundle(OkfWorkingSet workingSet, string name)
+    {
+        var named = workingSet.Bundles
+            .Where(bundle => string.Equals(bundle.Name, name, StringComparison.Ordinal))
+            .ToList();
+
+        return named.Count == 1
+            ? named[0]
+            : workingSet.Bundles.FirstOrDefault(bundle => string.Equals(bundle.Root, name, StringComparison.Ordinal));
+    }
 
     /// <summary>Renders the bundles in scope — the orienting listing.</summary>
     private static string Scope(OkfWorkingSet workingSet)
@@ -479,6 +521,7 @@ internal sealed class McpToolset
             {
                 writer.WriteStartObject();
                 writer.WriteString("name", bundle.Name);
+                writer.WriteString("label", Label(workingSet, bundle));
                 writer.WriteString("path", bundle.Root);
                 writer.WriteNumber("concepts", bundle.MarkdownFiles().Count(file => !OkfBundle.IsReservedFile(file)));
                 writer.WriteEndObject();

@@ -3,7 +3,7 @@ type: Reference
 title: Search Semantics
 description: Deterministic BM25 over field-weighted concept text, links-first results, and filters that never contribute score.
 tags: [okf-net, search, bm25, determinism]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50-05:00 }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:55:26Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -112,7 +112,8 @@ the identical shape later without breaking a single MCP consumer.[^prd]
 
 - **Search defaults to project scope.** The same vault resolution `okf lint`
   performs and nothing wider; registry entries, including the personal vault,
-  stay opt-in. See [vaults, registry, and
+  stay opt-in, and the opt-in is `--scope personal|registered|all` or
+  `search.scope` in `okf.json`. See [vaults, registry, and
   config](vault-registry-and-config.md).
 - **No results is exit code 0, not 1.** The grep convention was considered
   and rejected: an empty result set is not a diagnostic, and the capture

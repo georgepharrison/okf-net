@@ -3,7 +3,7 @@ type: Concept
 title: Library, CLI, and MCP Layering
 description: All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
 tags: [okf-net, architecture, cli, mcp, layering]
-generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:50:32Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -27,15 +27,17 @@ Okf.Core   parse · validate · trust · staleness · index · search
            discovery · bundle · site
    │
    ├── Okf.Cli    okf init | lint | index | search | inbox | verify   (built)
-   │              okf bundle | site | help | version                  (built)
-   │              okf register | unregister                       (not built)
-   └── okf mcp    okf_list · okf_search · okf_read, over stdio        (built)
+   │              okf register | unregister | registry               (built)
+   │              okf capture | generated                            (built)
+   │              okf bundle | site | skills | help | version        (built)
+   └── okf mcp    okf_list · okf_search · okf_read, over stdio       (built)
 ```
 
-Every verb above is built except `register` and `unregister`, which wait on
-the registry itself — nothing reads or writes a registry file, so search is
-project-scoped full stop and no scope flag ships (see [vaults, registry, and
-config](vault-registry-and-config.md)). The build order that got here was
+Every verb above is built. `register`, `unregister` and `registry` were the
+last, and they are what `okf search --scope` and `okf mcp --scope` read (see
+[vaults, registry, and config](vault-registry-and-config.md)); scope resolution
+itself is one function in `Okf.Core`, so the CLI and the server cannot disagree
+about which bundles a scope names. The build order that got here was
 Core → index → search → MCP → skills, then the post-MVP additions.
 
 # Why the library is the core

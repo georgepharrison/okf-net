@@ -26,8 +26,13 @@ consume.
     warning you can promote (up to `treatAllWarningsAsErrors`)
   - `okf index` — deterministic `index.md` generation for progressive
     disclosure
-  - `okf search` — search across your project bundle and any registered
-    bundles
+  - `okf search` — search your project bundle, ranked and links-first;
+    `--scope registered` or `--scope all` widens it to the vaults you
+    registered, and project-only stays the default so a query answers the
+    same on every machine and in CI
+  - `okf register` / `okf unregister` / `okf registry` — the explicit,
+    idempotent registry of vaults and bundles that `--scope` reads; nothing
+    is ever registered for you
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields
@@ -50,8 +55,10 @@ consume.
   - `okf mcp` — the same capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
-  per-project bundles, joined through an explicit opt-in registry; search
-  behavior is deterministic for teams by default
+  per-project bundles, joined through an explicit opt-in registry at
+  `$XDG_CONFIG_HOME/okf/registry.json` (else `~/.config/okf/`); the personal
+  vault is an ordinary entry in it, and search behavior is deterministic for
+  teams by default
 - **Custodian pattern** — skills and conventions for the agent that
   maintains a bundle (capture, enrichment, staleness refresh), designed to
   run from git hooks and CI
@@ -274,9 +281,9 @@ violate OKF conformance):
 
 - **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
   site. Its public API was frozen by the 1.0.0 review.
-- **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `inbox`,
-  `verify`, `capture`, `generated`, `bundle`, `site`, `skills`, `mcp`, plus
-  `help` and `version`.
+- **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `register`,
+  `unregister`, `registry`, `inbox`, `verify`, `capture`, `generated`, `bundle`,
+  `site`, `skills`, `mcp`, plus `help` and `version`.
 - **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
   `okf_search`, `okf_read`) over stdio.
 - **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`,
@@ -285,8 +292,9 @@ violate OKF conformance):
 - **This repo's own knowledge bundle**, linted and index-checked by the
   `dogfood` job on every push, and rendered to the Pages site below.
 
-Not built: the registry (`okf register` / `okf unregister`, so search is
-project-scoped full stop) and the Pi shim. Neither blocks 1.0.0.
+Not built: the Pi shim. It does not block 1.0.0. (The registry — `okf
+register` / `okf unregister` / `okf registry` and `--scope` — was the other
+entry here; it landed as the first 1.0.x item and is in the list above.)
 
 Every merge to `dev` cuts an `rc` tag and every promotion to `main` cuts a
 stable one, and that tag's pipeline publishes eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
