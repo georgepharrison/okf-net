@@ -121,7 +121,11 @@ test:
     # the runner a shallow clone so the test runs instead of skipping.
     OKF_REFERENCE_BUNDLES: "$CI_PROJECT_DIR/.reference/knowledge-catalog/okf/bundles"
   script:
-    - apt-get update -qq && apt-get install -y -qq git >/dev/null
+    # zsh is here for the completion suite (#51): the zsh script is checked by parsing it
+    # and loading it under a real compinit, and those tests skip themselves when no zsh is
+    # on PATH. Without this the one guard against a description that breaks zsh's quoting
+    # never runs in the pipeline, and a skipped test looks exactly like a passing one.
+    - apt-get update -qq && apt-get install -y -qq git zsh >/dev/null
     - git clone --depth 1 https://github.com/GoogleCloudPlatform/knowledge-catalog.git .reference/knowledge-catalog
     - dotnet test Okf.sln --configuration Release
 
