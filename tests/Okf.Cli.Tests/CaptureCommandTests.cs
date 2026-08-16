@@ -358,6 +358,74 @@ public class CaptureCommandTests
     }
 
     /// <summary>
+    /// Each subcommand names exactly one thing. Zero and two are both refused, and the
+    /// refusal counts what was named, because "exactly one" is the invariant the manifest's
+    /// per-entry shape rests on (AD-52).
+    /// </summary>
+    [Theory]
+    [InlineData(new string[0], "records exactly one item, and 0 items were named.")]
+    [InlineData(new[] { "a.html", "b.html" }, "records exactly one item, and 2 items were named.")]
+    public void AddRecordsExactlyOneItem(string[] operands, string expected)
+    {
+        using var vault = new CaptureVault();
+        var run = vault.Run(["capture", "add", .. operands, "--by", "claude-fable/5"]);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains(expected, run.Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(new string[0], "closes exactly one entry, and 0 entries were named.")]
+    [InlineData(new[] { "one", "two" }, "closes exactly one entry, and 2 entries were named.")]
+    public void CloseClosesExactlyOneEntry(string[] operands, string expected)
+    {
+        using var vault = new CaptureVault();
+        var run = vault.Run(["capture", "close", .. operands, "--by", "claude-fable/5", "--concept", "c.md"]);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains(expected, run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// `--concept` records which concepts now carry an ingested artifact, so it belongs to
+    /// the close and is refused on the add: a fresh capture is uningested by definition.
+    /// </summary>
+    [Fact]
+    public void AConceptOnTheAddIsRefused()
+    {
+        using var vault = new CaptureVault();
+        vault.Drop("2026-08-16-a-page.html", "<html>a page</html>\n");
+
+        var run = vault.Run(
+            "capture", "add", "okf/raw/2026-08-16-a-page.html",
+            "--by", "claude-fable/5",
+            "--concept", "bundles/b/page.md");
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("`--concept` belongs to `okf capture close`", run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Closing an ingestion in a vault where nothing was ever captured names the manifest
+    /// it looked for, rather than reporting the entry as merely unknown.
+    /// </summary>
+    [Fact]
+    public void ClosingWithNoManifestNamesTheManifestItLookedFor()
+    {
+        using var vault = new CaptureVault(withManifest: false);
+        vault.Concept("bundles/b/page.md");
+
+        var run = vault.Run(
+            "capture", "close", "2026-08-16-a-page",
+            "--by", "claude-fable/5",
+            "--concept", "bundles/b/page.md");
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("no capture manifest at", run.Error, StringComparison.Ordinal);
+        Assert.Contains("nothing has been captured.", run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A throwaway vault: <c>okf/bundles/b/</c>, <c>okf/raw/</c>, and a home directory that
     /// holds no okf configuration. Nothing outside this tree is read or written.
     /// </summary>
