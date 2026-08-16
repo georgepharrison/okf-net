@@ -209,15 +209,20 @@ public class CaptureCommandTests
         // rewritten to make it parse.
         using var vault = new CaptureVault();
         vault.Drop("2026-08-16-a-page.html", "<html>a page</html>\n");
+        vault.Concept("bundles/b/references/page.md");
         const string broken = "{ \"manifestVersion\": 1, \"captures\": [ oops\n";
         vault.WriteManifest(broken);
 
         var added = vault.Add("2026-08-16-a-page.html");
-        var closed = vault.Run("capture", "close", "2026-08-16-a-page", "--concept", "x.md", "--by", "claude-fable/5");
+        var closed = vault.Run(
+            "capture", "close", "2026-08-16-a-page",
+            "--concept", "bundles/b/references/page.md",
+            "--by", "claude-fable/5");
 
         Assert.Equal(CliApplication.ExitUsage, added.ExitCode);
+        Assert.Equal(CliApplication.ExitUsage, closed.ExitCode);
         Assert.Contains("does not read as a capture manifest", added.Error, StringComparison.Ordinal);
-        Assert.Equal(CliApplication.ExitDiagnostics, closed.ExitCode);
+        Assert.Contains("does not read as a capture manifest", closed.Error, StringComparison.Ordinal);
         Assert.Equal(broken, vault.Manifest());
     }
 
