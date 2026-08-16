@@ -17,6 +17,12 @@ future session (human or agent) relearns them. Newest first within sections.
 - The `glab` CLI's token can push over HTTPS via
   `git config credential.helper '!glab auth git-credential'` — the fallback
   when SSH agent access (hardware key window) expires.
+- **A "protected" CI variable is invisible to every unprotected branch, and
+  the job that needs it fails at the end rather than the start.** Adding a
+  second release branch is therefore two changes, not one: the pipeline rule,
+  and the branch's protection status. `glab variable list` shows the
+  `PROTECTED` column without revealing any value, which is the cheap way to
+  check before wiring a job onto a new branch.
 
 ## semantic-release
 
@@ -62,9 +68,24 @@ future session (human or agent) relearns them. Newest first within sections.
   change the target version until a stable release exists.
 - The "at least one release branch" validation counts only **release-type**
   branches (plain name, no range, no prerelease). Maintenance-pattern names
-  like `1.x` do NOT count even when the branch exists — hence the `stable`
-  placeholder branch (see `.releaserc.yml`;
-  semantic-release/semantic-release#2503).
+  like `1.x` do NOT count even when the branch exists — which is why a
+  prerelease-only config needs a placeholder release branch (okf-net carried
+  one called `stable` until the 1.0.0 flip made `main` itself the release
+  branch; see `.releaserc.yml`; semantic-release/semantic-release#2503).
+- **`prerelease: rc` sets the version identifier; the CHANNEL still defaults
+  to the branch name.** A branch configured `{name: dev, prerelease: rc}`
+  logs "Published release 1.0.1-rc.1 on **dev** channel" — the tag is
+  `v1.0.1-rc.1` as intended, and the channel is a separate field (a git-note
+  label and an npm dist-tag) that takes the branch's name unless `channel` is
+  set explicitly. The log line reads like a misconfiguration and is not one.
+- **A dry run can simulate a future the remote has not reached.** The mirror
+  is writable and nobody is watching it, so the state you want to test can be
+  *manufactured* there: work item #10 checked that the `rc` channel still
+  works after a stable release exists by tagging a fake `v1.0.0` in the
+  mirror, branching `dev` off it, adding one `fix:` commit, and pushing that
+  to the mirror path (never `origin`). semantic-release computed
+  `1.0.1-rc.1`. Without the fake tag no dry run can reach that state, because
+  the state does not exist until the flip has already happened.
 - Commit types drive releases, so commits must be honest about their type —
   no smuggling tooling changes into `docs:` commits.
 

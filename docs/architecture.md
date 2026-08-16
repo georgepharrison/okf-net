@@ -884,7 +884,7 @@ row set once it exists.
 | dotnet-stryker | 4.16.0 | Apache-2.0 | Mutation testing; local tool, invisible to the SBOM (AD-43, AD-44) |
 | cyclonedx | 6.2.0 | Apache-2.0 | SBOM generation for the license gate; local tool, so its own license is checked by hand (AD-43) |
 | markdownlint-cli2 | latest (mise-managed) | — | `mise run lint` |
-| semantic-release | unpinned (installed in the `release` job) | — | Cuts `vX.Y.Z-rc.N` from `main` and creates the GitLab Release |
+| semantic-release | 25.0.9 + 4 plugins, pinned exactly in the `release` job | — | Cuts `vX.Y.Z` from `main` and `vX.Y.Z-rc.N` from `dev`, and creates the GitLab Release |
 | GitLab (self-hosted) | CE 19.0.1 | — | Repository, CI, Pages, generic package registry |
 | CI images | node:22-slim · mcr.microsoft.com/dotnet/sdk:10.0 · python:3.12-slim | — | Default · `.dotnet` template · `test-install` |
 | Artifact host | nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www` | — | `get.okf.tychostation.dev` (internal only) |
@@ -944,8 +944,9 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    merge["merge to main"] --> rel["release job<br/>semantic-release"]
-    rel --> tag["tag vX.Y.Z-rc.N<br/>+ GitLab Release"]
+    merge["merge to dev"] --> rel["release job<br/>semantic-release"]
+    promote["promote dev to main<br/>explicit, when Ringo ships"] --> rel
+    rel --> tag["tag vX.Y.Z-rc.N from dev<br/>vX.Y.Z from main<br/>+ GitLab Release"]
     tag --> pub["publish job<br/>tag pipeline only"]
     pub --> build["publish 3 RIDs<br/>linux-x64 AOT · osx-arm64<br/>win-x64 · stamped from the tag"]
     build --> gate{"okf version matches<br/>tag plus short sha?"}
@@ -1032,7 +1033,6 @@ not fix. Board:
 | [#15](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/15) — SOLID and DI audit, boundary isolation | Formalizes AD-9's boundary rule; a DI container is itself an AOT question, so it is a considered change rather than a cleanup. |
 | [#18](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/18) — site UX polish | Client-side search, provenance panel, staleness badges, a `log.md` timeline; none changes an invariant. |
 | [#31](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/31) — C# style enforced by configuration | Ringo has not yet picked between `_camelCase` and `camelCase` private fields; until he does, the Consistency Conventions row records what the code shows. |
-| [#10](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/10) — release flip runbook | The half that could be built was (AD-41); flipping `main` to a release branch, adding `dev` as the prerelease channel and deleting the `stable` placeholder waits for an actual 1.0.0. |
 | [#23](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/23) — self-updating CLI | The installer exists (AD-42); a binary that replaces itself is a separate trust decision. |
 | Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35). |
 | An on-disk search index | Every search walks the resolved bundles and reads them; four reference bundles is milliseconds. When it stops being, the generated artifact is #24's, and a bundle must stay complete without it. |

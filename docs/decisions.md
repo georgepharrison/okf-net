@@ -2818,3 +2818,61 @@ removes the last unknown blocking #10.
 preset's defaults rather than extending them, so `test:`, `build:` and `style:` commits do
 not appear. Kept: those describe work on the toolset's own scaffolding, and a release note
 is read by someone deciding whether to upgrade.
+
+### Proposed decisions: the 1.0.0 flip (work item #10, 2026-08-16)
+
+The other half of #10, held open since 2026-08-14 for "an actual 1.0.0". Ringo gave the go.
+Nothing about the toolset changed here; what changed is which branch means what.
+
+**`main` is the release branch and `dev` is the release-candidate branch.** `.releaserc.yml`
+now lists the maintenance glob, `main` as a plain release branch, and `{name: dev,
+prerelease: rc}`. Merging to `dev` cuts `vX.Y.Z-rc.N`; merging to `main` cuts `vX.Y.Z`. The
+`stable` placeholder is out of the config — it only ever existed because a *prerelease*
+`main` left semantic-release with no release-type branch at all, and `main` is now that
+branch itself. The two ERELEASEBRANCHES traps that forced it stay in the file's header
+comment as history rather than being deleted with it: an unmatched maintenance glob does not
+count, and a branch named `1.x` counts as maintenance rather than release. Both are what a
+future editor tidying the glob away would otherwise rediscover the expensive way.
+
+**The workflow is promotion, not automation.** Merge requests target `dev`, so the ordinary
+outcome of a day's work is a release candidate. `main` advances only when Ringo says ship,
+by an explicit fast-forward or merge of `dev`, and that merge is the act that turns a
+candidate into a version. Nothing is scheduled and nothing promotes itself: a stable release
+should be a decision someone made, and the branch graph is where that decision is recorded.
+AGENTS.md carries the rule, because an agent that opens an MR against `main` out of habit
+would be cutting a release by accident.
+
+**The `release` job names both branches literally.** It ran on
+`$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH`, which was exactly right while there was one
+release branch and is a trap now: the default branch is `main`, one of the two, so the rule
+would keep passing while quietly meaning "main only". Spelling out `"main" || "dev"` makes
+the CI rule and `.releaserc.yml` say the same thing in the same words. semantic-release
+still decides the channel itself, from the branch name; the CI rule only decides whether it
+is invoked. `pages` deliberately stays on the default branch alone — there is one site at
+one URL, and it should show what is released rather than what is queued behind it.
+
+**Both versions were measured, not predicted.** Using the mirror technique from
+`docs/lessons.md` (mirror the *remote*, including `refs/notes/semantic-release-*`, redirect
+the working clone with `insteadOf`, drop the `@semantic-release/gitlab` plugin, run
+`--dry-run --no-ci` with the release job's exact plugin pins): on `main`, semantic-release
+reports "No previous release found", takes all 206 commits and computes **1.0.0**, with
+sectioned notes of 162 entries — Features 32, Bug Fixes 48, Documentation 65, Refactoring 3,
+CI/CD 14. Then, simulating the world one merge after that release *inside the mirror only* —
+a `v1.0.0` tag on `main`, `dev` branched from it, one `fix:` commit — `dev` computes
+**1.0.1-rc.1**. That second run is the one worth having: it is the first evidence that the
+`rc` channel keeps working *after* a stable release exists, which is precisely the state no
+dry run before the flip could reach. Nothing was pushed or tagged on the real remote.
+
+**`prerelease: rc` names the version identifier, not the channel.** The dev dry run
+published "1.0.1-rc.1 on **dev** channel" — semantic-release defaults a branch's channel to
+its own name and uses `prerelease` only for the version's prerelease identifier. It costs
+nothing here (the channel is a git-note label and a dist-tag this project does not publish,
+while the tag is `v1.0.1-rc.1` either way), but the log line reads like a misconfiguration
+and is not one.
+
+**What is still outstanding.** `stable` still exists on the remote and is now unreferenced —
+deleting it is the orchestrator's step, after this merges, along with fast-forwarding
+`origin/dev` to `main`. `dev` is unprotected while the `GITLAB_TOKEN` CI variable is
+**protected**, so the `release` job on `dev` would run without a token until one of the two
+changes; that is a GitLab settings decision for Ringo, not a repository change. The board's
+`#10` row leaves the deferred table in `docs/architecture.md` with this commit.

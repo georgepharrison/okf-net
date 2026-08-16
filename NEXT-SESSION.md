@@ -12,12 +12,13 @@ lives in git, GitLab, and these docs — nothing depends on the old thread.
 
 ## Where things stand (2026-08-15, end of session)
 
-- `main` is at the docs truth pass (#37). Latest release `v1.0.0-rc.30+`.
-  Every 1.0.0 code blocker is merged. **The flip has NOT happened.**
-- Two small blockers were added from an outside review before flipping:
+- `main` is the **stable release branch** — the 1.0.0 flip (#10) is merged, so
+  merging to `main` cuts `vX.Y.Z` and the `rc` channel moved to `dev`, which
+  every MR now targets. Every 1.0.0 code blocker was in before it.
+- The two blockers an outside review added before the flip are both in:
   **#41** (ship the skills via the installer — embedded in the binary,
   `okf skills install`, `init` pointers that resolve) and **#42** (lint
-  dot-prefixed `.md` per §11). Then **flip** (see #10).
+  dot-prefixed `.md` per §11), plus **#52** (the release notes were empty).
 - First 1.0.x items, in order: #43 registry → #44 deterministic write
   bookkeeping → #45 multi-model acceptance (Qwen first) → #46 optional-family
   validation + `status` in search → #49 UX papercuts + thesis-first README.

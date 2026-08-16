@@ -58,13 +58,15 @@ consume.
   citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)
 
-## Install (prerelease binaries)
+## Install
 
-`main` ships **release candidates**, not releases: every merge cuts a
-`vX.Y.Z-rc.N` tag, and that tag's pipeline publishes self-contained binaries
-for three platforms to this project's generic package registry. There is no
-stable channel yet, and the `rc` is not decoration — the API, the CLI surface
-and the diagnostic set can all still move.
+Two channels, one pipeline. `dev` ships **release candidates**: every merge
+there cuts a `vX.Y.Z-rc.N` tag. `main` ships **stable versions**: it is
+advanced by an explicit promotion of `dev`, and that merge cuts a plain
+`vX.Y.Z`. Either tag's pipeline publishes self-contained binaries for three
+platforms to this project's generic package registry, by the same code path —
+the version is read out of the tag, so a candidate and a release are built and
+verified identically.
 
 **Linux and macOS:**
 
@@ -85,14 +87,14 @@ that directory to your user `PATH`. Neither needs root or Administrator. Pin a
 version, install somewhere else, or look before you leap:
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0-rc.15
+curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0
 curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 ```
 
 ```powershell
 # `iex` is handed a string, not a command, so arguments need the script-block form.
-& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Version 1.0.0-rc.15
+& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Version 1.0.0
 & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -InstallDir C:\tools\okf
 & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
 ```
@@ -200,7 +202,7 @@ leading `v`. Take a version from the
 once a release carries a binary, it links it directly — and:
 
 ```bash
-# <version> is a release tag minus its leading `v`, e.g. 1.0.0-rc.15.
+# <version> is a release tag minus its leading `v`, e.g. 1.0.0 or 1.0.1-rc.2.
 # <asset> is okf-linux-x64, okf-osx-arm64 or okf-win-x64.exe.
 curl --fail --location --output okf \
   --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
@@ -262,7 +264,7 @@ violate OKF conformance):
 
 ## Status
 
-**Prerelease, and feature-complete for 1.0.0.** What is built and gated in CI:
+**1.0.0.** What is built and gated in CI:
 
 - **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
   site. Its public API was frozen by the 1.0.0 review.
@@ -279,8 +281,8 @@ violate OKF conformance):
 Not built: the registry (`okf register` / `okf unregister`, so search is
 project-scoped full stop) and the Pi shim. Neither blocks 1.0.0.
 
-Every merge to `main` cuts an `rc` tag, and that tag's pipeline publishes
-eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
+Every merge to `dev` cuts an `rc` tag and every promotion to `main` cuts a
+stable one, and that tag's pipeline publishes eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
 `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe self-contained, ~15 MB each,
 because NativeAOT compiles through the host's toolchain and the only runner
 here is Linux) — this repo's knowledge bundle as `okf-net-knowledge.tar.gz`,
@@ -300,15 +302,19 @@ artifact host **resolves only inside Ringo's network** — public exposure needs
 auth, rate limiting and a signed manifest, tracked in
 [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26) — and until a
 tag pipeline has actually run the publishing job it has nothing to serve; see
-[Install](#install-prerelease-binaries), which says so plainly and gives the
+[Install](#install), which says so plainly and gives the
 build-from-source path. The generated knowledge site publishes from `main` to
 [okf-net-28dd30.pages.tychostation.dev](https://okf-net-28dd30.pages.tychostation.dev),
 which is on the same internal network and behind this project's access
 control; `mise run site` renders the identical output locally, openable from
 `file://`.
 
-Usable from source, deliberately not yet stable: this is `1.0.0-rc.N`, and the
-`rc` is not decoration.
+1.0.0 is the first stable version, cut from the whole history when `main`
+became a release branch. Nothing about the code changed at that moment — what
+changed is the promise: the public API frozen by the 1.0.0 review, the CLI
+surface and the diagnostic identifiers are now things that move by semver
+rather than by merge. Work in progress lands on `dev` and ships as
+`1.0.1-rc.N` until it is promoted.
 
 ## Documentation
 
@@ -337,7 +343,9 @@ mise run setup    # installs git hooks (conventional commits + markdown lint)
 ```
 
 All commits (except merges) must follow
-[Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+[Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),
+and merge requests target **`dev`** — `main` is the stable release branch and
+is only ever advanced by promoting `dev`.
 
 ## License
 
