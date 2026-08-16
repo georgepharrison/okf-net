@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
+generated: { by: claude-fable/5, at: 2026-08-15T23:59:00Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -128,9 +128,9 @@ thing decays into a search problem, and then into an abandoned directory.
 
 # The two skills
 
-The custodian is instantiated by two prose skills shipped in the toolset's
-`skills/` directory, host-neutral and calling the CLI rather than
-reimplementing anything:[^prd]
+The custodian is instantiated by two prose skills shipped **inside the `okf`
+binary**, host-neutral and calling the CLI rather than reimplementing
+anything:[^prd]
 
 - **`okf-capture`** turns something just learned into a concept: search first,
   apply [the capture-versus-cite
@@ -147,6 +147,21 @@ a citation carrying the trust tier — and hands back to the two producers at
 its write boundary, so a reading session that turns up something worth
 keeping arrives at the right skill rather than writing from the wrong one.
 `skills/README.md` says which of the three fires when.
+
+`okf skills install` writes them onto a machine — okf's own copy under
+`~/.local/share/okf/skills`, plus Claude Code's and pi's skill directories when
+the machine already has them — and both installers run it once the binary is in
+place. Embedded rather than downloaded because no other okf command makes a
+network call, and a skills archive matched to a binary is a version question
+that does not exist when the answer is "the one compiled into it". `okf skills
+path <skill>` answers where a copy landed.
+
+That is also what makes a scaffolded `recipe.json` honest elsewhere. `okf init`
+resolves each pointer against the project it is writing into — `skills/<name>/SKILL.md`
+first, then a project-scoped host install — and otherwise writes the descriptor
+SPEC §5.1 allows in place of a path, naming `okf skills install` as the
+resolver. An absolute path in a committed file resolves for exactly the person
+who ran the command.
 
 Both state the same doctrine — orient by disclosure, retrieve by search, open
 what you pick; `raw/` is evidence and the bundle is knowledge — which is also
@@ -176,7 +191,7 @@ that means concretely, and only what it means:
 
 | Where | What runs | Written by |
 | --- | --- | --- |
-| `okf/custodian/recipe.json` | Names the two skills by repo path, the search seeds an enrichment pass starts from, the exact commands, and the triggers. | — |
+| `okf/custodian/recipe.json` | Names the two skills by repo path — the copy in `skills/` is this repository's installed copy — plus the search seeds an enrichment pass starts from, the exact commands, and the triggers. | — |
 | `pre-commit` hook | `markdownlint-cli2` on staged markdown; `check-manifest.py` when anything under `okf/raw/` is staged. | Nothing. Both report. |
 | CI `dogfood` job | `okf lint okf/`, `okf index --check`, and `okf/custodian/check-manifest.py`. | Nothing. All three report. |
 | CI `custodian-inbox` job | `okf inbox okf/`, on a schedule, publishing the JSON as an artifact. | Nothing. It surfaces and exits 0 whatever it finds. |

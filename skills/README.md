@@ -18,3 +18,36 @@ Getting knowledge in is `okf-capture`'s; keeping it alive is
 hand off to each other — capture drops the artifact, the custodian ingests it
 — and `okf-vault` hands back to both at its write boundary, so a reading
 session that turns up something worth keeping arrives at the right skill.
+
+## Getting them onto a machine
+
+The three files here are **embedded in the `okf` binary**, so a release of the
+toolset carries the skills it was built with and installing them needs no
+network:
+
+```sh
+okf skills install                    # okf's own copy, plus any host already present
+okf skills list                       # what this binary carries
+okf skills path okf-capture           # where a skill landed
+```
+
+`install.sh` and `install.ps1` run `okf skills install` for you once the binary
+is in place (`OKF_SKIP_SKILLS=1` opts out). With no `--host` it writes:
+
+| Target | Location |
+| --- | --- |
+| okf's own copy | `$XDG_DATA_HOME/okf/skills` (else `~/.local/share/okf/skills`; `%LOCALAPPDATA%\okf\skills` on Windows) |
+| Claude Code | `~/.claude/skills`, only when `~/.claude` already exists |
+| pi | `~/.pi/agent/skills`, only when `~/.pi/agent` already exists |
+
+`--host claude|pi|generic|all` names a target explicitly, `--scope project`
+puts it beside the project instead of in your home, and `--dir <path>` writes
+anywhere — including a project's own `skills/`, which is what a repository that
+would rather vendor them commits. A file you have edited is reported
+`skipped (modified)` and left alone unless you pass `--force`.
+
+In this repository the files here *are* the installed copy: `okf/custodian/recipe.json`
+points at `skills/<name>/SKILL.md`, and `okf init` writes that same path into
+any project that has one. A project that has none gets the instruction
+`okf skill <name>` in its recipe instead, because an absolute path in a
+committed file resolves for exactly one person.

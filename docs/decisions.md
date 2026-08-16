@@ -2653,3 +2653,126 @@ rule when it argues that `<vault-root>/.okf/` costs the bundler nothing. The con
 survives for the other reason it gives — the walk starts at `bundles/<name>/`, so a
 vault-root directory is never reached whatever it is called — but an index kept *inside*
 a bundle root would now be walked, and #24 has to place it accordingly.
+### Proposed decisions: shipping the skills (work item #41, 2026-08-15)
+
+An outside review found the hole every reviewer here had walked past: the installer
+delivers `~/.local/bin/okf` and nothing else, the three skills live in this repository, and
+`okf init` writes `skills/okf-capture/SKILL.md` into every custodian recipe it scaffolds.
+That path exists in exactly one place on earth — this checkout — and all the work that
+would have caught it happened inside it. A consumer got a pointer to a file they do not
+have.
+
+**Embedded, not downloaded, and the argument is AD-7 rather than convenience.** The three
+`SKILL.md` files come to 37 KB against a 6 MB binary, so size decides nothing. What decides
+it is that a download is a network call, and no other okf command makes one: an install
+that works offline, in an air-gapped CI job, or behind a proxy that has not been told about
+`get.okf.tychostation.dev` is the same install everywhere. A downloaded skills archive
+would also need its own version negotiation — which archive matches *this* binary — and
+that question does not exist when the answer is "the one compiled into it". `okf skills
+install` therefore writes files and nothing else, and a binary is a complete delivery.
+
+The mechanism is the one `okf site` already established: an MSBuild glob over
+`../../skills/*/SKILL.md` into `EmbeddedResource`, read back with
+`GetManifestResourceStream`, which is NativeAOT-safe because a manifest resource is data in
+the image rather than a type the trimmer must be told to keep. The skills stay editable,
+lintable, reviewable markdown in the repository, which is the whole point of not
+string-literalling them into C#.
+
+**A glob plus a test, because either alone is a trap.** The glob means a skill added to
+`skills/` is embedded by the next build with no csproj edit — and a glob that silently
+matches nothing is exactly how a build stays green while shipping an empty set.
+`OkfSkillsTests` asserts the embedded set equals the on-disk set, name for name and byte
+for byte, with the checkout as the oracle. Excluding one skill from the glob fails two
+assertions; that is the check being shown to work rather than asserted to.
+
+**They live in `Okf.Core`, with the scaffold.** `Okf.Cli` would have been defensible — the
+verb is a CLI verb — but the scaffold in Core is what has to know the skill names to write
+a recipe pointer, and AD-6 puts every judgement in the library. Core holding the skills
+means one place answers "what skills exist", and the CLI renders that answer.
+
+**The pointer `okf init` writes is resolved at scaffold time, against the project only.**
+The order is a project-relative `skills/<name>/SKILL.md` — this repository's own layout,
+and what a project vendoring its skills would commit — then a project-scoped host install
+(`.claude/skills/<name>/SKILL.md`, `.pi/agent/skills/<name>/SKILL.md`), and otherwise the
+descriptor form SPEC §5.1 allows in place of a path: `okf skill okf-capture`, with the
+resolver named in a comment beside it and printed after the run.
+
+What is *not* considered is the user-level copy, and that is the load-bearing half.
+`recipe.json` is committed and read on every machine that clones the project, so a
+`/home/ringo/.local/share/okf/skills/...` or a `~/...` in it is a pointer that resolves for
+one person. A descriptor that says how to get the file is honest on every machine; an
+absolute path is a lie on all but one. §5.1 already permits a resource to be a population or
+scope descriptor rather than a path, and `OKF0308` deliberately does not try to resolve a
+value carrying whitespace, so the form is legal and quiet by the rules already written.
+
+**XDG, and the split between config and data.** `~/.config/okf/` was already the config
+directory; the canonical skill copy goes to `$XDG_DATA_HOME/okf/skills` (else
+`~/.local/share/okf/skills`), and `%LOCALAPPDATA%\okf\skills` on Windows. Config is what a
+person edits and backs up; data is what a tool writes and can rewrite from the binary. A
+skill copy is the second kind — restoring it is `okf skills install`, not a backup. The
+resolution is `OkfEnvironment`'s, like every other path question in the toolset, so a test
+injects a home directory and nothing in the suite touches the developer's real
+`~/.claude`.
+
+**Host detection installs where a host already is, and never conjures one.** With no
+`--host`, an install writes the data copy and then adds Claude Code and pi only when
+`~/.claude` and `~/.pi/agent` exist. An installer that created `~/.pi/agent/skills` on a
+machine with no pi on it would be leaving litter shaped like a configuration. `--host all`
+is the way to ask for a host that is not installed yet, `--dir` is the escape hatch for any
+other agent, and `--scope project` puts the same files beside a project instead.
+
+**A skill somebody edited is theirs.** A file whose bytes differ from the binary's copy is
+reported `skipped (modified)` and the run still exits 0, unless `--force`. Two reasons: a
+tool that silently overwrites work it did not write is a tool people stop running, and an
+installer that failed because a user had customised a skill would report a broken install
+on every subsequent upgrade. It is the same discipline `okf init` follows — never overwrite
+content — and the same exit-code reading.
+
+**The skills step belongs to the installer, following the pattern every agent tool uses.**
+`install.sh` and `install.ps1` place the binary, verify it, and then run `okf skills
+install`. Everything about it is non-interactive: a prompt inside `curl … | sh` is a hang,
+not a question, and the interactive first-run walkthrough is
+[#50](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/50). A failure is a **warning
+naming the command to re-run**, never a failed install — by then the bytes are downloaded,
+digest-checked and in place, and telling a user their okf is broken when it is not costs
+more than the missing skills do. `OKF_SKIP_SKILLS=1` opts out, for anyone who manages their
+agent's skill directories themselves.
+
+`tests/install-sh` grew three cases per shell. The stand-in binaries now answer `skills
+install` and append their own argv to `$OKF_STUB_LOG`, so *what the installer called* is
+asserted rather than inferred from an exit code — the same recording-shim technique the TLS
+and `xattr` cases already use. `OKF_STUB_SKILLS_FAIL=1` drives the failure path without a
+second fixture release whose digests would all have to be recomputed. Per AGENTS.md they
+were shown to constrain: deleting the block from `install.sh` fails five assertions, and
+making the skip test compare against a value nothing sets fails two.
+
+**`okf-skills.tar.gz` ships anyway, and it is not how the skills reach an installer user.**
+Eight assets now. The archive is for the reader who wants the prose without the binary: an
+agent host okf-net does not know about, a project vendoring the files under its own
+`skills/`, a reviewer reading a release. It is deterministic by the bundler's discipline —
+entries sorted by name, one fixed mtime, uid/gid zeroed, a fixed mode, `gzip -n` so the
+compressed stream carries neither timestamp nor filename — so a rerun of a tag pipeline
+produces the same digest, and the `sha256` in `latest.json` is a fact about the release
+rather than about the day it was cut. Only `skills/*/SKILL.md` goes in: `skills/README.md`
+is this repository's documentation *about* the skills and names repo-relative paths.
+
+**Deliberately not done.**
+
+- **No codex host, and no other named host.** Each one is a directory convention to get
+  right and keep right, and `--dir` covers every host okf-net has not learned. Adding one
+  is a case label and a detection path; adding one nobody has asked for is a convention to
+  maintain on a guess.
+- **No self-update, and no version check on an installed skill.** An installed skill is a
+  copy, not a link, and the binary that wrote it is the version it came from. A skill that
+  drifts behind the binary is refreshed by running `okf skills install` again, which reports
+  every file it left unchanged. Making the toolset notice by itself needs a stamp beside
+  each copy and a policy for what to do about a modified one, which is a design, not a
+  detail.
+- **No uninstall.** The command writes `<name>/SKILL.md` under directories it names in its
+  own output; `rm -r` is the uninstaller, exactly as for the binary.
+- **No interactive walkthrough**, which is #50 and was carved out of this item on purpose:
+  #41 has to work with nothing attached to a terminal, because that is how an installer
+  runs.
+- **The skills are not read from disk by any other command.** `okf mcp` and the CLI describe
+  the format in their own words; nothing loads a `SKILL.md` at run time, so an edited or
+  missing skill cannot change what the toolset does.
