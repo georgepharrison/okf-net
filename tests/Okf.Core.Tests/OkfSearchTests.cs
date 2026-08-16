@@ -57,6 +57,40 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void AQueryRendersCanonicallyWithItsTermsFirst()
+    {
+        // What `okf search --verbose` prints back as the effective query (PRD CLI-4), so
+        // the rendering has to carry every part of it and in one fixed order however the
+        // parts were written.
+        Assert.Equal(
+            "widget pricing type:Playbook tag:Catalog tag:widgets",
+            OkfSearchQuery.Parse("tag:Catalog Widget type:Playbook pricing tag:widgets").ToString());
+        Assert.Equal(string.Empty, OkfSearchQuery.Parse(null).ToString());
+    }
+
+    [Theory]
+    // Where each token starts and how long it is, in the original text — what lets a
+    // snippet mark the matched words without re-finding them.
+    [InlineData("ab cd", "ab@0+2 cd@3+2")]
+    // A run of separators opens no token, at the edges or in the middle.
+    [InlineData("  ab", "ab@2+2")]
+    [InlineData("ab, cd", "ab@0+2 cd@4+2")]
+    [InlineData("ab ", "ab@0+2")]
+    [InlineData("   ", "")]
+    // A token still open when the text runs out is closed at the end of the text.
+    [InlineData("ab", "ab@0+2")]
+    // Offsets are in UTF-16 code units, so an astral separator advances by the two units
+    // it occupies and the token after it is still found where it really is.
+    [InlineData("ab\U0001F680cd", "ab@0+2 cd@4+2")]
+    public void TokenOffsetsAreWhereTheTokensReallyAre(string text, string expected) =>
+        Assert.Equal(
+            expected,
+            string.Join(
+                ' ',
+                OkfTokenizer.TokenizeWithOffsets(text).Select(
+                    token => $"{token.Token}@{token.Start}+{token.Length}")));
+
+    [Fact]
     public void AUrlInAQueryIsNotMistakenForAFilter()
     {
         var query = OkfSearchQuery.Parse("https://example.invalid/spec");
@@ -100,6 +134,53 @@ public class OkfSearchTests
         var results = Search(bundle, "widget").Results;
 
         Assert.Equal(["short.md", "long.md"], results.Select(result => result.Path));
+        Assert.True(results[0].Score > results[1].Score);
+    }
+
+    [Fact]
+    public void TheScoreIsBm25WithTheParametersAndWeightsAd26Fixes()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("one.md", "---\ntype: Reference\ntitle: Widget\n---\n\nwidget\n")
+            .Add("two.md", "---\ntype: Reference\ntitle: Gadget\n---\n\nwidget widget\n");
+
+        var results = Search(bundle, "widget").Results;
+
+        // Worked by hand from AD-26's statement of the ranking function — BM25 with
+        // k1 = 1.2, b = 0.75, the non-negative IDF variant, field weights title ×3,
+        // `type` ×2, body ×1, and four decimals on output — rather than from okf-net's
+        // arithmetic. Ranking tests cannot see a constant factor applied to every term;
+        // the number can, which is what makes the published formula worth asserting
+        // against rather than paraphrasing.
+        //
+        //   one.md   f = 3 (title) + 1 (body) = 4,   length = 3 + 2 + 1 = 6
+        //   two.md   f = 2 (body),                   length = 3 + 2 + 2 = 7
+        //   N = 2, df = 2       idf = ln(1 + 0.5 / 2.5)             = 0.18232156
+        //   average length      = 13 / 2                            = 6.5
+        //   norm(L)             = 1.2 × (1 − 0.75 + 0.75 × L / 6.5)
+        //   score               = idf × f × (1.2 + 1) / (f + norm(L))
+        //   one.md              = 0.18232156 × 4 × 2.2 / (4 + 1.13076923) → 0.3127
+        //   two.md              = 0.18232156 × 2 × 2.2 / (2 + 1.26923077) → 0.2454
+        Assert.Equal(["one.md", "two.md"], results.Select(result => result.Path));
+        Assert.Equal(0.3127, results[0].Score, precision: 6);
+        Assert.Equal(0.2454, results[1].Score, precision: 6);
+    }
+
+    [Fact]
+    public void ADescriptionIsIndexedAndOutweighsTheBody()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("z-described.md", "---\ntype: Reference\ntitle: Gamma\ndescription: widget\n---\n\ndelta\n")
+            .Add("a-bodied.md", "---\ntype: Reference\ntitle: Gamma\ndescription: delta\n---\n\nwidget\n");
+
+        var results = Search(bundle, "widget").Results;
+
+        // PRD CORE-11 makes `description` matchable and AD-26 weights it ×2 against the
+        // body's ×1. The two documents carry the same tokens and the same weighted length,
+        // so only *where* the term sits can separate them — and the path tiebreak favours
+        // the body copy, so an engine that never indexed the description would come back
+        // with one result and one that indexed it unweighted would come back reversed.
+        Assert.Equal(["z-described.md", "a-bodied.md"], results.Select(result => result.Path));
         Assert.True(results[0].Score > results[1].Score);
     }
 
@@ -177,6 +258,23 @@ public class OkfSearchTests
 
         var outcome = Search(bundle, "phlogiston");
 
+        Assert.Empty(outcome.Results);
+        Assert.Equal(OkfSearchMatchMode.All, outcome.MatchMode);
+        Assert.False(outcome.UsedFallback);
+    }
+
+    [Fact]
+    public void SeveralTermsThatMatchNothingAreStillNotAFallback()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("widget.md", Concept("Reference", "Widget", "A widget."));
+
+        var outcome = Search(bundle, "phlogiston caloric");
+
+        // The OR pass ran and came back empty too, so nothing was widened and the outcome
+        // must not claim it was — a command that printed "no concept matched every term,
+        // showing any" over an empty result would be describing a search that never
+        // happened.
         Assert.Empty(outcome.Results);
         Assert.Equal(OkfSearchMatchMode.All, outcome.MatchMode);
         Assert.False(outcome.UsedFallback);
@@ -314,6 +412,174 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void ASnippetAnchorsOnTheFirstWindowWhenTwoCoverAsManyTerms()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Reference\ntitle: One\n---\n\nalpha beta at the front. "
+            + string.Join(' ', Enumerable.Repeat("pad", 40))
+            + " alpha beta at the back.\n");
+
+        var snippet = Assert.Single(Search(bundle, "alpha beta").Results).Snippet;
+
+        // Both ends of the body carry a window covering the same two distinct terms. The
+        // rule is "the most distinct terms, earliest first on a tie", so the front window
+        // wins and the snippet opens at offset 0 with no leading ellipsis — a later window
+        // would be at least as good only if the tie broke the other way.
+        Assert.StartsWith("**alpha** **beta** at the front.", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ASnippetWindowStartsAtAWordAndKeepsItsLeadIn()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("head.md", "---\ntype: Reference\ntitle: Head\n---\n\n— widget at the head.\n")
+            .Add(
+                "snap.md",
+                "---\ntype: Reference\ntitle: Snap\n---\n\n"
+                + string.Join(' ', Enumerable.Repeat("abc", 20)) + " widget tail\n")
+            .Add(
+                "mid.md",
+                "---\ntype: Reference\ntitle: Mid\n---\n\n"
+                + string.Join(' ', Enumerable.Repeat("alpha", 20)) + " widget tail\n");
+
+        var snippets = Search(bundle, "widget").Results.ToDictionary(
+            result => result.Path,
+            result => result.Snippet,
+            StringComparer.Ordinal);
+
+        // The window keeps 32 characters of lead-in before the match, and never at the cost
+        // of half a word: the raw offset snaps *forward* to the next token boundary, and
+        // only forward, so the lead-in can shrink but the window never opens mid-word and
+        // never swallows the lead-in altogether.
+        //
+        //   head.md  the match sits 2 characters in, so there is no lead-in to trim and the
+        //            window opens at the very start — no ellipsis.
+        //   snap.md  three-letter words: the raw offset lands exactly on a word start, and
+        //            that word is kept rather than skipped.
+        //   mid.md   five-letter words: the raw offset lands inside a word, which is given
+        //            up in full.
+        Assert.Equal("— **widget** at the head.", snippets["head.md"]);
+        Assert.Equal(
+            "…" + string.Join(' ', Enumerable.Repeat("abc", 8)) + " **widget** tail",
+            snippets["snap.md"]);
+        Assert.Equal(
+            "…" + string.Join(' ', Enumerable.Repeat("alpha", 5)) + " **widget** tail",
+            snippets["mid.md"]);
+    }
+
+    [Fact]
+    public void ASnippetWindowEndsAtAWordAndMarksTheMatchAtItsVeryStart()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "edge.md",
+            "---\ntype: Reference\ntitle: Edge\n---\n\nwidget z "
+            + string.Join(' ', Enumerable.Repeat("abc", 40)) + "\n")
+            .Add(
+                "trim.md",
+                "---\ntype: Reference\ntitle: Trim\n---\n\nwidget z "
+                + string.Join(' ', Enumerable.Repeat("abcd", 32)) + "\n");
+
+        var snippets = Search(bundle, "widget").Results.ToDictionary(
+            result => result.Path,
+            result => result.Snippet,
+            StringComparer.Ordinal);
+
+        // Both bodies overrun the 160-character window, so both are cut back to the last
+        // word that fits — `edge.md` to a word ending exactly on the limit, which counts as
+        // fitting, and `trim.md` to the word before the limit. The match sits at offset 0
+        // in both, which is where the window itself begins: a hit at the very start of the
+        // window is still marked.
+        Assert.Equal(
+            "**widget** z " + string.Join(' ', Enumerable.Repeat("abc", 38)) + "…",
+            snippets["edge.md"]);
+        Assert.Equal(
+            "**widget** z " + string.Join(' ', Enumerable.Repeat("abcd", 30)) + "…",
+            snippets["trim.md"]);
+    }
+
+    [Fact]
+    public void AMatchEndingExactlyOnTheWindowEdgeIsInsideTheWindow()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Reference\ntitle: One\n---\n\nwidget z "
+            + string.Join(' ', Enumerable.Repeat("abcd", 29))
+            + " gadget then widget again.\n");
+
+        var snippet = Assert.Single(Search(bundle, "widget gadget").Results).Snippet;
+
+        // `gadget` ends on character 160 — the last position the window covers. Counted as
+        // inside, the window around the first `widget` covers both terms and wins the
+        // anchor outright, and the snippet marks `gadget` at its own edge. Counted as
+        // outside, that window covers one term, the window around `gadget` covers two, and
+        // the snippet opens somewhere in the middle of the body instead.
+        Assert.Equal(
+            "**widget** z " + string.Join(' ', Enumerable.Repeat("abcd", 29)) + " **gadget**…",
+            snippet);
+    }
+
+    [Fact]
+    public void AnUnmatchedBodyIsHeadedAtAWholeWordAndOnlyWhenItOverrunsTheWindow()
+    {
+        using var bundle = new TempBundle();
+        var exact = string.Join(' ', Enumerable.Repeat("alpha", 26)) + " abcd";
+        bundle.Add("exact.md", "---\ntype: Heading\ntitle: Exact\n---\n\n" + exact + "\n")
+            .Add(
+                "over.md",
+                "---\ntype: Heading\ntitle: Over\n---\n\n"
+                + string.Join(' ', Enumerable.Repeat("alpha", 40)) + "\n");
+
+        var snippets = Search(bundle, "heading").Results.ToDictionary(
+            result => result.Path,
+            result => result.Snippet,
+            StringComparer.Ordinal);
+
+        // Neither body carries the matched term, so each snippet is the head of the body.
+        // A body that is exactly the window long is shown whole and unmarked; a longer one
+        // is cut back to the last whole word that fits — 26 five-letter words plus their
+        // spaces is 155 characters and a 27th would carry it past 160.
+        Assert.Equal(OkfSearchEngine.SnippetLength, exact.Length);
+        Assert.Equal(exact, snippets["exact.md"]);
+        Assert.Equal(string.Join(' ', Enumerable.Repeat("alpha", 26)) + "…", snippets["over.md"]);
+    }
+
+    [Fact]
+    public void TheBodyWindowIsPreferredToTheDescriptionWheneverTheBodyMatches()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Reference\ntitle: One\ndescription: A description that also says widget.\n---\n\n"
+            + "The body says widget too.\n");
+
+        // Links-first (AD-28): the snippet exists to show *where in the concept* the match
+        // is, so a body match is what a reader wants to see and the description is the
+        // stand-in for when there is nothing in the body to show.
+        Assert.Equal(
+            "The body says **widget** too.",
+            Assert.Single(Search(bundle, "widget").Results).Snippet);
+    }
+
+    [Fact]
+    public void AConceptWithNoBodyAtAllStillSnippetsItsDescription()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "one.md",
+            "---\ntype: Placeholder\ntitle: One\ndescription: Only the description says anything.\n---\n");
+
+        // An empty body has no window to offer — not an empty window, which would leave the
+        // result with nothing to display at all.
+        Assert.Equal(
+            "Only the description says anything.",
+            Assert.Single(Search(bundle, "placeholder").Results).Snippet);
+    }
+
+    [Fact]
     public void AFrontmatterOnlyMatchSnippetsTheDescription()
     {
         using var bundle = new TempBundle();
@@ -378,6 +644,52 @@ public class OkfSearchTests
         Assert.Equal(
             "A **widget** is an array[0] item, footnoted[^src], and [unclosed (see below). [^src]: A source.",
             snippet);
+    }
+
+    [Theory]
+    // Heading markers go, up to the six levels markdown has; a seventh `#` is not a
+    // heading and neither is a `#` with no space after it.
+    [InlineData("# Heading text", "Heading text")]
+    [InlineData("###### Six deep", "Six deep")]
+    [InlineData("####### Seven is not a heading", "####### Seven is not a heading")]
+    [InlineData("#nospace", "#nospace")]
+    // A line that is nothing but hashes contributes no text at all, and the blank it
+    // leaves behind never becomes a leading space.
+    [InlineData("##\n\nProse.", "Prose.")]
+    // One block marker per line, after the heading marker and the space behind it.
+    [InlineData("> Quoted", "Quoted")]
+    [InlineData("- Item", "Item")]
+    [InlineData("## - Nested", "Nested")]
+    // A marker needs the space that makes it a marker: a hyphen with nothing after it
+    // and a hyphen glued to a word are both prose.
+    [InlineData("-\n\nProse.", "- Prose.")]
+    [InlineData("-Item", "-Item")]
+    // `[label]: destination` is address, not prose, and goes whole. `[]:` is not a label,
+    // and a footnote definition carries the note itself.
+    [InlineData("Prose.\n\n[label]: ../elsewhere.md", "Prose.")]
+    [InlineData("[]: not an address", "[]: not an address")]
+    [InlineData("[^src]: A source.", "[^src]: A source.")]
+    // A link is rewritten only in its complete single-line form. A bracket that never
+    // closes, one that closes with nothing after it, a bare `[`, an opener whose closer
+    // never arrives, and a footnote reference are all left as written.
+    [InlineData("Hey! [a](b) done", "Hey! a done")]
+    [InlineData("[", "[")]
+    [InlineData("[label]", "[label]")]
+    [InlineData("[a(b.md) unclosed", "[a(b.md) unclosed")]
+    [InlineData("([unclosed)", "([unclosed)")]
+    [InlineData("[text](unclosed", "[text](unclosed")]
+    [InlineData("See [^note](notes.md) here.", "See [^note](notes.md) here.")]
+    // A `!` that opens no image is just punctuation.
+    [InlineData("Wow!", "Wow!")]
+    public void MarkdownIsFlattenedToTheOneLineASnippetIsMadeOf(string body, string expected)
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("one.md", "---\ntype: Flattening\ntitle: One\n---\n\n" + body + "\n");
+
+        // The concept matches on `type` alone and carries no `description`, so the snippet
+        // is the flattened body itself rather than a window inside it — which makes the
+        // flattening the only thing under test.
+        Assert.Equal(expected, Assert.Single(Search(bundle, "flattening").Results).Snippet);
     }
 
     [Fact]

@@ -173,11 +173,6 @@ public sealed class OkfIndexPlan
     /// <summary>Whether any index drifted.</summary>
     public bool HasDrift => Indexes.Any(index => index.IsDrift);
 
-    /// <summary>Counts the indexes at one status.</summary>
-    /// <param name="status">The status to count.</param>
-    /// <returns>How many indexes carry it.</returns>
-    public int Count(OkfIndexStatus status) => Indexes.Count(index => index.Status == status);
-
     /// <summary>
     /// The index for one directory, or <see langword="null" /> when that directory has
     /// nothing to list. This is the read side of on-the-fly synthesis (PRD CORE-10): the
