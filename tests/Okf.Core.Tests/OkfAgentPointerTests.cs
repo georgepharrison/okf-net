@@ -114,6 +114,66 @@ public class OkfAgentPointerTests
     }
 
     [Fact]
+    public void AFenceClosingAtEndOfFileWithNoTrailingNewlineKeepsItThatWay()
+    {
+        // The splice reuses the terminator of the line it replaces, so the one file shape
+        // that has no terminator at all — a fence closing the last line — stays that way.
+        using var tree = new TempTree();
+        var path = tree.Write("AGENTS.md", "# Rules\n\n<!-- okf:begin -->\nstale\n<!-- okf:end -->");
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Updated, file.Status);
+        Assert.Equal("# Rules\n\n" + OkfAgentPointer.Block, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void AnUnfencedFileWithNoTrailingNewlineStillGetsExactlyOneBlankLineBeforeTheBlock()
+    {
+        using var tree = new TempTree();
+        var path = tree.Write("AGENTS.md", "Team conventions.");
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Updated, file.Status);
+        Assert.Equal("Team conventions.\n\n" + OkfAgentPointer.Block + "\n", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void AFileCarryingMoreThanOneFenceIsLeftExactlyAsFound()
+    {
+        // Bringing one fence current would leave the other saying something stale in the
+        // agent's context on every turn, and this writer deletes nothing it did not write
+        // in the run doing the deleting: it reports the file and touches nothing.
+        using var tree = new TempTree();
+        var before =
+            "# Rules\n\n<!-- okf:begin -->\nstale one\n<!-- okf:end -->\n\nProse.\n\n" +
+            "<!-- okf:begin -->\nstale two\n<!-- okf:end -->\n";
+        var path = tree.Write("AGENTS.md", before);
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Refused, file.Status);
+        Assert.Equal(before, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void AFenceNestedInsideAnotherIsOneFenceAndIsSplicedCurrent()
+    {
+        // A begin with no close of its own before the next end marker is inside the region
+        // the first fence owns, not a second fence: one machine-owned region, spliced.
+        using var tree = new TempTree();
+        var path = tree.Write(
+            "AGENTS.md",
+            "# Rules\n\n<!-- okf:begin -->\nstale\n<!-- okf:begin -->\nstale\n<!-- okf:end -->\n");
+
+        var file = OkfAgentPointer.WriteAgentsMd(tree.Root);
+
+        Assert.Equal(OkfAgentPointerStatus.Updated, file.Status);
+        Assert.Equal("# Rules\n\n" + OkfAgentPointer.Block + "\n", File.ReadAllText(path));
+    }
+
+    [Fact]
     public void AnAbsentClaudeMdIsCreatedWithTheRepositorysOwnOneLiner()
     {
         using var tree = new TempTree();

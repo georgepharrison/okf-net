@@ -3417,3 +3417,15 @@ one-line change reads as a one-line diff), applied to a file okf-net does not ot
 any part of. `CLAUDE.md` is simpler by design: created once, in this repository's own form,
 and never rewritten — a project that already has one owns it, and okf-net has nothing to say
 about its content.
+
+**A second fence is reported, never reconciled.** A file carrying more than one complete
+`okf:begin`/`okf:end` pair — a merge artifact, or a block pasted twice — is left exactly as
+found and reported `left as found (more than one okf fence; remove the extras and re-run)`,
+exit 0, the same never-overwrite manners as `skipped (modified)` in `okf skills install`.
+Splicing the first pair and walking away is the one outcome that must not happen: it leaves
+the others saying an older okf's wording in the agent's context on every turn, and reports
+`unchanged` forever after, so the duplicate the guide's pruning section forbids becomes
+invisible. Deleting the extras would be this writer destroying lines no run of it wrote,
+which is the discipline above. A begin marker with no close of its own before the next end
+marker is *inside* the region the first fence owns, not a second fence — one machine-owned
+region, spliced current like any other.

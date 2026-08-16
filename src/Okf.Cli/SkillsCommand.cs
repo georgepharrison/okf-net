@@ -153,11 +153,7 @@ internal static class SkillsCommand
         // user-scoped install has no project root to write AGENTS.md into.
         if (arguments.Scope == OkfSkillScope.Project && !arguments.NoAgentsMd)
         {
-            foreach (var file in OkfAgentPointer.Write(environment.CurrentDirectory))
-            {
-                output.WriteLine(
-                    $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
-            }
+            AgentPointerReport.Write(environment.CurrentDirectory, environment, output);
         }
 
         return CliApplication.ExitSuccess;
@@ -168,14 +164,6 @@ internal static class SkillsCommand
         OkfSkillInstallStatus.Written => "written",
         OkfSkillInstallStatus.Unchanged => "unchanged",
         _ => "skipped (modified)",
-    };
-
-    private static string Verb(OkfAgentPointerStatus status) => status switch
-    {
-        OkfAgentPointerStatus.Created => "created",
-        OkfAgentPointerStatus.Updated => "updated",
-        OkfAgentPointerStatus.Unchanged => "unchanged",
-        _ => "skipped (exists)",
     };
 
     private static void WriteUsage(TextWriter writer)

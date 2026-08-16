@@ -259,6 +259,26 @@ public class SkillsCommandTests
     }
 
     [Fact]
+    public void AnAgentsMdCarryingTwoFencesIsReportedAndLeftAlone()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("two-fences");
+        var agentsMd = Path.Combine(project, "AGENTS.md");
+        var before =
+            "<!-- okf:begin -->\nold\n<!-- okf:end -->\n\n<!-- okf:begin -->\nolder\n<!-- okf:end -->\n";
+        File.WriteAllText(agentsMd, before);
+
+        var run = Cli.RunIn(project, home.Root, "skills", "install", "--scope", "project");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains(
+            "AGENTS.md: left as found (more than one okf fence; remove the extras and re-run)",
+            run.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllText(agentsMd));
+    }
+
+    [Fact]
     public void NoAgentsMdSkipsThePointerUnderProjectScope()
     {
         using var home = new TempTree();

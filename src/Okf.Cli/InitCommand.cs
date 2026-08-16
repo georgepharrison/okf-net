@@ -110,11 +110,7 @@ internal static class InitCommand
             var projectRoot = Path.GetDirectoryName(vault)
                 ?? throw new OkfScaffoldException($"'{vault}' has no parent directory to write AGENTS.md into.");
 
-            foreach (var file in OkfAgentPointer.Write(projectRoot))
-            {
-                output.WriteLine(
-                    $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
-            }
+            AgentPointerReport.Write(projectRoot, environment, output);
         }
 
         if (result.IsNoOp)
@@ -154,14 +150,6 @@ internal static class InitCommand
         _ => "exists, left as found",
     };
 
-    private static string Verb(OkfAgentPointerStatus status) => status switch
-    {
-        OkfAgentPointerStatus.Created => "created",
-        OkfAgentPointerStatus.Updated => "updated",
-        OkfAgentPointerStatus.Unchanged => "unchanged",
-        _ => "skipped (exists)",
-    };
-
     private static void WriteUsage(TextWriter writer)
     {
         writer.WriteLine("""
@@ -181,10 +169,11 @@ internal static class InitCommand
             would be read as a frontmatter-less concept and fail §11 conformance.
 
             It also writes a fenced context-pointer block into the project's AGENTS.md
-            (created if absent, spliced in place otherwise) and a one-line CLAUDE.md that
-            points at it (created only when none exists) — both at the project root,
-            deliberately outside okf/. --no-agents-md skips both; a --personal vault never
-            writes them, because its parent is the home directory.
+            (created if absent, spliced in place otherwise, left as found when the file
+            already carries more than one fence) and a one-line CLAUDE.md that points at it
+            (created only when none exists) — both at the project root, deliberately outside
+            okf/. --no-agents-md skips both; a --personal vault never writes them, because
+            its parent is the home directory.
 
             Arguments:
               path                          A project root; its vault is <path>/okf. A

@@ -16,6 +16,13 @@ public enum OkfAgentPointerStatus
 
     /// <summary>The file already existed and was left exactly as found (<c>CLAUDE.md</c> only).</summary>
     Skipped,
+
+    /// <summary>
+    /// The file carried more than one fence and was left exactly as found: a write could
+    /// only bring one of them current, and the others would go on saying something stale in
+    /// the agent's context on every turn.
+    /// </summary>
+    Refused,
 }
 
 /// <summary>One file an agent-pointer write considered, and what became of it.</summary>
@@ -40,11 +47,14 @@ public sealed record OkfAgentPointerFile(string Path, OkfAgentPointerStatus Stat
 /// from a second file to keep in sync.</para>
 /// <para><b>It never touches a byte outside the fence.</b> <c>AGENTS.md</c> is created with
 /// the block when the file is absent; when it is present with no fence, the block is
-/// appended after one blank line; when a fence is present, only the text from the opening
-/// marker line to the closing marker line, inclusive, is replaced — byte for byte, and only
-/// when it differs from what is already there. Everything else in the file — its own text,
-/// its newline convention — survives untouched, the same discipline
-/// <see cref="OkfStamp" /> uses for a concept's frontmatter.</para>
+/// appended after one blank line; when exactly one fence is present, only the text from the
+/// opening marker line to the closing marker line, inclusive, is replaced — byte for byte,
+/// and only when it differs from what is already there. Everything else in the file — its
+/// own text, its newline convention — survives untouched, the same discipline
+/// <see cref="OkfStamp" /> uses for a concept's frontmatter. A file carrying more than one
+/// fence is left exactly as found and reported <see cref="OkfAgentPointerStatus.Refused" />:
+/// bringing one of them current would leave the rest saying something stale, and this writer
+/// deletes nothing a run of it did not write.</para>
 /// <para><b><c>CLAUDE.md</c> is never rewritten.</b> It is created, in this repository's own
 /// one-line form, only when no <c>CLAUDE.md</c> exists at all — a project that already has
 /// one owns it, and okf-net has nothing to say about its content.</para>
@@ -114,10 +124,16 @@ public static class OkfAgentPointer
         var original = File.ReadAllText(path);
         var lines = SplitLines(original);
         var newline = DetectNewline(lines);
-        var fence = FindFence(lines);
+        var fences = FindFences(lines);
 
-        if (fence is { } found)
+        if (fences.Count > 1)
         {
+            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Refused);
+        }
+
+        if (fences.Count == 1)
+        {
+            var found = fences[0];
             var canonical = Block.Split('\n');
             var existing = lines.Skip(found.Begin).Take(found.End - found.Begin + 1).Select(line => line.Content);
             if (existing.SequenceEqual(canonical, StringComparer.Ordinal))
@@ -205,37 +221,35 @@ public static class OkfAgentPointer
         lines.Any(line => line.Terminator == "\r\n") ? "\r\n" : "\n";
 
     /// <summary>
-    /// Finds a complete fence: a line equal to <see cref="BeginMarker" />, trimmed, followed
-    /// by a line equal to <see cref="EndMarker" />, trimmed, at or after it. The first
-    /// complete pair wins; a begin with no matching end (or an end before any begin) is not a
-    /// fence, and the caller treats the file as unfenced.
+    /// Finds every complete fence, in file order: a line equal to <see cref="BeginMarker" />,
+    /// trimmed, closed by the next line equal to <see cref="EndMarker" />, trimmed, at or
+    /// after it. Scanning resumes past each close, so nested begins are swallowed by the
+    /// fence that closes first; a begin with no matching end (or an end before any begin) is
+    /// not a fence, and a file with none is treated as unfenced. The caller needs the count,
+    /// not just the first: a second fence is the one case this writer refuses.
     /// </summary>
-    private static (int Begin, int End)? FindFence(IReadOnlyList<Line> lines)
+    private static List<(int Begin, int End)> FindFences(IReadOnlyList<Line> lines)
     {
+        var fences = new List<(int Begin, int End)>();
         var begin = -1;
         for (var i = 0; i < lines.Count; i++)
         {
-            if (lines[i].Content.Trim() == BeginMarker)
+            var content = lines[i].Content.Trim();
+            if (begin < 0)
             {
-                begin = i;
-                break;
+                if (content == BeginMarker)
+                {
+                    begin = i;
+                }
+            }
+            else if (content == EndMarker)
+            {
+                fences.Add((begin, i));
+                begin = -1;
             }
         }
 
-        if (begin < 0)
-        {
-            return null;
-        }
-
-        for (var i = begin; i < lines.Count; i++)
-        {
-            if (lines[i].Content.Trim() == EndMarker)
-            {
-                return (begin, i);
-            }
-        }
-
-        return null;
+        return fences;
     }
 
     /// <summary>

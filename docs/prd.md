@@ -349,7 +349,8 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
   - Refuses to overwrite existing files; re-running on an initialized project is a
     reported no-op.
   - Also writes a marker-fenced context-pointer block into the project's `AGENTS.md`
-    (created if absent, spliced in place otherwise) and a one-line `CLAUDE.md` naming it
+    (created if absent, spliced in place otherwise, left as found when the file already
+    carries more than one fence) and a one-line `CLAUDE.md` naming it
     (created only when absent) — both at the *project* root, outside `okf/` (a deliberate
     widening of AD-2, work item #56). `--no-agents-md` opts out; a `--personal` vault never
     gets them. `okf skills install --scope project` writes the identical pair.
