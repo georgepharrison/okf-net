@@ -98,6 +98,10 @@ public class OkfVerifyIdentityTests
 
         Assert.False(resolution.IsResolved);
         Assert.Null(resolution.Actor);
+
+        // `Source` is what `--verbose` and the dry run print for where the identity came
+        // from, and a refusal still has to answer that question rather than print nothing.
+        Assert.Equal("none", resolution.Source);
         Assert.Contains("verify.actor", resolution.Problem!, StringComparison.Ordinal);
         Assert.Contains("git config --global user.email", resolution.Problem!, StringComparison.Ordinal);
     }
@@ -136,6 +140,18 @@ public class OkfVerifyIdentityTests
         tree.WriteHomeGitConfig("ringo@example.org");
 
         Assert.Equal("ringo@example.org", OkfVerifyIdentity.GlobalUserEmail(tree.HomeOnlyEnvironment()));
+    }
+
+    [Fact]
+    public void TheGitReadHonoursTheXdgConfigHomeItIsGiven()
+    {
+        // $XDG_CONFIG_HOME/git/config is git's other global location, and a HOME holding
+        // no `.gitconfig` is exactly when git looks there — so that variable has to travel
+        // too, or a hermetic read is not hermetic on a machine that uses it.
+        using var tree = new TempGitConfig();
+        tree.WriteXdgGitConfig("ringo@example.org");
+
+        Assert.Equal("ringo@example.org", OkfVerifyIdentity.GlobalUserEmail(tree.XdgOnlyEnvironment()));
     }
 
     [Fact]
@@ -193,6 +209,32 @@ internal sealed class TempGitConfig : IDisposable
                 new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", string.Empty),
                 new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
             ]);
+
+    /// <summary>
+    /// Writes <c>$XDG_CONFIG_HOME/git/config</c>, git's other global location. The
+    /// directory deliberately sits outside <c>$HOME/.config</c>, which is where git looks
+    /// when the variable is absent — so only the variable can lead it here.
+    /// </summary>
+    /// <param name="email">The email to record.</param>
+    public void WriteXdgGitConfig(string email)
+    {
+        Directory.CreateDirectory(Path.Combine(XdgConfigHome, "git"));
+        File.WriteAllText(Path.Combine(XdgConfigHome, "git", "config"), $"[user]\n\temail = {email}\n");
+    }
+
+    /// <summary>An environment carrying XDG_CONFIG_HOME, with a HOME that holds no config.</summary>
+    /// <returns>The environment.</returns>
+    public OkfEnvironment XdgOnlyEnvironment() =>
+        new(
+            this.root,
+            [
+                new KeyValuePair<string, string>("HOME", this.root),
+                new KeyValuePair<string, string>("XDG_CONFIG_HOME", XdgConfigHome),
+                new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", string.Empty),
+                new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
+            ]);
+
+    private string XdgConfigHome => Path.Combine(this.root, "xdg");
 
     /// <summary>Writes the global git config, with or without a <c>user.email</c>.</summary>
     /// <param name="email">The email to record, or null to write a config that sets none.</param>
