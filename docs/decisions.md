@@ -3525,3 +3525,56 @@ and the version left to the person who knows which one they want.
   suite (the script is sourced, `COMP_WORDS` set, `COMPREPLY` read back); zsh is parsed and
   loaded under a real `compinit`; fish is parsed when a `fish` binary is present. Driving a
   zsh completion to its answers needs a terminal.
+
+### Proposed decisions: no major bumps (2026-08-16)
+
+Ringo's call: okf-net stays on 1.x. No commit may carry a Conventional Commits
+breaking-change marker — a `!` after the type/scope in the header, or a `BREAKING CHANGE:` /
+`BREAKING-CHANGE:` footer — because `.releaserc.yml`'s commit-analyzer maps either form
+straight to a major release, and a 2.0.0 is not a version anyone has decided to cut.
+
+**Why a hook, not a policy note.** AGENTS.md already says commit type must be honest about
+what the commit did; a `!` or a `BREAKING CHANGE:` footer is a claim like any other type, and
+a claim `.releaserc.yml` acts on immediately, without review. The commit-msg hook is the only
+place that check runs before the claim exists anywhere else — a code-review comment or a docs
+note both arrive after the message is already committed.
+
+**How it's enforced.** `scripts/check-commit-msg.sh` — shared by `.githooks/commit-msg`, the
+`check-commit` mise task, and CI's `commit-check` job — now rejects both forms with an error
+naming the rule and pointing back here. Two changes to the script made this possible:
+
+- The header pattern dropped `!?` (previously `^(types)(\(scope\))?!?: .+`, which is exactly
+  why `feat!:` and `feat(core)!:` passed before this work item), and the usage example that
+  showed `feat!: drop support for legacy frontmatter` as valid is gone with it. A `!`
+  immediately after the type/scope now fails on its own check, with a message that names the
+  rule rather than falling through to the generic Conventional Commits error.
+- The footer check now reads the WHOLE commit message, not line 1. Before this, all three of
+  the script's input modes (no args → HEAD, `<file>`, `-m <message>`) trimmed down to the
+  first line before any pattern ran, so a `BREAKING CHANGE:` footer several lines down was
+  never looked at. All three modes now hand the script the full body; only the type/scope
+  pattern still applies to line 1 alone, since that is the one part of Conventional Commits
+  that is positional. `^BREAKING[ -]CHANGE:` is matched at line start, so prose that merely
+  uses the words mid-sentence (lowercase, no colon) is untouched — only the literal
+  Conventional Commits footer token is refused.
+- Merge and `fixup!`/`squash!` skips are unchanged and still checked against line 1 first, so
+  a merge commit that happens to quote a `BREAKING CHANGE:` footer in its body is still
+  skipped outright, same as before.
+
+**Tests, and why they didn't exist before.** There was no test harness for
+`check-commit-msg.sh` before this work item — `grep -rn check-commit-msg tests/ scripts/
+mise.toml` turned up only the script and its own usage text. `scripts/check-commit-msg.test.sh`
+is new, following the shape of `tests/install-sh/run.sh` (a bash harness, `ok`/`bad` helpers,
+a pass/fail tally, non-zero exit on any failure), run by `mise run check-commit-test` and by
+CI's `commit-check` job before it trusts the guard to judge the push. Per AD-44 ("tests must
+be shown to constrain the code"), the new cases were run against the pre-guard script first:
+`feat!:`, `feat(core)!:`, a `BREAKING CHANGE:` footer, and a `BREAKING-CHANGE:` footer all
+passed it (4 failures out of 13 assertions) before this change, and all 13 pass after it. The
+merge-commit-with-a-footer-in-its-body case and the lowercase-prose case both already passed
+against the old script, which is expected — they are regression cases, not the behaviour this
+work item adds.
+
+**Enforcement, not just documentation.** `.releaserc.yml` gets a one-line comment by
+`releaseRules` pointing back here, so a reader wondering why there is no `major` rule in that
+list finds the answer next to the gap rather than has to go looking for it. AGENTS.md's
+Commits bullet gets the same one line. Both point at the hook and CI as what actually stops a
+major bump — the config comments are signage, not the guard itself.

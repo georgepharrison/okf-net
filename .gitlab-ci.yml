@@ -271,6 +271,9 @@ commit-check:
   rules:
     - if: $CI_COMMIT_BRANCH
   script:
+    # Unit-test the guard itself before trusting it to judge the push below
+    # (scripts/check-commit-msg.test.sh; also `mise run check-commit-test`).
+    - mise run check-commit-test
     # Validate every non-merge commit in the push, mirroring medina's
     # range-based conventional-commits job. Falls back to checking just the
     # head commit when no push range is available (new branch / first
