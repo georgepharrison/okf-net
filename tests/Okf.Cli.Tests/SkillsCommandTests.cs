@@ -233,6 +233,45 @@ public class SkillsCommandTests
     }
 
     [Fact]
+    public void ProjectScopeAlsoWritesTheAgentsMdContextPointer()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("pointer-project");
+
+        var run = Cli.RunIn(project, home.Root, "skills", "install", "--scope", "project");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("AGENTS.md: created", run.Output, StringComparison.Ordinal);
+        Assert.Contains("CLAUDE.md: created", run.Output, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(project, "AGENTS.md")));
+        Assert.True(File.Exists(Path.Combine(project, "CLAUDE.md")));
+    }
+
+    [Fact]
+    public void UserScopeNeverWritesTheAgentsMdContextPointer()
+    {
+        using var home = new TempTree();
+
+        var run = Cli.RunIn(home.Root, home.Root, "skills", "install");
+
+        Assert.DoesNotContain("AGENTS.md", run.Output, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(home.Root, "AGENTS.md")));
+    }
+
+    [Fact]
+    public void NoAgentsMdSkipsThePointerUnderProjectScope()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("opted-out");
+
+        var run = Cli.RunIn(project, home.Root, "skills", "install", "--scope", "project", "--no-agents-md");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.DoesNotContain("AGENTS.md", run.Output, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(project, "AGENTS.md")));
+    }
+
+    [Fact]
     public void ADirectoryInstallWritesThereAndNowhereElse()
     {
         using var home = new TempTree();

@@ -99,6 +99,24 @@ internal static class InitCommand
         var bundle = Path.GetFileName(result.BundleRoot);
         var vaultDisplay = DiagnosticWriter.Display(result.VaultRoot, environment.CurrentDirectory);
 
+        // The pointer lives at the *project* root — the vault's parent — deliberately
+        // outside okf/ (a widening of AD-2, decisions.md #56), and it is written whether or
+        // not this run touched the vault itself: a re-run on an already-initialized vault is
+        // exactly when a stale block (an older okf's wording) gets re-spliced current. The
+        // personal vault's parent is the home directory, which is not a project an agent
+        // should find AGENTS.md in, so only a project vault gets one.
+        if (!arguments.Personal && !arguments.NoAgentsMd)
+        {
+            var projectRoot = Path.GetDirectoryName(vault)
+                ?? throw new OkfScaffoldException($"'{vault}' has no parent directory to write AGENTS.md into.");
+
+            foreach (var file in OkfAgentPointer.Write(projectRoot))
+            {
+                output.WriteLine(
+                    $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
+            }
+        }
+
         if (result.IsNoOp)
         {
             output.WriteLine(
@@ -136,6 +154,14 @@ internal static class InitCommand
         _ => "exists, left as found",
     };
 
+    private static string Verb(OkfAgentPointerStatus status) => status switch
+    {
+        OkfAgentPointerStatus.Created => "created",
+        OkfAgentPointerStatus.Updated => "updated",
+        OkfAgentPointerStatus.Unchanged => "unchanged",
+        _ => "skipped (exists)",
+    };
+
     private static void WriteUsage(TextWriter writer)
     {
         writer.WriteLine("""
@@ -154,6 +180,12 @@ internal static class InitCommand
             vault root, and OKF v0.2 does not reserve that name — inside a bundle root it
             would be read as a frontmatter-less concept and fail §11 conformance.
 
+            It also writes a fenced context-pointer block into the project's AGENTS.md
+            (created if absent, spliced in place otherwise) and a one-line CLAUDE.md that
+            points at it (created only when none exists) — both at the project root,
+            deliberately outside okf/. --no-agents-md skips both; a --personal vault never
+            writes them, because its parent is the home directory.
+
             Arguments:
               path                          A project root; its vault is <path>/okf. A
                                             directory that already holds bundles/ is taken
@@ -166,6 +198,8 @@ internal static class InitCommand
               --personal                    Initialize the personal vault (OKF_HOME, else
                                             ~/okf) instead of a project vault
               --verbose, -v                 Report the vault the target resolved to
+              --no-agents-md                Skip writing the AGENTS.md / CLAUDE.md context
+                                            pointer at the project root
               --help, -h                    Show this help
 
             Exit codes:

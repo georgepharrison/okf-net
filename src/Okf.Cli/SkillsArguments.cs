@@ -43,6 +43,12 @@ internal sealed class SkillsArguments
     /// <summary>Whether a file whose bytes differ is overwritten.</summary>
     public bool Force { get; private set; }
 
+    /// <summary>
+    /// Whether to skip writing the <c>AGENTS.md</c> / <c>CLAUDE.md</c> context pointer
+    /// (<c>--no-agents-md</c>). Written by default, and only when <c>--scope project</c>.
+    /// </summary>
+    public bool NoAgentsMd { get; private set; }
+
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
@@ -82,6 +88,10 @@ internal sealed class SkillsArguments
 
                 case "--force":
                     parsed.Force = true;
+                    break;
+
+                case "--no-agents-md":
+                    parsed.NoAgentsMd = true;
                     break;
 
                 case "--host":

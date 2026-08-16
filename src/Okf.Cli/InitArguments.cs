@@ -24,6 +24,12 @@ internal sealed class InitArguments
     /// <summary>Whether to report how the target was resolved.</summary>
     public bool Verbose { get; private set; }
 
+    /// <summary>
+    /// Whether to skip writing the <c>AGENTS.md</c> / <c>CLAUDE.md</c> context pointer at
+    /// the project root (<c>--no-agents-md</c>). Written by default.
+    /// </summary>
+    public bool NoAgentsMd { get; private set; }
+
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
@@ -52,6 +58,10 @@ internal sealed class InitArguments
 
                 case "--verbose" or "-v":
                     parsed.Verbose = true;
+                    break;
+
+                case "--no-agents-md":
+                    parsed.NoAgentsMd = true;
                     break;
 
                 case "--name":
