@@ -258,4 +258,71 @@ public class SkillsCommandTests
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.Equal(vendored, run.OutputLines.Single());
     }
+
+    [Fact]
+    public void InitInAFreshProjectWritesPointersThatSayHowToResolveThem()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("fresh");
+
+        var init = Cli.RunIn(project, home.Root, "init");
+
+        Assert.Equal(CliApplication.ExitSuccess, init.ExitCode);
+        Assert.Contains("okf skills install", init.Output, StringComparison.Ordinal);
+
+        var recipe = File.ReadAllText(Path.Combine(project, "okf", "custodian", "recipe.json"));
+        Assert.Contains("\"resource\": \"okf skill okf-capture\"", recipe, StringComparison.Ordinal);
+        Assert.DoesNotContain("skills/okf-capture/SKILL.md", recipe, StringComparison.Ordinal);
+        Assert.DoesNotContain(home.Root, recipe, StringComparison.Ordinal);
+        Assert.DoesNotContain("~/", recipe, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InitAfterAProjectScopedInstallPointsAtTheInstalledFile()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("scoped");
+        Cli.RunIn(project, home.Root, "skills", "install", "--host", "claude", "--scope", "project");
+
+        var init = Cli.RunIn(project, home.Root, "init");
+
+        Assert.DoesNotContain("okf skills install", init.Output, StringComparison.Ordinal);
+
+        var recipe = File.ReadAllText(Path.Combine(project, "okf", "custodian", "recipe.json"));
+        Assert.Contains(
+            "\"resource\": \".claude/skills/okf-capture/SKILL.md\"",
+            recipe,
+            StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(project, ".claude", "skills", "okf-capture", "SKILL.md")));
+    }
+
+    [Fact]
+    public void EveryRecipePointerResolvesAfterAnInstallIntoTheProjectsOwnSkillsDirectory()
+    {
+        using var home = new TempTree();
+        var project = home.CreateDirectory("vendored");
+        Cli.RunIn(project, home.Root, "skills", "install", "--dir", Path.Combine(project, "skills"));
+
+        Cli.RunIn(project, home.Root, "init");
+
+        // The end-to-end claim #41 exists for: every `resource` a scaffolded recipe wrote
+        // names a file that is really there, read back from the JSON rather than assumed.
+        var recipe = File.ReadAllText(Path.Combine(project, "okf", "custodian", "recipe.json"));
+        var resources = ResourcesOf(recipe);
+
+        Assert.Equal(2, resources.Count);
+        foreach (var resource in resources)
+        {
+            Assert.True(
+                File.Exists(Path.Combine(project, resource)),
+                $"the recipe points at '{resource}', which does not exist in the project");
+        }
+    }
+
+    private static IReadOnlyList<string> ResourcesOf(string recipe) =>
+        [.. recipe
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("\"resource\":", StringComparison.Ordinal))
+            .Select(line => line.Split('"')[3])];
 }

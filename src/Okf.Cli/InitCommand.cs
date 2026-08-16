@@ -113,6 +113,20 @@ internal static class InitCommand
             $"{result.ExistingCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} already present.");
         output.WriteLine($"Run `okf lint {vaultDisplay}` to check it.");
 
+        // The recipe names its skills as instructions when this project has no copy on
+        // disk, and an instruction nobody is told how to follow is a dangling pointer with
+        // better manners. Said here, at the one moment the file was written.
+        var unresolved = result.SkillPointers.Where(pointer => !pointer.IsPath).ToArray();
+        if (unresolved.Length > 0)
+        {
+            output.WriteLine(
+                $"The custodian recipe names {string.Join(" and ", unresolved.Select(pointer => pointer.Name))} " +
+                "as instructions rather than paths: this project has no skills/ of its own.");
+            output.WriteLine(
+                "Run `okf skills install` to put them on this machine — they ship inside this binary — " +
+                $"and `okf skills path {unresolved[0].Name}` to print where one landed.");
+        }
+
         return CliApplication.ExitSuccess;
     }
 
