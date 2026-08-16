@@ -54,78 +54,100 @@ internal static class CliApplication
             return ExitUsage;
         }
 
-        switch (args[0])
+        // The flag spellings of the two verbs that have them; everything else is a verb or
+        // nothing.
+        var verb = args[0] switch
         {
-            case "help":
-            case "--help":
-            case "-h":
-                WriteUsage(output);
-                return ExitSuccess;
+            "--help" or "-h" => "help",
+            "--version" => "version",
+            var word => word,
+        };
 
-            case "version":
-            case "--version":
-                output.WriteLine(VersionDisplay);
-                if (args.Length > 1 && args[1] is "--verbose" or "-v")
-                {
-                    output.WriteLine($"commit: {CommitDisplay}");
-                }
-
-                return ExitSuccess;
-
-            case "init":
-                return InitCommand.Run(args[1..], environment, output, error);
-
-            case "lint":
-                return LintCommand.Run(args[1..], environment, output, error);
-
-            case "index":
-                return IndexCommand.Run(args[1..], environment, output, error);
-
-            case "search":
-                return SearchCommand.Run(args[1..], environment, output, error);
-
-            case "register":
-                return RegistryCommand.Register(args[1..], environment, output, error);
-
-            case "unregister":
-                return RegistryCommand.Unregister(args[1..], environment, output, error);
-
-            case "registry":
-                return RegistryCommand.Registry(args[1..], environment, output, error);
-
-            case "inbox":
-                return InboxCommand.Run(args[1..], environment, output, error);
-
-            case "verify":
-                return VerifyCommand.Run(args[1..], environment, output, error);
-
-            case "capture":
-                return CaptureCommand.Run(args[1..], environment, output, error);
-
-            case "generated":
-                return GeneratedCommand.Run(args[1..], environment, output, error);
-
-            case "bundle":
-                return BundleCommand.Run(args[1..], environment, output, error);
-
-            case "skills":
-                return SkillsCommand.Run(args[1..], environment, output, error);
-
-            case "site":
-                return SiteCommand.Run(args[1..], environment, output, error);
-
-            case "mcp":
-                return McpCommand.Run(args[1..], environment, input ?? TextReader.Null, output, error);
-
-            case "upgrade":
-                return UpgradeCommand.Run(args[1..], environment, output, error);
-
-            default:
-                error.WriteLine($"okf: error: unknown command '{args[0]}'.");
-                WriteUsage(error);
-                return ExitUsage;
+        foreach (var command in Commands)
+        {
+            if (string.Equals(command.Verb, verb, StringComparison.Ordinal))
+            {
+                return command.Run(args[1..], environment, output, error, input ?? TextReader.Null);
+            }
         }
+
+        error.WriteLine($"okf: error: unknown command '{args[0]}'.");
+        WriteUsage(error);
+        return ExitUsage;
     }
+
+    /// <summary>What one verb's handler looks like.</summary>
+    /// <param name="args">The arguments after the verb.</param>
+    /// <param name="environment">The environment to resolve vaults and configuration against.</param>
+    /// <param name="output">Where results go.</param>
+    /// <param name="error">Where errors and <c>--verbose</c> notes go.</param>
+    /// <param name="input">The input stream, which only <c>okf mcp</c> reads.</param>
+    /// <returns>The process exit code.</returns>
+    internal delegate int CommandRunner(
+        string[] args,
+        OkfEnvironment environment,
+        TextWriter output,
+        TextWriter error,
+        TextReader input);
+
+    /// <summary>
+    /// The verb table. It is the dispatch — <see cref="Run" /> looks a verb up here and
+    /// nowhere else — and it is what <see cref="CompletionTable" /> is held to, so a verb
+    /// cannot ship without a completion entry (issue #51).
+    /// </summary>
+    internal static readonly (string Verb, CommandRunner Run)[] Commands =
+    [
+        ("init", static (args, environment, output, error, _) => InitCommand.Run(args, environment, output, error)),
+        ("lint", static (args, environment, output, error, _) => LintCommand.Run(args, environment, output, error)),
+        ("index", static (args, environment, output, error, _) => IndexCommand.Run(args, environment, output, error)),
+        ("search", static (args, environment, output, error, _) => SearchCommand.Run(args, environment, output, error)),
+        ("register",
+            static (args, environment, output, error, _) => RegistryCommand.Register(args, environment, output, error)),
+        ("unregister",
+            static (args, environment, output, error, _) => RegistryCommand.Unregister(args, environment, output, error)),
+        ("registry",
+            static (args, environment, output, error, _) => RegistryCommand.Registry(args, environment, output, error)),
+        ("inbox", static (args, environment, output, error, _) => InboxCommand.Run(args, environment, output, error)),
+        ("verify", static (args, environment, output, error, _) => VerifyCommand.Run(args, environment, output, error)),
+        ("capture", static (args, environment, output, error, _) => CaptureCommand.Run(args, environment, output, error)),
+        ("generated",
+            static (args, environment, output, error, _) => GeneratedCommand.Run(args, environment, output, error)),
+        ("bundle", static (args, environment, output, error, _) => BundleCommand.Run(args, environment, output, error)),
+        ("site", static (args, environment, output, error, _) => SiteCommand.Run(args, environment, output, error)),
+        ("skills", static (args, environment, output, error, _) => SkillsCommand.Run(args, environment, output, error)),
+        ("mcp", static (args, environment, output, error, input) =>
+            McpCommand.Run(args, environment, input, output, error)),
+        ("upgrade",
+            static (args, environment, output, error, _) => UpgradeCommand.Run(args, environment, output, error)),
+        ("completion", static (args, _, output, error, _) => CompletionCommand.Run(args, output, error)),
+        ("help", static (_, _, output, _, _) =>
+        {
+            WriteUsage(output);
+            return ExitSuccess;
+        }),
+        ("version", static (args, _, output, _, _) =>
+        {
+            output.WriteLine(VersionDisplay);
+            if (args.Length > 0 && args[0] is "--verbose" or "-v")
+            {
+                output.WriteLine($"commit: {CommitDisplay}");
+            }
+
+            return ExitSuccess;
+        }),
+    ];
+
+    /// <summary>Every verb the CLI dispatches, in the order the table declares them.</summary>
+    internal static IReadOnlyList<string> Verbs { get; } = [.. Commands.Select(command => command.Verb)];
+
+    /// <summary>
+    /// Every option <c>okf version</c> accepts (see <see cref="InitArguments.Flags" />). It
+    /// parses its own single flag inline, so there is no <c>VersionArguments</c> to hold it.
+    /// </summary>
+    internal static readonly string[] VersionFlags = ["--verbose", "-v"];
+
+    /// <summary><c>okf help</c> takes no options.</summary>
+    internal static readonly string[] HelpFlags = [];
 
     /// <summary>
     /// The version reported when nothing stamped the assembly at all — a missing or empty
@@ -214,6 +236,7 @@ internal static class CliApplication
               okf mcp [path]              Run the read-only MCP server over stdio
               okf upgrade [--check]       Replace this binary with the newest release
                                           (the one command that uses a network)
+              okf completion <shell>      Print the completion script for bash, zsh, fish or pwsh
               okf help                    Show this help
               okf version [--verbose]     Show the version (--verbose also prints the commit)
 

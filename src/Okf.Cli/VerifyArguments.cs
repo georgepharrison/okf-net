@@ -32,6 +32,9 @@ internal sealed class VerifyArguments
     /// <summary>The project config to read <c>verify.actor</c> from, instead of the vault's.</summary>
     public string? ConfigPath { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags = ["--help", "-h", "--verbose", "-v", "--dry-run", "--by", "--config"];
+
     /// <summary>Parses <c>okf verify</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>verify</c>.</param>
     /// <returns>The parsed arguments.</returns>

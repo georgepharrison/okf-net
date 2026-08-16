@@ -30,6 +30,21 @@ internal sealed class LintArguments
     /// <summary>The severity layer the command line itself contributes — the highest-precedence layer.</summary>
     public OkfSeverityLayer CommandLine { get; } = new("command line");
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+    [
+        "--help",
+        "-h",
+        "--list-rules",
+        "--verbose",
+        "-v",
+        "--json",
+        "--format",
+        "--severity",
+        "--treat-all-warnings-as-errors",
+        "--config",
+    ];
+
     /// <summary>Parses <c>okf lint</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>lint</c>.</param>
     /// <returns>The parsed arguments.</returns>

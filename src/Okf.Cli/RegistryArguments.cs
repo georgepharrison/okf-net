@@ -37,6 +37,13 @@ internal sealed class RegistryArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>
+    /// Every option <see cref="Parse" /> accepts, and therefore every option all three
+    /// registry verbs accept, since one parser serves them (see
+    /// <see cref="InitArguments.Flags" />).
+    /// </summary>
+    public static readonly string[] Flags = ["--help", "-h", "--verbose", "-v", "--json", "--format"];
+
     /// <summary>Parses one registry command line.</summary>
     /// <param name="args">The arguments after the verb.</param>
     /// <param name="verb">The verb, for error messages.</param>
