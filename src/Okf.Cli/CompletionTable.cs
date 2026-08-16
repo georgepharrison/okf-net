@@ -362,10 +362,4 @@ internal static class CompletionTable
 
     /// <summary>The verb names, in table order.</summary>
     public static IReadOnlyList<string> Names { get; } = [.. Verbs.Select(verb => verb.Name)];
-
-    /// <summary>Looks one verb up.</summary>
-    /// <param name="name">The verb.</param>
-    /// <returns>Its entry, or <see langword="null" /> when the table has none.</returns>
-    public static CompletionVerb? Find(string name) =>
-        Verbs.FirstOrDefault(verb => string.Equals(verb.Name, name, StringComparison.Ordinal));
 }
