@@ -371,11 +371,12 @@ flowchart TB
 - **Binds:** the capture manifest, `okf-bundle.json`, `latest.json`, `install.sh`
 - **Prevents:** two spellings of integrity in one repository, and a digest that has to be
   recomputed differently to be compared.
-- **Rule:** `sha256`, 64 lowercase hex digits, lowercase-hex-encoded. Every file on disk is
-  hashed by `OkfCaptureManifest.Sha256Of`; the archive verifier, which holds a stream and
-  no path, uses the one-line stream form beside it (`OkfBundler.Digest`). `raw/`
+- **Rule:** `sha256`, 64 lowercase hex digits, lowercase-hex-encoded. One implementation:
+  `OkfCaptureManifest.Sha256Of(Stream)` (internal). Every file on disk is hashed by the
+  public `OkfCaptureManifest.Sha256Of(string path)`, which opens the file and hands it to
+  that; the archive verifier, which holds a stream and no path, calls it directly. `raw/`
   immutability and distribution integrity answer to the same convention and produce
-  comparable digests.
+  comparable digests because they run the same code.
 - **Source:** [bundler manifest](decisions.md#okf-bundlejson-the-attestation-and-where-it-sits)
 
 ### AD-20 — Trust tier derives from `verified` alone, and no actor verifies its own generation

@@ -1,6 +1,5 @@
 using System.Formats.Tar;
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace Okf.Core;
@@ -706,7 +705,7 @@ public static class OkfBundler
                 continue;
             }
 
-            digests[entry.FullName] = Digest(content);
+            digests[entry.FullName] = OkfCaptureManifest.Sha256Of(content);
         }
 
         return (manifest, digests, []);
@@ -757,7 +756,7 @@ public static class OkfBundler
                 continue;
             }
 
-            digests[path] = Digest(content);
+            digests[path] = OkfCaptureManifest.Sha256Of(content);
         }
 
         return (manifest, digests, foreign);
@@ -768,8 +767,6 @@ public static class OkfBundler
         using var reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
-
-    private static string Digest(Stream stream) => Convert.ToHexStringLower(SHA256.HashData(stream));
 
     private static OkfDistributionVerification Unreadable(string source, string detail) =>
         new(source, null, [new OkfDistributionFinding(OkfDistributionIssue.Unreadable, source, detail)], 0);

@@ -2506,6 +2506,11 @@ why the wrong detail survived review for as long as it did.
   which is all the passage needed to claim. `AD-19` is titled "One hash convention, one
   implementation" and its Rule names both forms explicitly; read the heading as the
   convention, not as a count of methods.
+  - **Resolved 2026-08-16 (work item #13, contextual DRY): now one method after all.**
+    `OkfBundler.Digest` is gone; `Sha256Of(string path)` opens the file and calls an
+    internal `Sha256Of(Stream)` beside it, which is what the archive verifier calls too.
+    The heading now reads literally, and the digests are comparable because they are the
+    same code rather than because two one-liners agreed.
 - **The bundle walk's ordering claim was already corrected in place, in the multi-platform
   section — verified, not repeated here.** The first pass justified sorting the walk by the
   bundle-relative path with the claim that that order "is `okf lint`'s diagnostic order and

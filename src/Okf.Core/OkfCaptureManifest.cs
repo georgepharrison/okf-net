@@ -180,8 +180,20 @@ public sealed class OkfCaptureManifest
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         using var stream = File.OpenRead(path);
-        return Convert.ToHexStringLower(SHA256.HashData(stream));
+        return Sha256Of(stream);
     }
+
+    /// <summary>
+    /// The SHA-256 of a stream, as 64 lowercase hex digits. AD-19's single implementation
+    /// of the convention: the path form above opens a file and hands it here, and the
+    /// archive verifier, which holds a stream and no path, calls it directly — so the two
+    /// digests are comparable because they are the same code, not because two one-liners
+    /// agree today.
+    /// </summary>
+    /// <param name="stream">The stream, read from its current position to the end.</param>
+    /// <returns>The digest.</returns>
+    /// <exception cref="IOException">The stream could not be read.</exception>
+    internal static string Sha256Of(Stream stream) => Convert.ToHexStringLower(SHA256.HashData(stream));
 
     private static OkfCaptureEntry ReadEntry(JsonElement capture)
     {
