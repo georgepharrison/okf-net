@@ -75,4 +75,49 @@ public class FileLayoutTests
         Assert.Equal(2, layout.FrontmatterKeyLine("type"));
         Assert.Equal(5, layout.BodyFirstLine);
     }
+
+    /// <summary>
+    /// SPEC §4 allows a document that is nothing but its frontmatter block. The closing
+    /// fence is then the last line, so the "is the next line blank?" lookahead has no next
+    /// line to read.
+    /// </summary>
+    [Fact]
+    public void FrontmatterMayBeTheWholeFile()
+    {
+        const string Text = "---\ntype: Metric\n---\n";
+        var layout = FileLayout.Of(Text);
+
+        Assert.True(layout.HasFrontmatter);
+        Assert.Equal(string.Empty, layout.Body);
+        Assert.Equal(4, layout.BodyFirstLine);
+        Assert.Equal(OkfDocument.Parse(Text).Body, layout.Body);
+    }
+
+    /// <summary>
+    /// §4 closes the frontmatter at the FIRST fence after the opening one; a later
+    /// <c>---</c> line is a thematic break in the body, not a second closing fence.
+    /// </summary>
+    [Fact]
+    public void AThematicBreakInTheBodyIsNotTheClosingFence()
+    {
+        const string Text = "---\ntype: Metric\n---\n\n# Revenue\n\n---\n\nTail.\n";
+        var layout = FileLayout.Of(Text);
+
+        Assert.Equal(5, layout.BodyFirstLine);
+        Assert.Equal("# Revenue\n\n---\n\nTail.", layout.Body);
+        Assert.Equal(OkfDocument.Parse(Text).Body, layout.Body);
+    }
+
+    /// <summary>
+    /// A key line is <c>key:</c>; a frontmatter line that is the bare word alone declares
+    /// no key, and reading one character past it must not be attempted.
+    /// </summary>
+    [Fact]
+    public void ABareWordInFrontmatterIsNotAKeyLine()
+    {
+        var layout = FileLayout.Of("---\ntype\ntitle: Revenue\n---\n");
+
+        Assert.Null(layout.FrontmatterKeyLine("type"));
+        Assert.Equal(3, layout.FrontmatterKeyLine("title"));
+    }
 }

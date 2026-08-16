@@ -113,4 +113,69 @@ public class MarkdownScannerTests
         Assert.False(MarkdownScanner.Scan("\n   \n", 1).HasContent);
         Assert.True(MarkdownScanner.Scan("something\n", 1).HasContent);
     }
+
+    /// <summary>A closing fence reopens the document: what follows it is scanned again.</summary>
+    [Fact]
+    public void ScanningResumesAfterTheClosingFence()
+    {
+        var scan = MarkdownScanner.Scan(
+            """
+            ```sql
+            -- [not a link](/fake.md)
+            ```
+
+            After [real](/real.md).
+            """,
+            1);
+
+        Assert.Equal(["/real.md"], scan.Links.Select(link => link.Target));
+        Assert.Equal([5], scan.Links.Select(link => link.Line));
+    }
+
+    /// <summary>
+    /// CommonMark parses inline links and footnote references inside an ATX heading, so
+    /// the scanner reports the heading AND what is written in it.
+    /// </summary>
+    [Fact]
+    public void AHeadingIsStillScannedForLinksAndFootnotes()
+    {
+        var scan = MarkdownScanner.Scan("## See [orders](orders.md) and cite[^s1]\n", 3);
+
+        Assert.Equal(2, scan.Headings.Single().Level);
+        Assert.Equal(["orders.md"], scan.Links.Select(link => link.Target));
+        Assert.Equal([3], scan.Links.Select(link => link.Line));
+        Assert.Equal([("s1", false)], scan.Footnotes.Select(note => (note.Label, note.IsDefinition)));
+    }
+
+    /// <summary>A heading opens with <c>#</c>, so it can never also be a bullet.</summary>
+    [Fact]
+    public void AHeadingIsNotAlsoReadAsABullet() =>
+        Assert.Empty(MarkdownScanner.Scan("# - Revenue\n", 1).Bullets);
+
+    /// <summary>The fence markers are structure, so an empty block is an empty body.</summary>
+    [Fact]
+    public void AnEmptyFencedBlockHasNoContent() =>
+        Assert.False(MarkdownScanner.Scan("```\n```\n", 1).HasContent);
+
+    /// <summary>`[text]()` names no destination, so there is nothing to check.</summary>
+    [Fact]
+    public void AnEmptyLinkDestinationIsNotALink() =>
+        Assert.Empty(MarkdownScanner.Scan("An [empty]() link.\n", 1).Links);
+
+    /// <summary>
+    /// CommonMark wraps a destination in angle brackets to allow characters a bare one
+    /// cannot carry; the brackets are delimiters and are not part of the path. A lone
+    /// bracket on either side is an ordinary character.
+    /// </summary>
+    /// <param name="destination">The destination as written between the parentheses.</param>
+    /// <param name="expected">The target the link should carry.</param>
+    [Theory]
+    [InlineData("<a.md>", "a.md")]
+    [InlineData("a.md", "a.md")]
+    [InlineData("<a.md", "<a.md")]
+    [InlineData("a.md>", "a.md>")]
+    [InlineData("<>", "")]
+    [InlineData("<", "<")]
+    public void AngleBracketsAroundADestinationAreDelimitersNotPath(string destination, string expected) =>
+        Assert.Equal(expected, MarkdownScanner.Scan($"[t]({destination})\n", 1).Links.Single().Target);
 }

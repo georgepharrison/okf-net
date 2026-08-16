@@ -248,4 +248,27 @@ public class OkfRawImmutabilityTests
         Assert.Equal(OkfSeverity.Warning, rule.DefaultSeverity);
         Assert.Equal("raw-item-mutated", rule.Nickname);
     }
+
+    /// <summary>
+    /// The finding quotes both hashes short enough to read. A sha256 is 64 characters, but
+    /// the recorded one is whatever the manifest says — the message itself allows that the
+    /// record, not the artifact, is what changed — so a short or truncated value has to
+    /// come out whole rather than be cut at a length it does not have.
+    /// </summary>
+    /// <param name="recorded">The sha256 the manifest records.</param>
+    /// <param name="quoted">How the finding should quote it.</param>
+    [Theory]
+    [InlineData("abc", "abc")]
+    [InlineData("0123456789ab", "0123456789ab")]
+    [InlineData("0123456789abc", "0123456789ab\u2026")]
+    public void ARecordedHashIsQuotedWholeUnlessItIsLongerThanTwelveCharacters(string recorded, string quoted)
+    {
+        using var vault = new TempVault();
+        var actual = vault.WriteRaw("2026-06-01-thing.html", Captured);
+        vault.WriteCapture("2026-06-01-thing", "2026-06-01-thing.html", recorded);
+
+        var diagnostic = Assert.Single(vault.Lint());
+
+        Assert.Contains($"(recorded {quoted}, on disk {actual[..12]}\u2026)", diagnostic.Message, StringComparison.Ordinal);
+    }
 }

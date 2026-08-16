@@ -63,6 +63,19 @@ public class OkfDocumentTrustTests
     [InlineData("type: 0B0", true)]
     [InlineData("type: 0e0", true)]
     [InlineData("type: 08", true)]
+    // A `_` is a digit separator in YAML 1.1, so stripping them can leave nothing to
+    // resolve; the sign is stripped before the `0x`/`0b` prefix is looked for; a `0x`
+    // with no digits after it resolves to no number at all; and PyYAML's float form
+    // needs the `.` and the signed exponent together, so `0e+0` and `.0e` stay strings
+    // while `.0e+0` is the number zero. Every row was checked against
+    // `yaml.safe_load` before it was written.
+    [InlineData("type: _", true)]
+    [InlineData("type: 0x", true)]
+    [InlineData("type: 0x10", true)]
+    [InlineData("type: 0e+0", true)]
+    [InlineData("type: .0e", true)]
+    [InlineData("type: -0x0", false)]
+    [InlineData("type: .0e+0", false)]
     public void ValidateUsesReferenceTruthinessForRequiredKeys(string frontmatter, bool valid)
     {
         // The reference implementation tests `not self.frontmatter.get(k)`, so the

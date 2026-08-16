@@ -26,6 +26,23 @@ public class OkfConfigTests
         Assert.Equal("human:ringo", config.VerifyActor);
     }
 
+    /// <summary>
+    /// An okf.json a user created and has not filled in yet is a file with no settings,
+    /// not a malformed one: PRD CLI-6 only refuses what it cannot understand.
+    /// </summary>
+    /// <param name="json">The file's whole content.</param>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   \n\t\n")]
+    public void AFileWithNothingInItContributesNothing(string json)
+    {
+        var config = OkfConfig.Parse(json, "test");
+
+        Assert.True(config.Severities.IsEmpty);
+        Assert.Null(config.SearchScope);
+        Assert.Null(config.AutoRegister);
+    }
+
     [Fact]
     public void AnEmptyOrUnrelatedFileContributesNothing()
     {
@@ -113,6 +130,8 @@ public class OkfConfigTests
     [InlineData("""{ "lint": { "treatAllWarningsAsErrors": "yes" } }""")]
     [InlineData("""{ "lint": { "tagRegistry": "finance" } }""")]
     [InlineData("""{ "verify": { "actor": 3 } }""")]
+    [InlineData("""{ "verify": 3 }""")]
+    [InlineData("""{ "verify": [] }""")]
     public void MalformedConfigurationIsRejected(string json) =>
         Assert.Throws<OkfConfigException>(() => OkfConfig.Parse(json, "test"));
 

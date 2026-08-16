@@ -475,6 +475,9 @@ public class OkfLinterTests
         // The bare-mapping `verified` form is normalized before the check (§5.2).
         Assert.Equal(OkfRules.SelfVerification, diagnostic.RuleId);
         Assert.EndsWith("self.md", diagnostic.Path, StringComparison.Ordinal);
+
+        // PRD CLI-15: the line is the `verified:` key's own, not the head of the file.
+        Assert.Equal(7, diagnostic.Line);
     }
 
     [Fact]
@@ -488,6 +491,7 @@ public class OkfLinterTests
 
         Assert.Equal(OkfRules.StaleConcept, diagnostic.RuleId);
         Assert.EndsWith("stale.md", diagnostic.Path, StringComparison.Ordinal);
+        Assert.Equal(6, diagnostic.Line);
 
         // The comparison date is injected, so the rule is deterministic (PRD CORE-7).
         Assert.Empty(bundle.Lint(new OkfLintOptions { Today = new DateOnly(2025, 1, 1) }));
@@ -805,6 +809,235 @@ public class OkfLinterTests
         Assert.Equal(
             [.. diagnostics.Select(d => (d.Path, d.Line ?? 0, d.RuleId)).Order()],
             [.. diagnostics.Select(d => (d.Path, d.Line ?? 0, d.RuleId))]);
+    }
+
+    /// <summary>
+    /// PRD ACC-7: the order a reader sees is the sorted one, whatever order the caller
+    /// handed the bundles over in.
+    /// </summary>
+    [Fact]
+    public void DiagnosticsAreSortedAcrossBundlesNotAppendedPerBundle()
+    {
+        using var host = new TempBundle();
+        host.Add("aaa/no-type.md", "---\ntitle: A\n---\n\n# A\n")
+            .Add("zzz/no-type.md", "---\ntitle: Z\n---\n\n# Z\n");
+
+        var result = new OkfLinter(new OkfLintOptions { Today = TempBundle.Today }).Lint(
+            [new OkfBundle(Path.Combine(host.Root, "zzz")), new OkfBundle(Path.Combine(host.Root, "aaa"))]);
+
+        Assert.Equal(
+            [Path.Combine(host.Root, "aaa", "no-type.md"), Path.Combine(host.Root, "zzz", "no-type.md")],
+            result.Diagnostics.Select(diagnostic => diagnostic.Path).Distinct());
+    }
+
+    [Fact]
+    public void AnIndexWhoseFrontmatterWillNotParseIsReportedRatherThanThrown()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("index.md", "---\nokf_version: [\n---\n\n# Bundle\n");
+
+        var diagnostic = Assert.Single(bundle.Lint());
+
+        Assert.Equal(OkfRules.InvalidIndexStructure, diagnostic.RuleId);
+        Assert.Contains("malformed", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>§8/§12: a bundle-root index may declare <c>okf_version</c> and nothing else.</summary>
+    [Fact]
+    public void ABundleRootIndexIsToldWhichExtraKeyItCarries()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("index.md", "---\nokf_version: \"0.2\"\ntitle: Bundle\n---\n\n# Bundle\n");
+
+        var diagnostic = Assert.Single(bundle.Lint());
+
+        Assert.Equal(OkfRules.InvalidIndexStructure, diagnostic.RuleId);
+        Assert.Contains("`title`", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(3, diagnostic.Line);
+    }
+
+    /// <summary>§6.1 holds every internal link, including the ones inside index and log files.</summary>
+    [Fact]
+    public void LinksInIndexAndLogFilesAreCheckedToo()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("index.md", "# Bundle\n\n* [Gone](gone.md) - was here once.\n")
+            .Add("log.md", "# History\n\n## 2026-01-01\n\n- **Init**: see [also gone](vanished.md).\n");
+
+        var diagnostics = bundle.Lint().Where(d => d.RuleId == OkfRules.BrokenInternalLink).ToList();
+
+        Assert.Equal(
+            [Path.Combine(bundle.Root, "index.md"), Path.Combine(bundle.Root, "log.md")],
+            diagnostics.Select(diagnostic => diagnostic.Path));
+    }
+
+    [Fact]
+    public void ALogWhoseFrontmatterWillNotParseIsReportedRatherThanThrown()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("log.md", "---\nokf_version: [\n---\n\n# History\n\n## 2026-01-01\n\n- **Init**: created.\n");
+
+        var diagnostic = Assert.Single(bundle.Lint());
+
+        Assert.Equal(OkfRules.InvalidLogStructure, diagnostic.RuleId);
+        Assert.Contains("malformed", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// §9 orders entries newest first. A heading that is not a date is reported and then
+    /// stepped over; it is not a new "previous entry" that the next date is measured from.
+    /// </summary>
+    [Fact]
+    public void AHeadingThatIsNotADateDoesNotBecomeTheEntryTheNextOneIsComparedTo()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "log.md",
+            """
+            # History
+
+            ## 2026-01-01
+
+            - **Initialization**: created.
+
+            ## Yesterday
+
+            - **Note**: not an ISO date.
+
+            ## 2026-02-01
+
+            - **Update**: out of order.
+            """);
+
+        var diagnostics = bundle.Lint();
+
+        Assert.Equal([OkfRules.InvalidLogStructure, OkfRules.InvalidLogStructure], diagnostics.Select(d => d.RuleId));
+        Assert.Contains("Yesterday", diagnostics[0].Message, StringComparison.Ordinal);
+        Assert.Contains("2026-02-01", diagnostics[1].Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>§5.1: one dangling label is one finding, however often the body cites it.</summary>
+    [Fact]
+    public void ALabelCitedTwiceIsReportedOnce()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("claims.md", Concept("Claims") + "\n\nOne claim.[^ghost]\n\nAnother.[^ghost]\n");
+
+        var diagnostic = Assert.Single(bundle.Lint(), d => d.RuleId == OkfRules.UncitedFootnote);
+
+        Assert.Contains("ghost", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// OKF0303 compares filenames with punctuation and case removed. Two names that
+    /// normalize to nothing at all have no stem to collide on, so neither is a duplicate
+    /// of the other.
+    /// </summary>
+    [Fact]
+    public void FilenamesThatNormalizeToNothingAreNotDuplicatesOfEachOther()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("-.md", Concept("First"))
+            .Add("_.md", Concept("Second"));
+
+        Assert.DoesNotContain(OkfRules.NearDuplicateConcept, bundle.LintIds());
+    }
+
+    /// <summary>
+    /// §5.1 requires <c>sources[].id</c>, but AD-4 has lint report a foreign bundle rather
+    /// than blame it, so OKF0103 names a source by whatever it can: its id, else its
+    /// resource, else the word source.
+    /// </summary>
+    [Fact]
+    public void OKF0103NamesASourceByWhateverItCarries()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "drifted.md",
+            """
+            ---
+            type: Reference
+            title: Drifted
+            description: d
+            tags: [t]
+            generated: { by: okf-net/tests, at: 2026-01-01T00:00:00Z }
+            sources:
+              - resource: https://example.invalid/named-by-resource
+                last_modified: 2026-02-01
+              - last_modified: 2026-02-01
+            ---
+
+            # Drifted
+            """);
+
+        var messages = bundle.Lint()
+            .Where(diagnostic => diagnostic.RuleId == OkfRules.SourceDrift)
+            .Select(diagnostic => diagnostic.Message)
+            .ToList();
+
+        Assert.Equal(2, messages.Count);
+        Assert.Contains(messages, message => message.Contains("`https://example.invalid/named-by-resource`", StringComparison.Ordinal));
+        Assert.Contains(messages, message => message.Contains("`source`", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// PRD CLI-6: a hidden rule is not merely unreported, it is not run. Rendering every
+    /// index of every bundle to compare it is the expensive half of a lint run.
+    /// </summary>
+    [Fact]
+    public void AHiddenGeneratedIndexDriftRuleSkipsTheComparisonEntirely()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", CleanConcept)
+            .Add("index.md", OkfIndexGenerator.GeneratedMarker + "\n\n# Bundle\n");
+
+        Assert.Contains(OkfRules.GeneratedIndexDrift, bundle.LintIds());
+
+        var layer = new OkfSeverityLayer("test");
+        layer.Severities[OkfRules.GeneratedIndexDrift] = OkfSeverity.Hidden;
+
+        Assert.Empty(bundle.LintIds(new OkfLintOptions
+        {
+            Today = TempBundle.Today,
+            Severities = new OkfSeverityResolver([layer]),
+        }));
+    }
+
+    /// <summary>
+    /// §6.1 holds every internal link and §5.1 every citation, wherever on the line they
+    /// are written. A heading that carries both is the case PRD ACC-1 cares about: before
+    /// the scanner read one, the broken link went unreported and the cited source was
+    /// falsely reported uncited.
+    /// </summary>
+    [Fact]
+    public void ALinkAndACitationWrittenInAHeadingAreBothRead()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "heading.md",
+            """
+            ---
+            type: Reference
+            title: Heading
+            description: A concept.
+            tags: [fixture]
+            sources:
+              - id: s1
+                resource: https://example.invalid/x
+            ---
+
+            # Heading
+
+            ## See [orders](does-not-exist.md) and cite[^s1]
+
+            [^s1]: The source.
+            """);
+
+        var diagnostics = bundle.Lint();
+
+        var broken = Assert.Single(diagnostics);
+        Assert.Equal(OkfRules.BrokenInternalLink, broken.RuleId);
+        Assert.Equal(13, broken.Line);
     }
 
     private static string Concept(string title, string extra = "") =>

@@ -94,11 +94,14 @@ internal static partial class MarkdownScanner
             var heading = HeadingRegex().Match(line);
             if (heading.Success)
             {
+                // A heading is scanned for links and footnote labels like any other line:
+                // CommonMark allows both inline, and stopping here made a `[^id]` written
+                // in a heading invisible, which let OKF0102 call a genuinely cited source
+                // uncited on a bundle okf-net did not produce (PRD ACC-1).
                 scan.Headings.Add(new MarkdownHeading(
                     heading.Groups["hashes"].Value.Length,
                     heading.Groups["text"].Value.Trim(),
                     lineNumber));
-                continue;
             }
 
             var bullet = BulletRegex().Match(line);
