@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Okf.Core.Tests;
 
 /// <summary>The vault registry: entries, ids, and the file (PRD CLI-2, decisions.md §6).</summary>
@@ -61,8 +63,71 @@ public sealed class OkfRegistryTests : IDisposable
         var file = Path.Combine(this.root, "notes.md");
         File.WriteAllText(file, "x");
 
-        Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(file));
-        Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(Path.Combine(this.root, "nowhere")));
+        // The two refusals are different findings and say so: a file is a wrong kind of
+        // thing to register, a missing path is a typo.
+        Assert.Contains(
+            "is a file",
+            Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(file)).Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "No such directory",
+            Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(Path.Combine(this.root, "nowhere"))).Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A slug is ASCII letters and digits, lowercased, with every other run collapsed to one
+    /// hyphen and no hyphen at either end — and a name with nothing to slug still has to
+    /// produce an id, because the id is what <c>okf unregister</c> takes (PRD CLI-2).
+    /// </summary>
+    [Theory]
+    [InlineData("Alpha Two", "alpha-two")]
+    [InlineData("a--b", "a-b")]
+    [InlineData("-alpha", "alpha")]
+    [InlineData("alpha-", "alpha")]
+    [InlineData("!!!", "vault")]
+    public void AnIdIsASlugOfTheDirectoryName(string directory, string expected)
+    {
+        var path = Path.Combine(this.root, directory);
+        Directory.CreateDirectory(path);
+        var registry = OkfRegistry.Empty();
+
+        Assert.Equal(expected, registry.Register(path, Registered).Entry.Id);
+    }
+
+    /// <summary>
+    /// Only a <em>vault</em> directory called <c>okf</c> is named for the project above it —
+    /// a bare bundle that happens to be called <c>okf</c> is its own thing and keeps the
+    /// name it has.
+    /// </summary>
+    [Fact]
+    public void ABundleDirectoryCalledOkfIsNotNamedForItsParent()
+    {
+        var bundle = Path.Combine(this.root, "notes", OkfDiscovery.VaultDirectoryName);
+        Directory.CreateDirectory(bundle);
+        var registry = OkfRegistry.Empty();
+
+        var (entry, _) = registry.Register(bundle, Registered);
+
+        Assert.Equal(OkfRegistryKind.Bundle, entry.Kind);
+        Assert.Equal(OkfDiscovery.VaultDirectoryName, entry.Id);
+    }
+
+    /// <summary>
+    /// The id is matched before either path lookup, so a word that is one entry's id and
+    /// another entry's directory name removes the entry it names, not the one it is beside.
+    /// </summary>
+    [Fact]
+    public void UnregisteringMatchesTheIdBeforeThePath()
+    {
+        var registry = OkfRegistry.Empty();
+        var elsewhere = registry.Register(Path.Combine(this.root, "elsewhere", "alpha"), Registered).Entry;
+        var beside = registry.Register(Project("alpha"), Registered).Entry;
+
+        Assert.Equal("alpha", elsewhere.Id);
+        Assert.Equal("alpha-2", beside.Id);
+        Assert.Equal("alpha", registry.Unregister("alpha", this.root)?.Id);
+        Assert.Equal(["alpha-2"], registry.Entries.Select(entry => entry.Id));
     }
 
     /// <summary>
@@ -143,6 +208,47 @@ public sealed class OkfRegistryTests : IDisposable
             "entries are written in id order regardless of the order they were registered in");
     }
 
+    /// <summary>
+    /// AD-51 says the registry is written deterministically, which is a statement about
+    /// bytes: UTF-8 with no byte-order mark, indented, LF, one trailing newline. A BOM in
+    /// particular would ship silently — every JSON reader okf uses tolerates one — and
+    /// would change the file on a platform that starts emitting it.
+    /// </summary>
+    [Fact]
+    public void TheFileIsUtf8WithoutAByteOrderMark()
+    {
+        var path = RegistryPath;
+        var registry = OkfRegistry.Empty();
+        registry.Register(Project("alpha"), Registered);
+        registry.Save(path);
+
+        var bytes = File.ReadAllBytes(path);
+
+        Assert.Equal((byte)'{', bytes[0]);
+        Assert.NotEqual<byte[]>([0xEF, 0xBB, 0xBF], bytes[..3]);
+        Assert.Equal(Encoding.UTF8.GetBytes(registry.ToJson()), bytes);
+    }
+
+    /// <summary>
+    /// The JSON is indented for a person to read and escapes nothing a path may legally
+    /// contain — the relaxed encoder is what keeps <c>+</c> and <c>&amp;</c> in a directory
+    /// name from being written as <c>+</c> and <c>&</c>.
+    /// </summary>
+    [Fact]
+    public void TheJsonIsIndentedAndLeavesPathCharactersUnescaped()
+    {
+        var directory = Path.Combine(this.root, "a+b&c");
+        Directory.CreateDirectory(directory);
+        var registry = OkfRegistry.Empty();
+        registry.Register(directory, Registered);
+
+        var json = registry.ToJson();
+
+        Assert.Contains("\n  \"entries\": [", json, StringComparison.Ordinal);
+        Assert.Contains(directory, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u", json, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void WritingRoundTripsAndRewritingChangesNoBytes()
     {
@@ -221,6 +327,8 @@ public sealed class OkfRegistryTests : IDisposable
     [InlineData("""{ "entries": [{ "id": "a", "path": "/tmp/a", "kind": "vault" }] }""")]
     [InlineData("""{ "entries": [{ "id": "a", "path": "/tmp/a", "kind": "vault", "registeredAt": "x" }, { "id": "a", "path": "/tmp/b", "kind": "vault", "registeredAt": "x" }] }""")]
     [InlineData("""["a"]""")]
+    [InlineData("""{ "entries": ["a"] }""")]
+    [InlineData("""{ "entries": [{ "id": "", "path": "/tmp/a", "kind": "vault", "registeredAt": "2026-08-16T09:30:00Z" }] }""")]
     public void AMalformedRegistryIsRefusedRatherThanPartiallyRead(string json) =>
         Assert.Throws<OkfConfigException>(() => OkfRegistry.Parse(json, "test"));
 
