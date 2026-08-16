@@ -118,6 +118,28 @@ public class CliSurfaceTests
     public void DescribeCommitFallsBackWhenUnstamped(string? commit, string expected) =>
         Assert.Equal(expected, CliApplication.DescribeCommit(commit));
 
+    /// <summary>
+    /// The `AssemblyMetadata` item in `Directory.Build.props` is the whole mechanism that
+    /// keeps the commit reachable once the `publish` job takes it out of the informational
+    /// version (issue #53), and the shape assertions above cannot see it break: an item
+    /// that stops resolving still renders as `commit: unknown`, which they accept. The
+    /// oracle here is the SDK's, not this repo's — `GenerateAssemblyInfo` appends
+    /// `+$(SourceRevisionId)` to the informational version on any build that did not opt
+    /// out, so on this test run's own build the commit must be exactly that suffix. A build
+    /// whose informational version carries no suffix is the unstamped case (a source
+    /// archive with no `.git`, or an opted-out build), and there the commit is `unknown`.
+    /// </summary>
+    [Fact]
+    public void CommitMetadataMatchesTheBuildMetadataTheSdkStamped()
+    {
+        var informational = CliApplication.VersionDisplay;
+        var metadata = informational.IndexOf('+', StringComparison.Ordinal);
+
+        Assert.Equal(
+            metadata < 0 ? CliApplication.UnknownCommit : informational[(metadata + 1)..],
+            CliApplication.CommitDisplay);
+    }
+
     [Fact]
     public void ListRulesCoversEveryShippedRule()
     {
