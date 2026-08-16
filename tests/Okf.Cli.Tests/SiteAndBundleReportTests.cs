@@ -44,7 +44,11 @@ public class SiteAndBundleReportTests
         Assert.Equal(
             Directory.EnumerateFiles(output, "*.html", SearchOption.AllDirectories).Count() - 3,
             root.GetProperty("pages").GetInt32());
-        Assert.True(root.GetProperty("edges").GetInt32() >= 0);
+
+        // One edge per link between the fixture's concepts. Pinned to the count rather
+        // than asserted "at least zero", which every int satisfies — a graph that lost its
+        // edges is exactly the regression this number exists to catch.
+        Assert.Equal(2, root.GetProperty("edges").GetInt32());
 
         var counts = root.GetProperty("counts");
         Assert.Equal(1, counts.GetProperty("bundles").GetInt32());
@@ -57,7 +61,14 @@ public class SiteAndBundleReportTests
         var bundle = Assert.Single(root.GetProperty("bundles").EnumerateArray().ToList());
         Assert.Equal("clean", bundle.GetProperty("name").GetString());
         Assert.Equal("clean", bundle.GetProperty("slug").GetString());
-        Assert.Equal(counts.GetProperty("concepts").GetInt32(), bundle.GetProperty("concepts").GetInt32());
+
+        // Counted from the bundle on disk, not from the report's own `counts`: two fields
+        // of one report agreeing proves only that they were written from one variable.
+        Assert.Equal(
+            Directory.EnumerateFiles(
+                Path.Combine(tree.Root, "okf", "bundles", "clean"), "*.md", SearchOption.AllDirectories)
+                .Count(file => Path.GetFileName(file) is not ("index.md" or "log.md")),
+            bundle.GetProperty("concepts").GetInt32());
     }
 
     /// <summary>

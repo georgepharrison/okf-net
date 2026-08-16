@@ -12,9 +12,8 @@ public class ReportRenderingTests
 {
     /// <summary>
     /// <c>okf lint --json</c> writes an indented array — the form a diff and a human both
-    /// read — terminated by a newline, with every key present on every element. A
-    /// file-level diagnostic carries an explicit null <c>line</c> rather than omitting the
-    /// key, so a consumer can read it unconditionally.
+    /// read — terminated by a newline, with every key present on every element and in the
+    /// order the writer emits them, so a consumer can read each one unconditionally.
     /// </summary>
     [Fact]
     public void LintJsonIsIndentedAndCarriesEveryKey()

@@ -40,8 +40,8 @@ public class McpToolArgumentTests
 
     /// <summary>
     /// The spellings that are merely untidy are normalized rather than refused: an empty
-    /// path, a lone <c>.</c>, a doubled separator and a <c>./</c> prefix all name the same
-    /// directory the plain form does.
+    /// path, a lone <c>.</c> and a <c>./</c> prefix all name the same directory the plain
+    /// form does.
     /// </summary>
     [Theory]
     [InlineData("")]
