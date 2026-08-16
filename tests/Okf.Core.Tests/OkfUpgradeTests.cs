@@ -416,9 +416,10 @@ public sealed class OkfUpgradeTests
     }
 
     /// <summary>
-    /// Under `dotnet run` the running process is the SDK's host. Renaming a verified okf
-    /// over `dotnet` would break the machine's .NET rather than upgrade okf, so the target's
-    /// NAME is checked before anything is downloaded.
+    /// Launched as `dotnet okf.dll` the running process is the .NET host, and
+    /// `Environment.ProcessPath` names it — verified empirically during #23, where this
+    /// refusal is what stopped a verified okf being renamed over the machine's `dotnet`.
+    /// The target's NAME is therefore checked before anything is downloaded.
     /// </summary>
     [Fact]
     public void RefusesToReplaceSomethingThatIsNotOkf()
@@ -432,6 +433,7 @@ public sealed class OkfUpgradeTests
         var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Apply(plan, host.Fetch));
 
         Assert.Contains("is 'dotnet', not 'okf'", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("dotnet okf.dll", refusal.Message, StringComparison.Ordinal);
         Assert.Equal(OldBytes, File.ReadAllText(target));
     }
 

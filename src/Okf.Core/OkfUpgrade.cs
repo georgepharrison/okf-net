@@ -132,16 +132,18 @@ public static class OkfUpgrade
         }
 
         // A binary that replaces itself must be sure that "itself" is what it is replacing.
-        // Under `dotnet run` the running process is the SDK's host, and renaming a verified
-        // okf over `dotnet` would break the machine's .NET rather than upgrade okf.
+        // Launched through the muxer — `dotnet okf.dll`, which is how a framework-dependent
+        // build runs — `Environment.ProcessPath` is `dotnet`, and renaming a verified okf
+        // over it would break the machine's .NET rather than upgrade okf. Confirmed
+        // empirically, and it caught exactly that during this work item.
         var name = Path.GetFileName(target);
         if (!string.Equals(name, "okf", StringComparison.Ordinal)
             && !string.Equals(name, "okf.exe", StringComparison.OrdinalIgnoreCase))
         {
             throw new OkfUpgradeException(
                 $"the running executable is '{name}', not 'okf' — refusing to replace it.\n" +
-                "    This is what `dotnet run` looks like: the process is the SDK's host, not a\n" +
-                "    published okf. Upgrade an installed binary, or reinstall with install.sh.");
+                "    This is what `dotnet okf.dll` looks like: the process is the .NET host, not\n" +
+                "    a published okf. Upgrade an installed binary, or reinstall with install.sh.");
         }
 
         var staging = Path.Combine(directory, $".okf.upgrade.{Guid.NewGuid():N}");

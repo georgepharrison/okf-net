@@ -3241,11 +3241,15 @@ no config, no cache, no `~/.local/share`, no PATH edit. A digest mismatch prints
 digests — the two hashes are what tells a truncated download apart from the wrong file —
 and leaves the target byte-identical.
 
-**The target's name is checked, because `dotnet run` is a running process too.** Under
-`dotnet run` this process is the SDK's host, and `Environment.ProcessPath` names it;
-renaming a verified okf over `dotnet` would break the machine's .NET rather than upgrade
-okf. So `Apply` refuses any target not named `okf` or `okf.exe`, and says which situation
-that is. `--check` and `--dry-run` are unaffected and work fine from a checkout.
+**The target's name is checked, and it earned its place the same afternoon.** A
+framework-dependent launch — `dotnet okf.dll`, which is how the build output runs without
+an apphost — makes `Environment.ProcessPath` point at the **`dotnet` muxer**, not at okf.
+Run against the real host from this checkout, `okf upgrade` therefore resolved
+`replaces: ~/.local/share/mise/dotnet-root/dotnet`, and only the name check stopped a
+verified okf being renamed over the machine's .NET. So `Apply` refuses any target not named
+`okf` or `okf.exe` and says which situation that is. (`dotnet run` is *not* that case: it
+launches the apphost, which is named `okf`, and replacing a build artifact is harmless.)
+`--check` and `--dry-run` never reach the check and work fine from a checkout.
 
 **Windows renames the old binary aside; POSIX does not need to.** On Linux and macOS a
 rename over a running executable succeeds — the open image keeps the old inode alive until
