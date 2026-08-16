@@ -43,14 +43,23 @@ public class OkfConfigException : Exception
 /// </remarks>
 public sealed class OkfConfig
 {
-    private OkfConfig(string source)
+    private OkfConfig(string source, bool globalLayer)
     {
         Source = source;
+        IsGlobalLayer = globalLayer;
         Severities = new OkfSeverityLayer(source);
     }
 
     /// <summary>The file this configuration came from, used in <c>--verbose</c> output.</summary>
     public string Source { get; }
+
+    /// <summary>
+    /// Whether this file is the global, per-machine layer. Settings that describe the
+    /// machine rather than the work — <c>autoRegister</c> — are accepted there and refused
+    /// in a committed project file, because a repository must not be able to change what
+    /// another person's machine does behind their back.
+    /// </summary>
+    public bool IsGlobalLayer { get; }
 
     /// <summary>The severity settings this file contributes.</summary>
     public OkfSeverityLayer Severities { get; }
@@ -65,21 +74,39 @@ public sealed class OkfConfig
     /// <summary>The <c>verify.actor</c> identity used by <c>okf verify</c> (PRD CLI-13, Q6).</summary>
     public string? VerifyActor { get; private set; }
 
+    /// <summary>
+    /// The <c>search.scope</c> setting — which vaults <c>okf search</c> and <c>okf mcp</c>
+    /// look at (PRD CLI-3) — or <see langword="null" /> when this file does not speak to
+    /// it. Settable in either layer, project over global, and a <c>--scope</c> flag over
+    /// both (AD-31).
+    /// </summary>
+    public OkfScopeKind? SearchScope { get; private set; }
+
+    /// <summary>
+    /// The <c>autoRegister</c> setting, accepted in the global file only, or
+    /// <see langword="null" /> when unset. <b>Recorded and validated; no behaviour is
+    /// attached</b> — nothing in okf-net auto-registers anything, and registration stays
+    /// the explicit <c>okf register</c> (decisions.md §6, PRD CLI-2).
+    /// </summary>
+    public bool? AutoRegister { get; private set; }
+
     /// <summary>Reads a configuration file, returning <see langword="null" /> when it does not exist.</summary>
     /// <param name="path">The absolute path of the file.</param>
+    /// <param name="globalLayer">Whether this is the per-machine global file.</param>
     /// <returns>The parsed configuration, or <see langword="null" /> when there is no such file.</returns>
     /// <exception cref="OkfConfigException">The file exists but is not valid okf configuration.</exception>
-    public static OkfConfig? TryLoad(string path)
+    public static OkfConfig? TryLoad(string path, bool globalLayer = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        return File.Exists(path) ? Load(path) : null;
+        return File.Exists(path) ? Load(path, globalLayer) : null;
     }
 
     /// <summary>Reads a configuration file.</summary>
     /// <param name="path">The absolute path of the file.</param>
+    /// <param name="globalLayer">Whether this is the per-machine global file.</param>
     /// <returns>The parsed configuration.</returns>
     /// <exception cref="OkfConfigException">The file is missing or is not valid okf configuration.</exception>
-    public static OkfConfig Load(string path)
+    public static OkfConfig Load(string path, bool globalLayer = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -97,20 +124,21 @@ public sealed class OkfConfig
             throw new OkfConfigException($"Cannot read config file '{path}': {ex.Message}", ex);
         }
 
-        return Parse(text, path);
+        return Parse(text, path, globalLayer);
     }
 
     /// <summary>Parses configuration text.</summary>
     /// <param name="json">The JSON text.</param>
     /// <param name="source">How to describe the origin in messages and <c>--verbose</c> output.</param>
+    /// <param name="globalLayer">Whether this is the per-machine global file.</param>
     /// <returns>The parsed configuration.</returns>
     /// <exception cref="OkfConfigException">The text is not valid okf configuration.</exception>
-    public static OkfConfig Parse(string json, string source)
+    public static OkfConfig Parse(string json, string source, bool globalLayer = false)
     {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentException.ThrowIfNullOrEmpty(source);
 
-        var config = new OkfConfig(source);
+        var config = new OkfConfig(source, globalLayer);
         if (string.IsNullOrWhiteSpace(json))
         {
             return config;
@@ -143,7 +171,58 @@ public sealed class OkfConfig
             }
         }
 
+        if (root.TryGetProperty("search", out var search))
+        {
+            ReadSearch(config, search, source);
+        }
+
+        if (root.TryGetProperty("autoRegister", out var autoRegister))
+        {
+            ReadAutoRegister(config, autoRegister, source, globalLayer);
+        }
+
         return config;
+    }
+
+    private static void ReadSearch(OkfConfig config, JsonElement search, string source)
+    {
+        if (search.ValueKind != JsonValueKind.Object)
+        {
+            throw new OkfConfigException($"Config file '{source}': `search` must be an object.");
+        }
+
+        if (!search.TryGetProperty("scope", out var scope))
+        {
+            return;
+        }
+
+        if (scope.ValueKind != JsonValueKind.String || !OkfScopeKindExtensions.TryParse(scope.GetString(), out var parsed))
+        {
+            throw new OkfConfigException(
+                $"Config file '{source}': `search.scope` must be one of " +
+                string.Join(", ", OkfScopeKindExtensions.Names.Select(name => $"\"{name}\"")) + ".");
+        }
+
+        config.SearchScope = parsed;
+    }
+
+    private static void ReadAutoRegister(OkfConfig config, JsonElement autoRegister, string source, bool globalLayer)
+    {
+        if (!globalLayer)
+        {
+            // A committed project file that could turn auto-registration on would let a
+            // repository write to a contributor's machine-wide registry by being cloned.
+            throw new OkfConfigException(
+                $"Config file '{source}': `autoRegister` is a global setting and is not read from a project " +
+                "config. Move it to okf's global config file.");
+        }
+
+        config.AutoRegister = autoRegister.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw new OkfConfigException($"Config file '{source}': `autoRegister` must be a boolean."),
+        };
     }
 
     private static JsonDocument ParseDocument(string json, string source)

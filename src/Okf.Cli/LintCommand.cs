@@ -78,7 +78,7 @@ internal static class LintCommand
         // defaults underneath. OKF_HOME is not a layer here — it moves the personal
         // vault (and therefore which bundles are linted), never a severity.
         var layers = new List<OkfSeverityLayer>();
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath);
+        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
         var projectPath = arguments.ConfigPath is { } explicitConfig
             ? Path.GetFullPath(Path.Combine(environment.CurrentDirectory, explicitConfig))
             : workingSet.ProjectConfigPath;

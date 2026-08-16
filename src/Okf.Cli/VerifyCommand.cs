@@ -219,7 +219,7 @@ internal static class VerifyCommand
             return OkfActorResolution.Resolved(by, "--by");
         }
 
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath);
+        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
         var project = LoadProjectConfig(arguments, environment);
         return OkfVerifyIdentity.Resolve(
             project,
