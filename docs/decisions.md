@@ -3179,3 +3179,145 @@ knowledge exist but do not yet form the layered system."
 - **An explicit path and a non-default `--scope` are refused together.** A path names the
   bundles; a scope names how to find them. Honouring either would mean silently ignoring
   the other, and a flag that does nothing is worse than a refusal (exit 2, nothing written).
+
+### Proposed decisions: okf upgrade (work item #23, 2026-08-16)
+
+Stage 1 of #23 shipped as three other work items — the manifest and the tag pipeline
+(#10, #36), the installers (#25), the artifact host — so what was left is the verb.
+`okf upgrade [--check] [--version X] [--channel stable|rc] [--dry-run] [--json]` reads
+`latest.json` from the base URL the installers already read, verifies the asset for this
+machine against the manifest's `sha256`, and renames it over the running binary.
+
+**Why the verb at all, when `install.sh` already re-installs.** Piping a script into `sh`
+is how a stranger gets a first binary; it is not how a person who already has one takes
+the next release. Re-running the installer works and asks the machine for `curl`, a shell,
+and trust in a URL a second time; it also cannot answer "am I current?" without doing the
+whole install. `--check` is the half that earns the verb: it is a one-line answer, exit-code
+shaped (0 current, 1 available, AD-5), which is what makes it usable in a prompt, a
+scheduled job or a CI gate. The rest is the installer's own sequence — resolve, verify,
+stage, rename — performed by the binary that is being replaced.
+
+**Network is the deliberate exception to AD-7, and confinement is the whole of the
+answer.** AD-7 exists because a gate that fails when a network does is not a gate, and
+because a library that cannot run in a hook or an air-gapped CI job is a library with a
+hidden dependency. A self-updating binary cannot honour that rule and still be
+self-updating, so the exception is granted once and bounded three ways. It lives in exactly
+one Core file, `OkfUpgrade.cs`, the way AD-9 bounds a third-party surface — nothing else in
+the repository has a `using System.Net.Http`. It is reachable from exactly one verb, and
+**okf never checks for an update on its own**: not on startup, not on another verb, not
+once a week, not with an opt-out. And it is injectable, so the suite proves the behaviour
+without it: every test supplies a `Fetch` delegate, and the one test that exercises the
+real HTTP client serves itself over an in-process `HttpListener` on loopback. No test
+reaches the artifact host, which means a host outage cannot turn this repository's gates
+red. AD-7's Rule is amended in place to say so, beside its existing single-subprocess
+clause; AD-53 states what the verb may do.
+
+**Auto-check on other verbs was considered and refused outright, not deferred.** It is the
+usual shape — a background check, a cached timestamp, a banner on `okf lint` — and every
+piece of it is a cost paid by someone who did not ask: a lint run that phones home, a
+first-run latency spike, a CI job whose output depends on a host, and a privacy question
+about who learns which version is installed where. The verb is the entire surface.
+
+**https only, and only to https, on every hop.** `install.sh` passes curl's `--proto`
+*and* `--proto-redir '=https'`, and the reason is worth restating because it is the one
+that makes the digest mean anything: a single 302 down to cleartext fetches the manifest
+**and** the binary from whoever answered, and a `sha256` compared against a manifest that
+came down the same channel proves nothing whatsoever. `HttpClient` follows redirects
+itself and would have followed that one before okf could look, so `AllowAutoRedirect` is
+off and the loop is written by hand — five hops, each one's scheme checked against the
+scheme the caller asked for. Plain http is permitted to **loopback** and nowhere else,
+which is what lets the acceptance path serve a fixture release from
+`python3 -m http.server`; that is `install.ps1`'s rule rather than `install.sh`'s, which
+leaves any http base alone, and the stricter one is the right default for a binary that
+replaces itself.
+
+**Verify before the rename, stage inside the target's own directory, and never widen.**
+The staging file is created beside the running binary, not in `/tmp`: a rename is atomic
+only within a filesystem and `/tmp` is very often another one — the same reasoning, and the
+same trap, as `install.sh`'s staging copy. Creating that file is also the writability
+check, so an install directory the user cannot write is refused with the command that fixes
+it before anything is downloaded. Nothing outside that one directory is read or written:
+no config, no cache, no `~/.local/share`, no PATH edit. A digest mismatch prints both
+digests — the two hashes are what tells a truncated download apart from the wrong file —
+and leaves the target byte-identical.
+
+**Nothing the manifest says is taken on trust, including how big the file is.** The
+manifest is fetched from a host okf has no way to authenticate — that is the signing gap
+below — so the reader treats it as hostile input rather than as configuration. Two bounds
+follow. An asset `path` is resolved against the base URL and then *checked* to be under it:
+`Uri` collapses `..` while parsing, so a `path` of `../../evil` under
+`https://mirror/okf` resolves to `https://mirror/evil` — the same host, because the URL is
+built by appending rather than by resolving a reference, but no longer the subtree the
+operator pointed `OKF_INSTALL_URL` at, and on a mirror that serves more than okf that
+distinction is the whole of the containment. And both reads are capped: 1 MB for a
+manifest, 200 MB for an asset, against the 15 MB largest asset any release has carried.
+The cap is not the manifest's own `size` field, because whoever writes a lying digest
+writes a lying size in the same file; it is absolute. Without it `Stream.CopyTo` writes
+whatever the host sends into the directory the user's binary lives in, which was measured
+at **7.4 GB in five seconds** over loopback, before a single byte had been verified. Both
+refusals are exit 2 with nothing installed, like every other refusal here.
+
+**The target's name is checked, and it earned its place the same afternoon.** A
+framework-dependent launch — `dotnet okf.dll`, which is how the build output runs without
+an apphost — makes `Environment.ProcessPath` point at the **`dotnet` muxer**, not at okf.
+Run against the real host from this checkout, `okf upgrade` therefore resolved
+`replaces: ~/.local/share/mise/dotnet-root/dotnet`, and only the name check stopped a
+verified okf being renamed over the machine's .NET. So `Apply` refuses any target not named
+`okf` or `okf.exe` and says which situation that is. (`dotnet run` is *not* that case: it
+launches the apphost, which is named `okf`, and replacing a build artifact is harmless.)
+`--check` and `--dry-run` never reach the check and work fine from a checkout.
+
+**Windows renames the old binary aside; POSIX does not need to.** On Linux and macOS a
+rename over a running executable succeeds — the open image keeps the old inode alive until
+the process exits — so one `File.Move(overwrite: true)` leaves the path holding either the
+old bytes or the new ones and never a partial file. Windows locks a loaded image against
+overwrite but permits it to be **renamed**, so the running binary is moved to
+`okf.exe.old` first and the new one takes its name. That leaves a file behind, and the
+rule for deleting it is narrow on purpose: `okf upgrade` deletes a stale `.old` at the
+start of its own install path and **no other verb ever deletes it**, because a tool that
+tidies files it did not just write is a tool that eventually deletes the wrong one. If the
+delete fails because Windows still holds the image, the upgrade proceeds — a stale
+megabyte is not worth a failed upgrade. This repository has no Windows runner (AD-42 says
+the same about `install.ps1`), so the two-step swap is stated once as a **planner** and
+unit-tested through it; the moves themselves are three lines shared with the POSIX path.
+
+**macOS quarantine needs no handling here, and that is a difference from `install.sh`.**
+The installer clears `com.apple.quarantine` because **curl sets it** on everything it
+downloads and Gatekeeper then refuses to run an unsigned binary. `okf upgrade` writes the
+file itself, through .NET's file APIs, which set no such attribute — there is nothing to
+clear. Recorded because the absence looks like an omission next to the installer.
+
+**`--channel rc` is reserved, and reserved is said out loud rather than implemented.**
+Ringo's design note on #23 settles the post-1.0 shape: two channels, stable from `main`
+and rc from `dev`, with `install.sh --channel` and a matching flag here. The host serves
+**one** manifest at its root today, so `--channel rc` reading `latest-rc.json` would be a
+404 dressed up as a feature. The flag parses, reads the same manifest, and prints a note
+saying so. A pinned `--version` and a `--channel` together are a usage error: a version
+names one release directory and leaves the channel nothing to choose.
+
+**`--version` downgrades on purpose.** Pinning back to an earlier release is how a tester
+bisects a regression, so a pinned version installs even when it equals the running one —
+it is a re-install as much as an upgrade. Without a pin, "already the newest" downloads
+nothing and exits 0.
+
+**Semver precedence is hand-rolled, and the test's oracle is the spec.** `System.Version`
+has no notion of a prerelease, so it would make `1.1.0-rc.1` compare equal to `1.1.0` — the
+exact case that decides whether an rc offers itself as an upgrade over the release it
+precedes. The comparer is forty lines against §10 and §11, and the ordering its test
+asserts is the specification's own worked example, character for character, rather than a
+reading of the implementation (AD-44). A `0.0.0-dev` build is declared upgradable rather
+than compared: it was built from a working tree that may hold anything, so comparing its
+version string answers a question about strings, and `--check` says which case it is in.
+
+**Still not done, and deliberately.** *Signing* — the manifest is unsigned, so what a
+digest buys is integrity against corruption, a truncated download and a substituted file,
+and **not** evidence that the manifest is the one okf-net wrote. That is the same deferral
+`okf-bundle.json` makes (AD-35) and `latest.json` already made (AD-42), for the same
+reason: signing is key management, not hashing, and it is tracked with the public-exposure
+work (#26). Over an internal-only host the gap is acceptable; the moment that host opens,
+it is not. *Channel URLs* — above. *A self-test after the swap* — the installer runs
+`okf version` on what it wrote; the upgrader cannot run the binary it just became without
+spawning a process, which is the one thing AD-7 still forbids here, so the digest is the
+whole of the check. *`okf upgrade --skills`* — the new binary carries its own skills and
+`okf skills install` is one command; folding it in would make an upgrade write outside the
+binary's directory, which is the boundary this verb is defined by.

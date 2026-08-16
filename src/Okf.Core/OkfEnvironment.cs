@@ -103,6 +103,10 @@ public sealed class OkfEnvironment
                  [
                      "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "LOCALAPPDATA",
                      HomeVariable, "USERPROFILE",
+                     // `okf upgrade` reads the same base URL the two installers do
+                     // (work item #23), so a machine that installed from a mirror
+                     // upgrades from the same one.
+                     OkfUpgradeOptions.BaseUrlVariable,
                      "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
                  ])
         {

@@ -1,0 +1,49 @@
+{
+  "version": "1.1.0-rc.1",
+  "tag": "v1.1.0-rc.1",
+  "generatedAt": "2026-08-16T04:27:30Z",
+  "assets": {
+    "okf-linux-x64": {
+      "path": "v1.1.0-rc.1/okf-linux-x64",
+      "size": 6532216,
+      "sha256": "0bb07817b2f1159920a631346c0626d1156d11ea89842ad49551bae03fe2f759",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/okf-linux-x64"
+    },
+    "okf-osx-arm64": {
+      "path": "v1.1.0-rc.1/okf-osx-arm64",
+      "size": 15510100,
+      "sha256": "02da3afb9804cb773cd6dc25d8f7ba28e7ed9268cd8e10f0215bf6f5b9720b47",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/okf-osx-arm64"
+    },
+    "okf-win-x64.exe": {
+      "path": "v1.1.0-rc.1/okf-win-x64.exe",
+      "size": 14828049,
+      "sha256": "ab742001f4cf21c728e2d74f26d0cbc8f7f9eb90b1c77b329e43a5cdc6958c8c",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/okf-win-x64.exe"
+    },
+    "okf-net-knowledge.tar.gz": {
+      "path": "v1.1.0-rc.1/okf-net-knowledge.tar.gz",
+      "size": 51829,
+      "sha256": "8cbe255d1367a05ab93ba9d0d9dad92117e9c62511ed16d707d73ca475432de2",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/okf-net-knowledge.tar.gz"
+    },
+    "okf-skills.tar.gz": {
+      "path": "v1.1.0-rc.1/okf-skills.tar.gz",
+      "size": 14090,
+      "sha256": "4c64981b4baa715099629f22cd77cb2de452751c4fd309bc6f10d6a430258472",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/okf-skills.tar.gz"
+    },
+    "install.sh": {
+      "path": "v1.1.0-rc.1/install.sh",
+      "size": 16841,
+      "sha256": "a7237d3810b5a9591aee3d592356243626c5bd0bd093edf9804ae84964e05068",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/install.sh"
+    },
+    "install.ps1": {
+      "path": "v1.1.0-rc.1/install.ps1",
+      "size": 17975,
+      "sha256": "9749056eb7d01e1027b97593e6b8e26977810b947e681cd12a8ca277321314e2",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/12/packages/generic/okf/1.1.0-rc.1/install.ps1"
+    }
+  }
+}

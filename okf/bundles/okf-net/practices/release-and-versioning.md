@@ -1,9 +1,9 @@
 ---
 type: Playbook
 title: Release and Versioning
-description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, and every tag publishes a self-describing three-platform release the installers can verify.
+description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, every tag publishes a self-describing three-platform release the installers can verify, and the installed binary upgrades itself from the same manifest.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-16T06:00:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T05:22:07Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -201,6 +201,48 @@ runner pushing to the host. A push needs a credential on the shared runner that
 can write to the artifact host's filesystem; a pull needs only a read-only
 registry token held by the host, and nothing needs inbound access to it at all.
 
+# Upgrading in place
+
+Once a binary is installed it replaces itself: `okf upgrade` reads the same
+`latest.json` from the same `OKF_INSTALL_URL`, selects the asset for the
+machine, downloads it **beside the binary being replaced**, checks the digest
+against the manifest and only then renames it into place. `okf upgrade --check`
+answers the cheaper question — what is installed against what is published —
+and answers it as an exit code, `0` current and `1` an upgrade available, so it
+fits in a prompt or a scheduled job with nothing to parse. `--version` pins, and
+downgrades, which is how a regression gets bisected.
+
+The staging file lives in the target's own directory rather than in `/tmp` for
+the reason the installer already documents: a rename is atomic only within one
+filesystem. On Linux and macOS the rename goes straight over the running binary
+— the open image keeps the old inode alive until the process exits — so the path
+holds either the old bytes or the new ones and never a partial file. Windows
+locks a loaded image against overwrite but permits it to be *renamed*, so the
+running binary moves to `okf.exe.old` first and the next `okf upgrade` deletes
+it; no other verb ever does, because a tool that tidies files it did not write
+eventually deletes the wrong one.
+
+This is **the only network path in okf-net**, and it is the deliberate exception
+to the offline-and-hermetic rule that everything else in the toolset keeps. It
+is bounded three ways: one Core file holds it, one verb reaches it, and okf
+never checks for an update it was not asked to check for — no startup ping, no
+staleness banner, no background poll. The fetch is injected, so every test runs
+against a fake or an in-process listener on loopback and a host outage cannot
+turn a gate red.
+
+Two things it inherits rather than solves. The manifest is unsigned, so the
+digest proves integrity — a truncated download, a substituted file, a flipped
+byte — and proves nothing about origin; that is the same deferral made about
+`okf-bundle.json`, and it is tracked with the public-exposure work. And the
+second release channel is *decided but not served*: the host publishes one
+manifest at its root, so `--channel rc` parses, reads that same manifest, and
+says it is reserved, rather than requesting a URL nothing answers.
+
+One difference from the installer worth naming because its absence looks like an
+omission: nothing here clears `com.apple.quarantine`. `curl` sets that attribute
+on what it downloads, which is why `install.sh` has to remove it; `okf upgrade`
+writes the file itself and no such attribute is set.
+
 **Written, not yet run.** Only a tag pipeline runs the job, and no tag has
 been cut since it was written, so nothing above is observed behaviour — it is
 what the job is built to do. No release published so far carries a binary,
@@ -214,12 +256,21 @@ the manifest the job writes was generated locally from the same block and shown
 to round-trip through the installer's reader. What it cannot cover is the job
 end to end. Treat the first tag as the test.
 
+`okf upgrade` is the exception to that caveat, and only because it can be
+rehearsed without a tag: a trim-published binary was pointed at a fixture
+release served by `python3 -m http.server` on loopback and observed to report
+`--check` as exit 1, resolve under `--dry-run` without writing, replace itself
+with bytes whose digest matched the manifest, refuse a tampered asset with both
+digests printed and the binary left byte-identical, and refuse a cleartext base
+URL that was not loopback. What that does not cover is the same thing the rest
+of this section does not cover: the real host, and Windows.
+
 Two further things nothing here has run. The macOS and Windows binaries are
 cross-compiled on a Linux runner and cannot be executed by it, so their first
 execution anywhere is a tester's. `install.ps1` has no acceptance suite at all,
 because this pipeline has no Windows runner; it is static-analysed with
 PSScriptAnalyzer and reviewed, which catches an unapproved verb and nothing
-about Gatekeeper. `install.sh` is covered by 93 assertions per shell, run
+about Gatekeeper. `install.sh` is covered by 95 assertions per shell, run
 under `sh` and — **only where it is installed** — under `dash`. That
 distinction is not pedantry: a workstation without `dash` runs half the matrix
 and still prints a green, so the `test-install` CI job fails outright when

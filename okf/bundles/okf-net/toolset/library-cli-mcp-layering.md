@@ -60,8 +60,13 @@ resolution](vault-registry-and-config.md).
 
 # What the CLI owes its callers
 
-- **One process, no daemon, no network, no model call.** The whole MVP
-  surface runs with networking disabled.
+- **One process, no daemon, no model call, and one network path.** Every verb
+  that reads or writes knowledge runs with networking disabled. The single
+  exception is `okf upgrade`, which replaces the binary with a release it
+  verifies against the published manifest; it is confined to one library file,
+  reachable from no other verb, and never runs unless it is the verb you typed
+  — so a lint run, an index check or an MCP session still cannot be failed by a
+  network.
 - **Exit codes as contract.** `0` clean, `1` diagnostics at error severity or
   drift under `--check`, `2` usage or environment failure. Warnings alone
   never change the exit code unless they were promoted.

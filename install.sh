@@ -399,3 +399,12 @@ if [ "$on_path" -eq 0 ]; then
   say ""
   say "    (put that in ~/.profile, ~/.bashrc or ~/.zshrc to make it stick)"
 fi
+
+# Next time, there is a verb for this (#23). Said once, at the end, where a reader has
+# already got what they came for: `okf upgrade` reads the same manifest this script just
+# read, from the same OKF_INSTALL_URL, and replaces the binary in place — so nobody needs
+# to pipe a script into a shell twice. It is the only okf command that touches a network,
+# and only when it is run.
+say ""
+say "    later: \`okf upgrade --check\` says whether a newer release exists;"
+say "           \`okf upgrade\` installs it, no re-download of this script."
