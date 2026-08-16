@@ -53,6 +53,7 @@ public class LintTextTests
     [InlineData("mailto:someone@example.invalid")]
     [InlineData("bq://project.dataset.table")]
     [InlineData("#in-page-anchor")]
+    [InlineData("?v=2")]
     [InlineData("")]
     [InlineData("../../outside-the-bundle.md")]
     [InlineData("//example.invalid/protocol-relative")]
@@ -74,4 +75,44 @@ public class LintTextTests
     [InlineData("`code`")]
     public void MalformedIndexEntriesAreRejected(string entry) =>
         Assert.False(LintText.IsIndexEntry(entry));
+
+    /// <summary>
+    /// §5.1 lets <c>sources[].resource</c> be a population or scope descriptor rather than
+    /// a path, and §6.2 lets it be an absolute URL, so only a value that unambiguously
+    /// reads as a filesystem path is resolved against the tree. Expectations come from
+    /// those two spec rules, not from the classifier.
+    /// </summary>
+    /// <param name="resource">The <c>resource</c> value as an author would write it.</param>
+    /// <param name="expected">The <c>SourceResource</c> name §5.1/§6.2 make of it.</param>
+    [Theory]
+    [InlineData("", "NotAPath")]
+    [InlineData("all queries in project X", "NotAPath")]
+    [InlineData("quarterly notes.md", "NotAPath")]
+    [InlineData("https://example.invalid/page.md", "NotAPath")]
+    [InlineData("//example.invalid/page.md", "NotAPath")]
+    [InlineData("project.dataset.table", "NotAPath")]
+    [InlineData("dashboards/exec-revenue", "NotAPath")]
+    [InlineData("team./roster", "NotAPath")]
+    [InlineData("/dashboards/exec-revenue", "Unresolved")]
+    [InlineData("./exec-revenue", "Unresolved")]
+    [InlineData("../exec-revenue", "Unresolved")]
+    [InlineData("exec-revenue.md", "Unresolved")]
+    [InlineData("tables/orders.sql", "Unresolved")]
+    public void AResourceIsOnlyResolvedWhenItUnambiguouslyReadsAsAPath(string resource, string expected) =>
+        Assert.Equal(
+            Enum.Parse<SourceResource>(expected),
+            LintText.ClassifyResource(resource, Root, SubDirectory));
+
+    /// <summary>§6.2: a relative <c>resource</c> that names a real file resolves.</summary>
+    [Fact]
+    public void AResourceNamingAFileInTheBundleResolves()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("tables/orders.md", "# Orders\n");
+        var directory = Path.Combine(bundle.Root, "tables");
+
+        Assert.Equal(SourceResource.Resolved, LintText.ClassifyResource("orders.md", bundle.Root, directory));
+        Assert.Equal(SourceResource.Resolved, LintText.ClassifyResource("tables/orders.md", bundle.Root, directory));
+        Assert.Equal(SourceResource.Unresolved, LintText.ClassifyResource("tables/orders.sql", bundle.Root, directory));
+    }
 }

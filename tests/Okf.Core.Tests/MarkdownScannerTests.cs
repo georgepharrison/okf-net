@@ -113,4 +113,49 @@ public class MarkdownScannerTests
         Assert.False(MarkdownScanner.Scan("\n   \n", 1).HasContent);
         Assert.True(MarkdownScanner.Scan("something\n", 1).HasContent);
     }
+
+    /// <summary>A closing fence reopens the document: what follows it is scanned again.</summary>
+    [Fact]
+    public void ScanningResumesAfterTheClosingFence()
+    {
+        var scan = MarkdownScanner.Scan(
+            """
+            ```sql
+            -- [not a link](/fake.md)
+            ```
+
+            After [real](/real.md).
+            """,
+            1);
+
+        Assert.Equal(["/real.md"], scan.Links.Select(link => link.Target));
+        Assert.Equal([5], scan.Links.Select(link => link.Line));
+    }
+
+    /// <summary>The fence markers are structure, so an empty block is an empty body.</summary>
+    [Fact]
+    public void AnEmptyFencedBlockHasNoContent() =>
+        Assert.False(MarkdownScanner.Scan("```\n```\n", 1).HasContent);
+
+    /// <summary>`[text]()` names no destination, so there is nothing to check.</summary>
+    [Fact]
+    public void AnEmptyLinkDestinationIsNotALink() =>
+        Assert.Empty(MarkdownScanner.Scan("An [empty]() link.\n", 1).Links);
+
+    /// <summary>
+    /// CommonMark wraps a destination in angle brackets to allow characters a bare one
+    /// cannot carry; the brackets are delimiters and are not part of the path. A lone
+    /// bracket on either side is an ordinary character.
+    /// </summary>
+    /// <param name="destination">The destination as written between the parentheses.</param>
+    /// <param name="expected">The target the link should carry.</param>
+    [Theory]
+    [InlineData("<a.md>", "a.md")]
+    [InlineData("a.md", "a.md")]
+    [InlineData("<a.md", "<a.md")]
+    [InlineData("a.md>", "a.md>")]
+    [InlineData("<>", "")]
+    [InlineData("<", "<")]
+    public void AngleBracketsAroundADestinationAreDelimitersNotPath(string destination, string expected) =>
+        Assert.Equal(expected, MarkdownScanner.Scan($"[t]({destination})\n", 1).Links.Single().Target);
 }
