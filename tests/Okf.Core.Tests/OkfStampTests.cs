@@ -547,6 +547,165 @@ public class OkfStampTests
         Assert.NotEqual(0xEF, File.ReadAllBytes(path)[0]);
     }
 
+    [Theory]
+    [InlineData("---\ntype: Concept\n")]
+    [InlineData("---\ntype: Concept")]
+    public void FrontmatterThatIsNeverClosedIsTheParsersRefusalAndNotACrash(string source)
+    {
+        // The fence walk stops at the last line there is: reaching past it would turn
+        // AD-23's "fall back to the emitter" into an index error before the emitter is
+        // ever asked, and the caller would see the wrong exception for the wrong reason.
+        Assert.Throws<OkfDocumentException>(() => OkfStamp.VerifyText(source, "human:ringo", At));
+        Assert.Throws<OkfDocumentException>(() => OkfStamp.StampGeneratedText(source, "claude-fable/5", At));
+    }
+
+    [Fact]
+    public void AThematicBreakInTheBodyIsNotMistakenForTheClosingFence()
+    {
+        // `---` is also markdown's horizontal rule, so the frontmatter ends at the *first*
+        // one after the opening fence and not at the last one in the file.
+        var source = "---\ntype: Concept\n---\n\nBody.\n\n---\n\nMore body.\n";
+
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n"
+            + "---\n\nBody.\n\n---\n\nMore body.\n",
+            OkfStamp.VerifyText(source, "human:ringo", At));
+
+        Assert.Equal(
+            "---\ntype: Concept\ngenerated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }\n"
+            + "---\n\nBody.\n\n---\n\nMore body.\n",
+            OkfStamp.StampGeneratedText(source, "claude-fable/5", At));
+    }
+
+    [Fact]
+    public void AFileThatIsNothingButFrontmatterIsStampedWithoutReadingPastItsEnd()
+    {
+        // No body and no trailing newline, so the closing fence is the file's last line
+        // and the key search has nowhere after it to look.
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n---",
+            OkfStamp.VerifyText("---\ntype: Concept\n---", "human:ringo", At));
+
+        Assert.Equal(
+            "---\ntype: Concept\ngenerated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }\n---",
+            OkfStamp.StampGeneratedText("---\ntype: Concept\n---", "claude-fable/5", At));
+    }
+
+    [Fact]
+    public void AProducerKeyWhoseNameOpensWithTheStampKeyIsNotMistakenForIt()
+    {
+        // §5.2 leaves unknown producer keys alone, and `generated_note` is one of them.
+        // Only `generated:` — the name and its colon — is the stamp.
+        var source = "---\ntype: Concept\ngenerated_note: kept\n"
+            + "generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\n---\n\nBody.\n";
+
+        Assert.Equal(
+            source.Replace(
+                "generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }",
+                "generated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }",
+                StringComparison.Ordinal),
+            OkfStamp.StampGeneratedText(source, "claude-fable/5", At));
+    }
+
+    [Fact]
+    public void AProducerKeyWhoseNameOpensWithTheVerifiedKeyIsNotMistakenForIt()
+    {
+        var source = "---\ntype: Concept\nverified_by_hand: kept\n"
+            + "verified:\n  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n---\n\nBody.\n";
+
+        Assert.Equal(
+            source.Replace(
+                "  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n",
+                "  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n"
+                + "  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n",
+                StringComparison.Ordinal),
+            OkfStamp.VerifyText(source, "human:ringo", At));
+    }
+
+    [Fact]
+    public void ABlankLineInsideTheFrontmatterDoesNotEndTheStampsValue()
+    {
+        // YAML allows a blank line between keys. It carries no key of its own, so the
+        // stamp's value still runs to the next real key and the surgery still reaches it.
+        var source = "---\ntype: Concept\ngenerated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\n"
+            + "\ntitle: Widgets\n---\n\nBody.\n";
+
+        Assert.Equal(
+            source.Replace(
+                "generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }",
+                "generated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }",
+                StringComparison.Ordinal),
+            OkfStamp.StampGeneratedText(source, "claude-fable/5", At));
+    }
+
+    [Fact]
+    public void ABlankLineAfterTheVerifiedListDoesNotMoveWhereTheEventLands()
+    {
+        // The new event goes after the last line that belongs to the sequence, which is
+        // the last non-blank one — a blank line is not an item.
+        var source = "---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n"
+            + "\ntitle: T\n---\n\nBody.\n";
+
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n"
+            + "  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\n\ntitle: T\n---\n\nBody.\n",
+            OkfStamp.VerifyText(source, "human:ringo", At));
+    }
+
+    [Fact]
+    public void TheEventLandsInsideTheListAndNotAfterALaterKey()
+    {
+        // The list's value ends at the *first* top-level key that follows it. With two of
+        // them, taking the last would drop the event past `title` and out of the sequence.
+        var source = "---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n"
+            + "title: T\nstatus: draft\n---\n\nBody.\n";
+
+        Assert.Equal(
+            "---\ntype: Concept\nverified:\n  - { by: \"process:x\", at: 2026-08-01T00:00:00Z }\n"
+            + "  - { by: \"human:ringo\", at: 2026-08-15T14:30:00Z }\ntitle: T\nstatus: draft\n---\n\nBody.\n",
+            OkfStamp.VerifyText(source, "human:ringo", At));
+    }
+
+    [Fact]
+    public void TheEmitterFallbackWritesAnEventPerLineWithBothKeys()
+    {
+        // AD-23 lets the *formatting* move when the emitter takes over — its spacing and
+        // its quoting are its own. What must not move is the shape okf writes: `verified`
+        // is a sequence with one event per line, each event a one-line mapping carrying
+        // `by` and `at`, the actor double-quoted and the instant AD-24 canonical. Nothing
+        // else holds the fallback to that, which is why this asserts the whole file.
+        Assert.Equal(
+            "---\nverified:\n- {by: \"human:ringo\", at: '2026-08-15T14:30:00Z'}\n---\n\nJust a body, no fence.\n",
+            OkfStamp.VerifyText("Just a body, no fence.\n", "human:ringo", At));
+    }
+
+    [Fact]
+    public void TheEmitterFallbackKeepsAFlowSequenceFlowAndAppendsToIt()
+    {
+        // A shape the insertion deliberately does not reach still comes back written the
+        // way its author wrote it, with the new event last.
+        Assert.Equal(
+            "---\ntype: Concept\nverified: [{by: \"process:x\", at: '2026-08-01T00:00:00Z'}, "
+            + "{by: \"human:ringo\", at: '2026-08-15T14:30:00Z'}]\n---\n\nBody.\n",
+            OkfStamp.VerifyText(
+                "---\ntype: Concept\nverified: [{ by: \"process:x\", at: 2026-08-01T00:00:00Z }]\n---\n\nBody.\n",
+                "human:ringo",
+                At));
+    }
+
+    [Fact]
+    public void TheEmitterFallbackWritesTheGenerationStampOnOneLine()
+    {
+        Assert.Equal(
+            "---\ntype: Concept\ngenerated: {by: \"claude-fable/5\", at: '2026-08-15T14:30:00Z'}\n"
+            + "title: Widgets\n---\n\nBody.\n",
+            OkfStamp.StampGeneratedText(
+                "---\ntype: Concept\ngenerated:\n  by: claude-opus/4\n  at: 2020-01-01T00:00:00Z\n"
+                + "title: Widgets\n---\n\nBody.\n",
+                "claude-fable/5",
+                At));
+    }
+
     private static string? Text(OkfMapping mapping, string key) =>
         mapping.TryGetValue(key, out var value) && value is OkfScalar scalar ? scalar.Value : null;
 }
