@@ -236,8 +236,9 @@ hook: single process, no daemon, no network, meaningful exit code.
 **BUILT.** The shipped verbs are `okf init` (work item #4), `okf lint`,
 `okf index`, `okf search` (work item #1), `okf inbox` and `okf verify` (work item #7),
 `okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2),
+`okf skills` (work item #41), `okf capture` and `okf generated` (work item #44),
 `okf register` / `okf unregister` / `okf registry` (work item #43), plus
-`okf help` and `okf version`.
+`okf help` and `okf version`. §3's table is the full surface, row for row.
 
 - **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
   - Default target is the project vault found by walking up for `okf/`.
@@ -272,7 +273,7 @@ hook: single process, no daemon, no network, meaningful exit code.
     or an explicit flag opts them in.
   - The four scopes are `project` (default), `personal`, `registered` and `all`, spelled
     the same as the `--scope` flag and as the `search.scope` setting. `okf mcp` takes the
-    same flag, at launch only (MCP-5, AD-30).
+    same flag, at launch only (MCP-3, AD-30).
   - A registered path that no longer exists is reported once on stderr and skipped; it is
     never an error.
 - **CLI-4 — Configuration precedence.** CLI args > `OKF_HOME` environment variable >
@@ -501,7 +502,7 @@ instructions for agents; they call the CLI rather than reimplementing anything.
 
 ## 3. CLI surface
 
-Every row below is what `okf` dispatches today, except the two marked **deferred**.
+Every row below is what `okf` dispatches today, and every verb `okf help` lists has a row.
 
 | Command | Purpose | Key flags | Exit codes |
 | --- | --- | --- | --- |
@@ -510,9 +511,12 @@ Every row below is what `okf` dispatches today, except the two marked **deferred
 | `okf search <query> [path]` | Search resolved bundles | `--scope`, `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
 | `okf inbox [path]` | List unacknowledged concepts (regenerated-since-verified, `draft`, stale or source-drifted) | `--json`, `--format`, `--fail-if-any` | 0 (whatever it finds) · 1 non-empty inbox under `--fail-if-any` · 2 usage |
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
+| `okf capture <add\|close>` | Record an item already sitting in `raw/` in the capture manifest, or close its ingestion | `--by <actor>` (required), `--url`, `--title`, `--source-last-modified`, `--form flat\|packet`, `--concept` (`close`), `--captured-at` / `--at`, `--json` | 0 written · 1 the record says no (already captured and ingested, entry already closed, named concept absent) · 2 the manifest does not read as one, the item is not capturable, no actor, or usage |
+| `okf generated stamp <concept>...` | Write the `generated: {by, at}` stamp a producer owes on every write | `--by <actor>` (required), `--at`, `--dry-run` | 0 stamped · 2 missing concept, frontmatter that does not parse, malformed actor, or usage |
 | `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | `--name`, `--personal` | 0 created · 1 refused (would overwrite) · 2 usage |
 | `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
 | `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
+| `okf skills <list\|path\|install>` | Report the agent skills this binary carries, where one is installed, or install them | `--host`, `--dir`, `--scope <user\|project>` (an install target, not a search scope), `--force` | 0 installed or reported · 1 `path` for a skill that is not installed · 2 usage |
 | `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | `--scope` (at launch only) | 0 clean shutdown · 2 startup failure |
 | `okf version` · `okf help` | Report the informational version — the bare `<semver>` from a build stamped off a tag, `<semver>+<short-sha>` from an untagged one (#53); print the verb list | `--verbose` / `-v` on `version` adds a `commit: <sha>` second line; `--version`, `--help`, `-h` as aliases | 0 |
 | `okf register [path]` | Add a vault or bundle root to the registry (idempotent) | `--verbose` | 0 registered or already registered · 2 usage |
@@ -754,8 +758,10 @@ decision (and its rationale) is recorded in decisions.md.
   `okf search` do (CLI-1), so the three never disagree about which bundles they are looking
   at; the default is therefore the project vault. `okf verify` takes concept paths, one or
   many, because a verification stamp names a document a person actually read — no directory
-  and no glob. Neither reaches the registry, for the same reason `okf search` does not:
-  `okf register` does not exist yet.
+  and no glob. Neither reaches the registry. `okf search` and `okf mcp` grew `--scope` in
+  work item #43; `okf inbox` and `okf verify` deliberately did not, because an inbox is a
+  queue somebody works through and a stamp names a file somebody opened — neither is
+  improved by spanning vaults nobody is reviewing. Widening either is a separate decision.
 - **Q12 — Machine verification surface. RESOLVED (2026-08-15, see decisions.md).** A
   `--by <actor>` flag on `okf verify`, not a separate command: the refusals a machine
   confirmation needs — a well-formed §7 actor, never the concept's own `generated.by` —

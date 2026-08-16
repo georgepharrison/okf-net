@@ -3,7 +3,7 @@ type: Guide
 title: About This Bundle
 description: What the okf-net bundle covers, who maintains it, and how to consume it.
 tags: [okf-net, bundle, meta, dogfood]
-generated: { by: claude-fable/5, at: 2026-08-16T09:00:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:50:32Z }
 sources:
   - id: prd
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/prd.md
@@ -22,10 +22,10 @@ validating, and consuming OKF v0.2 knowledge bundles.[^prd] It is designed to
 ship as a library (`Okf.Core`), a single self-contained CLI binary (`okf`)
 that also hosts an MCP server (`okf mcp`), and a set of agent skills. All
 three are built: `Okf.Core`, every CLI verb — `init`, `lint`, `index`,
-`search`, `register`, `unregister`, `registry`, `inbox`, `verify`, `bundle`,
-`site`, `mcp`, plus `help` and `version` — the MCP server, and the three
-skills in `skills/`: two that produce knowledge and one that consumes it. What
-remains designed rather than built is the Pi shim.
+`search`, `register`, `unregister`, `registry`, `inbox`, `verify`, `capture`,
+`generated`, `bundle`, `site`, `skills`, `mcp`, plus `help` and `version` — the
+MCP server, and the three skills in `skills/`: two that produce knowledge and
+one that consumes it. What remains designed rather than built is the Pi shim.
 
 The bundle is the toolset's own dogfood: okf-net's knowledge, kept in
 okf-net's format, validated by okf-net in okf-net's pipeline. It doubles as

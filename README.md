@@ -56,8 +56,9 @@ consume.
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
   per-project bundles, joined through an explicit opt-in registry at
-  `~/.config/okf/registry.json`; the personal vault is an ordinary entry in
-  it, and search behavior is deterministic for teams by default
+  `$XDG_CONFIG_HOME/okf/registry.json` (else `~/.config/okf/`); the personal
+  vault is an ordinary entry in it, and search behavior is deterministic for
+  teams by default
 - **Custodian pattern** — skills and conventions for the agent that
   maintains a bundle (capture, enrichment, staleness refresh), designed to
   run from git hooks and CI
@@ -293,7 +294,7 @@ violate OKF conformance):
 
 Not built: the Pi shim. It does not block 1.0.0. (The registry — `okf
 register` / `okf unregister` / `okf registry` and `--scope` — was the other
-entry here and landed after 1.0.0.)
+entry here; it landed as the first 1.0.x item and is in the list above.)
 
 Every merge to `dev` cuts an `rc` tag and every promotion to `main` cuts a
 stable one, and that tag's pipeline publishes eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
