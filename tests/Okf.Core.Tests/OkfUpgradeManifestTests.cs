@@ -129,6 +129,8 @@ public sealed class OkfUpgradeManifestTests
     /// The asset map grows — three binaries and a skills archive were all added after it
     /// shipped (AD-42). A reader that refused an unknown key would break on the release that
     /// adds the ninth asset, so an unknown key and a missing optional field are both fine.
+    /// An optional field carrying the wrong JSON type reads as absent for the same reason:
+    /// the manifest is downloaded, so its shape is somebody else's to get wrong.
     /// </summary>
     [Fact]
     public void ToleratesUnknownKeysAndMissingOptionalFields()
@@ -138,6 +140,8 @@ public sealed class OkfUpgradeManifestTests
             {
               "version": "2.0.0",
               "channel": "stable",
+              "tag": 20,
+              "generatedAt": null,
               "assets": {
                 "okf-linux-x64": { "path": "v2.0.0/okf-linux-x64", "sha256": "ab", "signature": "x" }
               }
@@ -146,6 +150,7 @@ public sealed class OkfUpgradeManifestTests
 
         var asset = manifest.Find("okf-linux-x64")!;
         Assert.Null(manifest.Tag);
+        Assert.Null(manifest.GeneratedAt);
         Assert.Null(asset.Url);
         Assert.Equal(0, asset.Size);
         Assert.Equal("v2.0.0/okf-linux-x64", asset.Path);
