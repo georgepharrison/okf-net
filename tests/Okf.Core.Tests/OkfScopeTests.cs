@@ -97,10 +97,8 @@ public sealed class OkfScopeTests : IDisposable
 
     /// <summary>
     /// CLI-1 has every command able to say what it looked at, so the sentence is a contract:
-    /// it counts bundles and roots, and pluralizes <c>root</c>. It does NOT pluralize
-    /// <c>bundles</c> — "1 bundles" is what the code emits today, and the literal below says
-    /// so rather than describing a nicer sentence nobody wrote. One root is also the case
-    /// where the working set can name a vault, which is what makes a registered vault's own
+    /// it counts bundles and roots, and pluralizes both. One root is also the case where the
+    /// working set can name a vault, which is what makes a registered vault's own
     /// <c>okf.json</c> apply.
     /// </summary>
     [Fact]
@@ -115,7 +113,29 @@ public sealed class OkfScopeTests : IDisposable
 
         Assert.Equal(Path.Combine(this.root, "other", "okf"), resolution.WorkingSet.VaultRoot);
         Assert.Equal(
-            $"--scope registered: 1 bundles from 1 registered root in '{OkfRegistry.PathFor(Environment(this.root))}'",
+            $"--scope registered: 1 bundle from 1 registered root in '{OkfRegistry.PathFor(Environment(this.root))}'",
+            resolution.WorkingSet.Resolution);
+    }
+
+    /// <summary>
+    /// The two counts in the sentence are counted and pluralized separately: one vault
+    /// holding two bundles is "2 bundles from 1 registered root", so neither noun can be
+    /// reading the other's number.
+    /// </summary>
+    [Fact]
+    public void TwoBundlesInOneRegisteredRootPluralizeIndependently()
+    {
+        Directory.CreateDirectory(Path.Combine(this.root, "twin", "okf", "bundles", "first"));
+        Directory.CreateDirectory(Path.Combine(this.root, "twin", "okf", "bundles", "second"));
+        var registry = Registry(Path.Combine(this.root, "twin"));
+
+        var resolution = OkfScope.Resolve(
+            OkfScopeKind.Registered,
+            Environment(Path.Combine(this.root, "project", "src")),
+            registry);
+
+        Assert.Equal(
+            $"--scope registered: 2 bundles from 1 registered root in '{OkfRegistry.PathFor(Environment(this.root))}'",
             resolution.WorkingSet.Resolution);
     }
 
