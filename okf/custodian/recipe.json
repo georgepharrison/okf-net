@@ -61,6 +61,14 @@
     "indexCheck": "mise run cli -- index --check okf/bundles/okf-net",
     "lint": "mise run cli -- lint okf/",
     "checkManifest": "python3 okf/custodian/check-manifest.py",
+    // The three write ops. They are the ONLY things that edit okf/raw/manifest.json
+    // and a concept's `generated` stamp: code owns the hashes, the timestamps and
+    // the JSON mutation, so an agent writes meaning and never structure. Each
+    // refuses rather than repairs — an ingested capture is immutable, and a
+    // manifest that will not read as one is reported and left as found.
+    "captureAdd": "mise run cli -- capture add okf/raw/<item> --by <actor> --url <url>",
+    "captureClose": "mise run cli -- capture close <id> --concept bundles/okf-net/<path>.md --by <actor>",
+    "generatedStamp": "mise run cli -- generated stamp okf/bundles/okf-net/<path>.md --by <actor>",
     // The inbox is a report, never a gate: it exits 0 whatever it finds, and
     // `--fail-if-any` is deliberately absent from both forms here. The JSON is
     // the machine interface the okf-custodian skill's refresh procedure starts
@@ -80,6 +88,14 @@
     "pre-commit": [
       "markdownlint (.githooks/pre-commit)",
       "checkManifest (only when okf/raw/ is staged)"
+    ],
+    // The write ops are a session's, never a gate's: they are invoked by the
+    // skills above while a person has one open, and nothing on a schedule or in
+    // a hook runs one.
+    "session": [
+      "captureAdd",
+      "captureClose",
+      "generatedStamp"
     ],
     "ci": [
       "lint",

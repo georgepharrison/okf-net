@@ -60,6 +60,7 @@ Honest scoping, because the alternative is a directory that claims a robot:
 | `pre-commit` hook | `markdownlint-cli2` on staged markdown, and `check-manifest.py` when anything under `okf/raw/` is staged | Does not lint the vault — `okf lint` is a CI gate, kept out of the hook so a commit never waits on a `dotnet run`. |
 | CI, `dogfood` job | `okf lint okf/`, `okf index --check`, `check-manifest.py` | Does not write. Every one of the three reports and exits; none of them repairs anything. |
 | Enrichment | The two skills above, invoked by a person opening a session | Nothing scheduled, and no agent watching `stale_after`. The staleness-refresh loop is a later milestone. |
+| A session's writes | `okf capture add`, `okf capture close`, `okf generated stamp` — the only things that edit `raw/manifest.json` or a `generated` stamp | Does not run in a hook or on a schedule, and does not repair: an ingested capture is refused, and a manifest that will not read as one is reported and left as found. |
 
 The gates are mechanical. The enrichment they gate is still human-initiated,
 and saying otherwise in a README is how a project ends up believing it has
@@ -108,6 +109,25 @@ Run it by hand from the repo root:
 ```sh
 python3 okf/custodian/check-manifest.py
 ```
+
+## Writing the manifest
+
+Nothing here writes it, and neither does a person: `okf capture add` and
+`okf capture close` are the only things that edit `raw/manifest.json`, and
+`okf generated stamp` is the only thing that writes a concept's `generated`
+stamp. Code owns the `sha256`, the timestamp form, the JSON mutation and the
+atomic write, so an agent decides *which artifact was worth keeping and what it
+means* and never has to get a hash or a JSON comma right.
+
+```sh
+mise run cli -- capture add okf/raw/<item> --by <actor> --url <url>
+mise run cli -- capture close <id> --concept bundles/okf-net/<path>.md --by <actor>
+mise run cli -- generated stamp okf/bundles/okf-net/<path>.md --by <actor>
+```
+
+Both capture verbs edit the document in place — no entry but the one being
+written moves by a byte — and both refuse rather than repair, which is the same
+rule this script follows from the reading side.
 
 Exit codes mirror `okf lint`: 0 clean, 1 violations, 2 usage or environment
 failure. With no manifest present and an empty `raw/`, it reports that nothing

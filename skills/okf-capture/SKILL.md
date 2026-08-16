@@ -25,12 +25,19 @@ so nothing indexes it, searches it, or ships it.
 
 ## The interface
 
-`okf search`, `okf index`, and `okf lint` are how the vault is reached; run
-`okf <command> --help` for a command's options. Search is tokenized,
-field-weighted, and returns a trust tier and a stale flag per hit, so a hit can
-be judged before it is opened — reach for it in place of a text scan of the
-directory. With `okf` absent from the PATH and no documented equivalent in the
-project, stop and say so.
+`okf search`, `okf index`, and `okf lint` are how the vault is read; `okf
+capture add` and `okf generated stamp` are how its two machine-owned records are
+written. Run `okf <command> --help` for a command's options. Search is
+tokenized, field-weighted, and returns a trust tier and a stale flag per hit, so
+a hit can be judged before it is opened — reach for it in place of a text scan
+of the directory. With `okf` absent from the PATH and no documented equivalent
+in the project, stop and say so.
+
+**Structure is the toolset's; prose is yours.** Hashes, timestamps, the
+manifest's JSON and the `generated` stamp all have a command that writes them,
+and every one of those commands is deterministic and refuses rather than
+guesses. What no command can do is decide *what is worth keeping and what it
+means* — write that, and let okf write the rest.
 
 The layout it resolves against:
 
@@ -123,51 +130,41 @@ okf/raw/
     extracted.md
 ```
 
-Name the item `<YYYY-MM-DD>-<slug>`, dated the day of capture, then record it in
-the capture manifest — `okf/raw/manifest.json`, created as
-`{"manifestVersion": 1, "captures": []}` when absent. The manifest is what makes
-the item immutable later and the one place the original URL is guaranteed to
-survive:
+Name the item `<YYYY-MM-DD>-<slug>`, dated the day of capture — the name **is**
+the manifest entry's id — then record it in the capture manifest, which is what
+makes the item immutable later and the one place the original URL is guaranteed
+to survive:
 
-```json
-{
-  "manifestVersion": 1,
-  "captures": [
-    {
-      "id": "2026-08-14-okapi-bm25-paper",
-      "form": "packet",
-      "files": [
-        { "path": "2026-08-14-okapi-bm25-paper/original.pdf", "sha256": "9f2c…" },
-        { "path": "2026-08-14-okapi-bm25-paper/extracted.md", "sha256": "41ab…" }
-      ],
-      "capturedAt": "2026-08-14T20:41:50Z",
-      "capturedBy": "claude-fable/5",
-      "originalUrl": "https://example.org/papers/okapi-bm25.pdf",
-      "title": "Okapi at TREC-3",
-      "sourceLastModified": "1994-11-01",
-      "ingestion": null
-    }
-  ]
-}
+```sh
+okf capture add okf/raw/2026-08-14-okapi-bm25-paper \
+  --by <your-actor> \
+  --url https://example.org/papers/okapi-bm25.pdf \
+  --title "Okapi at TREC-3" \
+  --source-last-modified 1994-11-01
 ```
 
-| Field | Meaning |
+**Never edit `okf/raw/manifest.json` by hand.** The manifest is the record that
+proves the artifact did not change, and a hash an agent typed proves nothing.
+`okf capture add` writes the entry and creates the file when there is none; it
+edits the document in place, so no other entry moves by so much as a byte.
+
+| What the entry records | Where it comes from |
 | --- | --- |
-| `id` | `<YYYY-MM-DD>-<slug>`, unique in the manifest: the flat file's name minus its extension, or the packet directory's name |
-| `form` | `flat` or `packet` |
-| `files[].path` | Relative to `okf/raw/`. Every file of the item |
-| `files[].sha256` | `sha256sum <file>`. What "unchanged" is measured against |
-| `capturedAt` | RFC 3339 UTC, `Z`-suffixed, seconds: `date -u +%Y-%m-%dT%H:%M:%SZ` |
-| `capturedBy` | Your actor, §7 form: `<producer>/<version>` |
-| `originalUrl` | Where it came from; absent only for material with no URL |
-| `title`, `sourceLastModified` | Optional, and worth the two seconds — they become the ingested concept's `title` and `sources[].last_modified` |
-| `ingestion` | `null` until ingested; the custodian closes it with `{ at, by, concepts }`, whose `concepts` paths are relative to the vault root (`okf/`), not to `raw/` — one capture may land in more than one bundle |
+| `id` | The item's own name, `<YYYY-MM-DD>-<slug>`: a flat file's name minus its extension, or the packet directory's name |
+| `form` | `flat` for a file, `packet` for a directory |
+| `files[].path`, `files[].sha256` | Every file of the item, hashed by okf. This is what "unchanged" is measured against |
+| `capturedAt` | Now, RFC 3339 UTC at second precision — the one instant form okf writes |
+| `capturedBy` | Your `--by` actor, §7 form: `<producer>/<version>` |
+| `originalUrl` | `--url`. Omit only for material with no URL |
+| `title`, `sourceLastModified` | `--title` and `--source-last-modified`. Optional, and worth the two seconds — they become the ingested concept's `title` and `sources[].last_modified` |
+| `ingestion` | `null` until ingested; the custodian closes it with `okf capture close`, whose concept paths are relative to the vault root (`okf/`), not to `raw/` — one capture may land in more than one bundle |
 
-Entries are append-only. A recapture of the same page is a new entry under a new
-date.
+Entries are append-only. A capture that has already been **ingested** is
+refused, because ingestion is what freezes it, and new evidence is a new item
+under a new date. One still waiting on ingestion is freely re-captured.
 
-**Done when** `sha256sum` on every file of the item matches its manifest entry,
-the entry's `ingestion` is `null`, and the manifest parses as JSON.
+**Done when** `okf capture add ... --json` exits 0 and its report names your
+item's id with `"ingested": false`.
 
 ## 5. Ingest what you captured
 
@@ -192,7 +189,6 @@ type: Concept
 title: BM25 Field Weighting
 description: One sentence. It becomes the index entry and the search snippet.
 tags: [search, ranking]
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50Z }
 sources:
   - id: okapi-bm25-paper
     resource: /references/okapi-bm25.md
@@ -208,9 +204,12 @@ snippet-less search hit. Tags come from the bundle's registry when it has one
 body is markdown under `#` headings — headings, lists, and tables are what a
 reader and a retriever both work from.
 
+`generated` is deliberately absent here: step 8 writes it with a command, at the
+time the write actually finished.
+
 **Done when** the frontmatter carries `type`, `title`, `description`, `tags`,
-`generated`, and a `sources` entry per cited source, and every tag appears in
-the registry when one is configured.
+and a `sources` entry per cited source, and every tag appears in the registry
+when one is configured.
 
 ## 7. Cite by key
 
@@ -233,20 +232,24 @@ and every `[^id]` label in the body matches a `sources[].id`.
 
 ## 8. Stamp `generated`
 
-```yaml
-generated: { by: claude-fable/5, at: 2026-08-14T20:41:50Z }
+```sh
+okf generated stamp <concept-path> --by <your-actor>
 ```
 
-`by` is your actor in §7 form — `<producer>/<version>` for an agent or tool,
-`process:<id>` for an automated process. `at` is RFC 3339 UTC at second
-precision — `date -u +%Y-%m-%dT%H:%M:%SZ` — which is the one form okf-net
-writes, because a `Z`-suffixed stamp sorts as text in the order it sorts in
-time and a local offset records where you were sitting. Restamp on
-every write, a one-line edit included: `generated.at` older than the content is
-a false freshness signal, and it feeds every drift and stale check downstream.
+`--by` is your actor in §7 form — `<producer>/<version>` for an agent or tool,
+`process:<id>` for an automated process. okf writes the instant, in RFC 3339 UTC
+at second precision, because a `Z`-suffixed stamp sorts as text in the order it
+sorts in time and a local offset records where you were sitting. It edits the
+`generated` line and nothing else, so key order, quoting and the body all
+survive.
 
-**Done when** `generated.at` equals the time of this write and `generated.by` is
-your own actor string.
+Restamp on every write, a one-line edit included: `generated.at` older than the
+content is a false freshness signal, and it feeds every drift and stale check
+downstream. A fresh stamp puts the concept back on `okf inbox` — that is the
+loop working, not a mistake.
+
+**Done when** `okf generated stamp` exits 0 and reports your actor and the
+instant it wrote.
 
 ## 9. Regenerate, lint, log
 

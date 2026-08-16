@@ -34,11 +34,17 @@ indexes it, searches it, or ships it.
 
 ## The interface
 
-`okf search`, `okf index`, and `okf lint` are how the vault is reached; run
-`okf <command> --help` for a command's options. Search is tokenized,
-field-weighted, and carries a trust tier and a stale flag on every hit — reach
-for it in place of a text scan of the directory. With `okf` absent from the
-PATH and no documented equivalent in the project, stop and say so.
+`okf search`, `okf index`, `okf inbox` and `okf lint` are how the vault is read;
+`okf capture close` and `okf generated stamp` are how its two machine-owned
+records are written. Run `okf <command> --help` for a command's options. Search
+is tokenized, field-weighted, and carries a trust tier and a stale flag on every
+hit — reach for it in place of a text scan of the directory. With `okf` absent
+from the PATH and no documented equivalent in the project, stop and say so.
+
+**Structure is the toolset's; prose is yours.** The manifest's JSON, every
+`sha256`, every timestamp and the `generated` stamp have a command that writes
+them deterministically. Hand-editing any of them is how a record that is
+supposed to prove something stops proving it.
 
 ```text
 <project>/okf/
@@ -94,7 +100,6 @@ title: Okapi at TREC-3
 description: The paper that introduced BM25 and its k1/b parameters.
 resource: https://example.org/papers/okapi-bm25.pdf
 tags: [search, ranking]
-generated: { by: claude-fable/5, at: 2026-08-14T21:02:11Z }
 sources:
   - id: okapi-bm25-paper
     resource: https://example.org/papers/okapi-bm25.pdf
@@ -121,32 +126,39 @@ tables, carrying a `[^okapi-bm25-paper]` footnote on a claim it renders — the
 `sources` entry is joined by key here like anywhere else. Analysis belongs in
 the concept that *cites* this one.
 
+`generated` is deliberately absent from the template: `okf generated stamp
+<concept-path> --by <your-actor>` writes it, at the time the write finished. See
+**Stamp `generated`, on every write** below.
+
 **Done when** the concept carries `type`, `title`, `description`, `resource`,
-`tags`, `generated`, and `sources`, the body names the raw item's manifest id,
+`tags`, `generated` and `sources`, the body names the raw item's manifest id,
 and every `sources[].id` has a `[^id]` footnote in the body.
 
 ### 4. Close the entry
 
-Set `ingestion` on that entry, leaving every other field as captured:
-
-```json
-"ingestion": {
-  "at": "2026-08-14T21:02:11Z",
-  "by": "claude-fable/5",
-  "concepts": ["bundles/okf-net/references/okapi-bm25.md"]
-}
+```sh
+okf capture close 2026-08-14-okapi-bm25-paper \
+  --concept bundles/okf-net/references/okapi-bm25.md \
+  --by <your-actor>
 ```
 
-`concepts` paths are relative to the vault root (`okf/`), not to `raw/` the way
-`files[].path` is: one capture may be ingested into more than one bundle.
+`--concept` is repeatable and each path is relative to the vault root (`okf/`),
+not to `raw/` the way `files[].path` is: one capture may be ingested into more
+than one bundle. Every named concept must already exist — okf checks all of them
+before it touches the manifest, because an `ingestion` cannot be reopened.
+
+**Never edit `okf/raw/manifest.json` by hand.** okf sets `ingestion` in place,
+leaving every other byte of the record as captured; a hand edit is how the
+record that proves the artifact did not change stops being evidence.
 
 The item is now frozen: it is tracked by this entry rather than by any directory
-name, and new evidence arrives as a new capture with a new entry. An extraction
-that came out wrong is recaptured and re-ingested; the wrong one stays as the
-record of what was actually retrieved.
+name, and new evidence arrives as a new capture with a new entry — `okf capture
+add` refuses a second capture of an ingested item, which is that rule holding
+rather than a bug. An extraction that came out wrong is recaptured under a new
+id and re-ingested; the wrong one stays as the record of what was actually
+retrieved.
 
-**Done when** the manifest parses, `ingestion.concepts` names files that exist,
-and `sha256sum` on every file of the item still matches its recorded hash.
+**Done when** `okf capture close` exits 0 and names the id it closed.
 
 ## Enrich: writing and extending prose
 
@@ -178,21 +190,28 @@ you wrote appears in the registry when one is configured.
 
 ## Stamp `generated`, on every write
 
-```yaml
-generated: { by: claude-fable/5, at: 2026-08-14T21:02:11Z }
+```sh
+okf generated stamp <concept-path>... --by <your-actor>
 ```
 
-`by` uses the §7 actor convention: `<producer>/<version>` for an agent or tool,
-`process:<id>` for an automated process, `human:<id>` for a person — a prefix
-that tells every consumer a person stood behind the content, so it stays with
-people. `at` is RFC 3339 UTC at second precision —
-`date -u +%Y-%m-%dT%H:%M:%SZ` — which is the one form okf-net writes, because
-a `Z`-suffixed stamp sorts as text in the order it sorts in time and a local
-offset records where you were sitting.
+`--by` uses the §7 actor convention: `<producer>/<version>` for an agent or
+tool, `process:<id>` for an automated process, `human:<id>` for a person — a
+prefix that tells every consumer a person stood behind the content, so it stays
+with people, and `okf generated stamp` warns when you use it. okf writes the
+instant in RFC 3339 UTC at second precision, the one form it writes, because a
+`Z`-suffixed stamp sorts as text in the order it sorts in time and a local
+offset records where you were sitting. Concepts named in one run share one
+instant, and a refusal on any of them stamps none of them.
+
+The edit touches the `generated` line and nothing else — key order, quoting,
+`verified`, and the body all survive — and the result is read back before it is
+kept.
 
 A one-line edit is a write. `generated.at` older than the content is a false
 freshness signal, and it is the input to every drift and stale check
-downstream.
+downstream. A fresh stamp also makes the concept unacknowledged again and puts
+it back on `okf inbox`: correct, because the person who cleared the old text has
+not seen this one.
 
 **Verification is a second actor's act.** A non-generating agent or process may
 record a machine-confirmed verification when it re-checked the claim against its
@@ -354,7 +373,6 @@ notes name concepts by link.
 
 ```yaml
 status: draft
-generated: { by: claude-fable/5, at: 2026-08-15T14:30:00Z }
 stale_after: 2027-02-15
 sources:
   - id: upstream
@@ -362,9 +380,14 @@ sources:
     last_modified: 2026-08-10
 ```
 
+```sh
+okf generated stamp <concept-path> --by <your-actor>
+```
+
 - **`status: draft`** makes the concept unacknowledged by definition, which is
   what keeps it on the inbox after the other two reasons clear.
-- **`generated.at`** is the time of this write.
+- **`generated`** is stamped by the command above rather than typed, so its
+  `at` is the time of this write and not a guess at it.
 - **`stale_after`** moves out **in this draft**. It is the sentence "somebody
   re-checked this today", and it becomes true when a person lands the draft.
 - **`sources[].last_modified`** becomes what the fetch reported; that is what
