@@ -290,9 +290,11 @@ that run.
 ## D and E outcomes — trust/inbox/verify/stamp
 
 Work item #13, branch `13-trust-inbox`. Stryker over the package's seven files
-alone: **76.52 % → 85.71 %** (killed 251 → 270; survived + no-coverage 77 → 45).
-`OkfInbox.cs` and `OkfLifecycleInstant.cs` reach 100 %, `OkfStamp.cs` 66.86 % →
-79.75 % and `OkfVerifyIdentity.cs` 72.92 % → 76.09 %.
+alone: **76.52 % → 86.67 %** (killed 251 → 273; survived + no-coverage 77 → 42).
+`OkfActor.cs`, `OkfInbox.cs`, `OkfLifecycleInstant.cs` and `OkfTrustTier.cs`
+reach 100 %, `OkfStamp.cs` 66.86 % → 82.21 % and `OkfVerifyIdentity.cs`
+72.92 % → 73.91 %. The after-figures are read from the JSON report, not the
+console line, for the reason recorded above.
 
 **D found nothing to delete.** Every public member of the seven files has a
 caller in `src/` or is one of the two model-level entry points
@@ -304,17 +306,36 @@ exclude them rather than manufacture coverage (AD-44):
 
 | Site | Why no input distinguishes the mutant |
 | --- | --- |
-| `OkfStamp.cs:275, 379` and the `276`/`399` blocks | `text.Split('\n')` never yields an empty list, so `lines.Count == 0` is already dead; the rest of the guard only ever routes a fenceless file to the emitter, which is where the mutant's own output ends up too. |
+| `OkfStamp.cs:275, 379` and the `276`, `380`, `399` blocks | `text.Split('\n')` never yields an empty list, so `lines.Count == 0` is already dead; the rest of the guard only ever routes a fenceless file to the emitter, which is where the mutant's own output ends up too. |
 | `OkfStamp.cs:282, 388` | `fence` is overwritten whenever a closing fence exists, and when none does both the guard and its mutant end at the emitter's `Unterminated YAML frontmatter block`. |
 | `OkfStamp.cs:292, 300, 398, 408` | `fence` is `-1` or `≥ 1` and `key` is `-1` or `≥ 1`; neither can be `0`, so `< 0` and `<= 0` agree on every reachable value. |
 | `OkfStamp.cs:310, 419` | The closing fence is itself a non-whitespace line, so `i <= fence` assigns `stop` the value it already held. |
-| `OkfStamp.cs:319` (`Length < 0`) | The region is only consulted when the value is a one-line flow mapping, and a valid document has no region in that case. |
-| `OkfStamp.cs:320, 321, 435, 436, 454, 455` | Each mutant makes the surgery attempt a shape it refuses. The result is not YAML, so the parse-back check rejects it and the caller falls to the emitter — the same output the refusal produces. |
+| `OkfStamp.cs:454, 455` | The surgery this mutant lets through turns a block-style bare mapping into a list without re-indenting the `at:` line under it, so the result does not read back as one more event and the parse-back check hands it to the emitter regardless. Checked by hand: the two outputs are byte-identical. |
+| `OkfStamp.cs:118` | Dropping the initializer leaves `OkfCollectionStyle.Any`, and YamlDotNet writes a non-empty root-level sequence in block style either way. The list is never emitted empty — the event is added before the document is serialized. |
 | `OkfStamp.cs:87-89, 191-193` | AD-23's belt: the emitter fallback cannot lose the event it just added, so the "did not read back" refusal has no reachable input. Keep the check. |
 | `OkfStamp.cs:258, 356` | Already recorded above: the caller parsed the document first. |
+| `OkfCanonicalTimestamp.cs:45` | `IsCanonical` discards the parsed value and its format string carries a literal `Z`, so no `DateTimeStyles` combination changes the boolean it returns. |
 | `OkfVerifyIdentity.cs:59` (`GIT_CONFIG_SYSTEM`, `GIT_CONFIG_NOSYSTEM`) | `git config --global --get` does not read the system file, so passing these through changes no answer. They are hermeticity belt for a future non-`--global` read. `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` are each pinned by a test now. |
 | `OkfVerifyIdentity.cs:112` | `CreateNoWindow` has no effect on the POSIX test host. |
 | `OkfVerifyIdentity.cs:137` | Draining stderr only matters for an output large enough to fill the pipe, which `git config` cannot produce. |
+
+**Killable, and not killed on purpose.** An adversarial pass over the table
+above found that four of the sites first recorded as unkillable are not, so they
+are moved here: calling a mutant unkillable and calling it not worth a test are
+different claims and only the second one is true of them.
+
+| Site | Input that distinguishes the mutant | Why no test |
+| --- | --- | --- |
+| `OkfStamp.cs:319, 320` and `OkfStamp.cs:435, 436` | A comment line indented under `generated:` or `verified:` whose value is a one-line flow mapping. It makes `region` non-empty in a document that parses, which is the case the original rows assumed away. | The mutants' output is *better*: they keep the comment, while the original sends the document to the emitter, which drops it. A test here would freeze that loss into the suite. It is a behaviour decision first — see below. |
+| `OkfStamp.cs:334` and `OkfVerifyIdentity.cs:91, 181, 188` | Any assertion over the whole diagnostic string. | These are the explanatory halves of messages whose actionable clause is already asserted with `Contains`. Pinning whole sentences buys a test edit per wording change and no behaviour. |
+
+**Frontmatter comments are dropped whenever stamping falls to the emitter.**
+Found while disproving the rows above, present on `dev`, not introduced here:
+`OkfStamp.VerifyText` on a concept carrying a YAML comment in its frontmatter
+returns the emitter's re-serialization, and the comment is gone. That is the
+whole-file-diff harm AD-23's insertion path exists to avoid, arriving through
+the fallback instead. Needs a decision — widen the surgery to tolerate comment
+lines, or accept the loss and say so in the AD — before it gets a test.
 
 **Left for a decision, not a test:** `OkfVerifyIdentity.cs:132, 143, 151-152` —
 `Process.Start` returning null, the five-second timeout kill, and the

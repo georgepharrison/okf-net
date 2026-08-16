@@ -706,6 +706,33 @@ public class OkfStampTests
                 At));
     }
 
+    [Fact]
+    public void AConceptWhoseInnerLinesEndInBareCarriageReturnsFallsToTheEmitterAndNotACrash()
+    {
+        // §4's line split treats a bare CR as a break; the insertion splits on LF alone.
+        // So this document has a closing fence for the parser — which is why the insertion
+        // is reached at all — and none for the insertion, whose fence walk therefore runs
+        // to the end of its list. It has to run out and hand the document over, not read
+        // one line past the end.
+        var stamped = OkfStamp.VerifyText("---\ntype: Concept\r---\rBody.\r", "human:ringo", At);
+
+        Assert.Equal(
+            "human:ringo",
+            Text(Assert.Single(OkfDocument.NormalizeVerified(OkfDocument.Parse(stamped).Frontmatter)), "by"));
+    }
+
+    [Fact]
+    public void AnUnterminatedFlowMappingUnderTheStampKeyIsRefusedAndNotRepaired()
+    {
+        // The generation surgery runs before the parse, so it is the only thing between a
+        // malformed `generated:` line and an overwrite that would make the file parse again
+        // by discarding what its author wrote. It must decline and let the parse refuse.
+        Assert.Throws<OkfDocumentException>(() => OkfStamp.StampGeneratedText(
+            "---\ntype: Concept\ngenerated: {by: x\n---\n\nBody.\n",
+            "claude-fable/5",
+            At));
+    }
+
     private static string? Text(OkfMapping mapping, string key) =>
         mapping.TryGetValue(key, out var value) && value is OkfScalar scalar ? scalar.Value : null;
 }
