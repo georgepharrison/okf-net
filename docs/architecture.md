@@ -694,11 +694,14 @@ flowchart TB
   host's `sync.sh` (which lives on the host, not in this repository)
 - **Prevents:** a package whose name lies about its contents, and an SSH credential on a
   shared runner that can write to the box serving the install script.
-- **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform; the
-  single-binary wording this replaces was true when written.)* One tag pipeline publishes
-  **seven** assets under one package version: three binaries (`okf-linux-x64`,
-  `okf-osx-arm64`, `okf-win-x64.exe`), the knowledge bundle
-  (`okf-net-knowledge.tar.gz`), `latest.json`, and both installers. CI stamps from the tag,
+- **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform, and
+  again after #41, which added the skills archive; the single-binary wording this replaces
+  was true when written.)* One tag pipeline publishes **eight** assets under one package
+  version: three binaries (`okf-linux-x64`, `okf-osx-arm64`, `okf-win-x64.exe`), the
+  knowledge bundle (`okf-net-knowledge.tar.gz`), the agent skills
+  (`okf-skills.tar.gz`, a deterministic tar of `skills/*/SKILL.md` that no installer
+  fetches, because every binary embeds the same files), `latest.json`, and both
+  installers. CI stamps from the tag,
   never from `git describe`, and the job compares `okf version` from the freshly compiled
   binary against `<tag minus the leading v>+<short sha>` before uploading anything — a
   runnable check for `linux-x64` only, because a Linux runner cannot execute the other two,
@@ -925,7 +928,7 @@ flowchart TB
     pub --> build["publish 3 RIDs<br/>linux-x64 AOT · osx-arm64<br/>win-x64 · stamped from the tag"]
     build --> gate{"okf version matches<br/>tag plus short sha?"}
     gate -- no --> stop["fail · upload nothing"]
-    gate -- yes --> reg["generic package registry<br/>okf/VERSION · 7 assets<br/>3 binaries · knowledge bundle"]
+    gate -- yes --> reg["generic package registry<br/>okf/VERSION · 8 assets<br/>3 binaries · knowledge bundle<br/>skills archive"]
     reg --> man["latest.json<br/>per asset: path · size · sha256 · url"]
     man --> sync["sync.sh on the host<br/>pull · re-verify · rename"]
     sync --> host["get.okf.tychostation.dev"]
@@ -1014,7 +1017,7 @@ not fix. Board:
 | Q8's near-duplicate heuristic, Q9's CI-commit signal | `OKF0303` ships a normalized title-or-filename collision and keeps its id when #24 replaces the heuristic. The "human actor on a CI commit" warning has no reliable signal decided, so it has no rule id. |
 | An extractor (`okf bundle --extract`) | Reading an archive is needed for `--verify` and writing one for packaging; unpacking is `tar -xzf`'s job and a consumer already has it. |
 | Branch review environments on Pages | Built, tried against the real instance, and removed: `pages.path_prefix` and `pages.expire_in` are Premium/Ultimate keywords silently ignored on GitLab CE 19.0.1, so a feature branch published over the production site. Reviewers run `mise run site` locally. |
-| NativeAOT beyond `linux-x64`, and the targets nobody has asked for | *(updated 2026-08-15 after #36.)* Three RIDs ship: `linux-x64` is NativeAOT, `osx-arm64` and `win-x64` are trim-safe self-contained, because NativeAOT compiles through the host's toolchain and the only runner here is Linux (AD-8). Still deferred: NativeAOT for those two, which needs a macOS runner ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38)) and a Windows runner ([#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)) and buys back ~9 MB and the cold start and nothing else; and `osx-x64`, musl and `linux-arm64`, each one line in the publish job and one case label in `install.sh`, not built on speculation. `latest.json`'s asset map carries the release's seven assets and has room for more. |
+| NativeAOT beyond `linux-x64`, and the targets nobody has asked for | *(updated 2026-08-15 after #36.)* Three RIDs ship: `linux-x64` is NativeAOT, `osx-arm64` and `win-x64` are trim-safe self-contained, because NativeAOT compiles through the host's toolchain and the only runner here is Linux (AD-8). Still deferred: NativeAOT for those two, which needs a macOS runner ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38)) and a Windows runner ([#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)) and buys back ~9 MB and the cold start and nothing else; and `osx-x64`, musl and `linux-arm64`, each one line in the publish job and one case label in `install.sh`, not built on speculation. `latest.json`'s asset map carries the release's eight assets and has room for more. |
 
 Several milestone items whose work has landed (#2 – #7) are still open on the board; they
 are execution bookkeeping, not deferrals.

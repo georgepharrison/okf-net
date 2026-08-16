@@ -108,9 +108,11 @@ EOF
   done
 
   # Never selected by install.sh; present because a release carries them and the reader
-  # has to walk past them.
+  # has to walk past them. The skills archive is one of these: the installer never fetches
+  # it, because every binary already carries the skills (#41).
   printf 'MZ this is not really a PE binary, version %s\n' "$v" >"$dir/okf-win-x64.exe"
   printf 'not really a tarball, version %s\n' "$v" >"$dir/okf-net-knowledge.tar.gz"
+  printf 'not really the skills archive, version %s\n' "$v" >"$dir/okf-skills.tar.gz"
   cp "$installer" "$dir/install.sh"
   cp "$repo/install.ps1" "$dir/install.ps1"
 
@@ -149,6 +151,12 @@ EOF
       "sha256": "$(sha_line okf-net-knowledge.tar.gz)",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz"
     },
+    "okf-skills.tar.gz": {
+      "path": "v$v/okf-skills.tar.gz",
+      "size": $(wc -c <"$dir/okf-skills.tar.gz"),
+      "sha256": "$(sha_line okf-skills.tar.gz)",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-skills.tar.gz"
+    },
     "install.sh": {
       "path": "v$v/install.sh",
       "size": $(wc -c <"$dir/install.sh"),
@@ -172,7 +180,8 @@ make_release "$VERSION_NEW"
 # The root is the "latest" channel: copies of the newest version, exactly as sync.sh
 # publishes them on the artifact host.
 for f in latest.json install.sh install.ps1 \
-         okf-linux-x64 okf-osx-arm64 okf-win-x64.exe okf-net-knowledge.tar.gz; do
+         okf-linux-x64 okf-osx-arm64 okf-win-x64.exe \
+         okf-net-knowledge.tar.gz okf-skills.tar.gz; do
   cp "$www/v$VERSION_NEW/$f" "$www/$f"
 done
 
