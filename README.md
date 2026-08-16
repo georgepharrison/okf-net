@@ -114,6 +114,30 @@ curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 The scripts are [`install.sh`](install.sh) and [`install.ps1`](install.ps1) in
 this repository, and every release ships the copies it was cut with.
 
+### Upgrading
+
+Once okf is installed, it upgrades itself — no second `curl | sh`:
+
+```sh
+okf upgrade --check    # what you have vs what is published; exit 1 if newer exists
+okf upgrade            # download, verify the sha256, replace the running binary
+okf upgrade --dry-run  # say what it would do, write nothing
+okf upgrade --version 1.0.0   # pin a release; downgrades too
+```
+
+It reads the same `latest.json` and the same `OKF_INSTALL_URL` the installers do,
+downloads beside the binary it is replacing, checks the digest against the
+manifest, and only then renames the file into place — so `okf` is either the old
+binary or the new one, never a partial download. Nothing outside that one
+directory is read or written, and a mismatch prints both digests and touches
+nothing.
+
+**This is the only okf command that uses a network, and it does so only when you
+run it.** No other verb checks for updates, on startup or otherwise
+([AD-53](docs/architecture.md)). `--check` is exit-code shaped — `0` current,
+`1` an upgrade is available — so it fits in a prompt or a scheduled job without
+parsing anything.
+
 ### The agent skills come with it
 
 Once the binary is in place, both installers run `okf skills install`. Nothing

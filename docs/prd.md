@@ -231,7 +231,8 @@ item #9) on 2026-08-15, and the two changes that review ordered landed in work i
 ### 2.2 `okf` CLI
 
 The CLI is a thin wrapper over `Okf.Core` (decisions §4). It must be usable from a git
-hook: single process, no daemon, no network, meaningful exit code.
+hook: single process, no daemon, no network, meaningful exit code. (`okf upgrade` is the
+one verb that uses a network, and nothing puts it in a hook — CLI-16.)
 
 **BUILT.** The shipped verbs are `okf init` (work item #4), `okf lint`,
 `okf index`, `okf search` (work item #1), `okf inbox` and `okf verify` (work item #7),
@@ -405,8 +406,14 @@ hook: single process, no daemon, no network, meaningful exit code.
     conformance `00xx`, provenance `01xx`, trust `02xx`, hygiene `03xx` — per Q2
     (resolved). Docs may also give kebab nicknames; nicknames are not valid configuration
     keys.
-- **CLI-16 — Offline and hermetic.** No command makes a network call or invokes a model.
+- **CLI-16 — Offline and hermetic.** No command invokes a model, and no command that reads
+  or writes knowledge makes a network call.
   - The full MVP surface runs with networking disabled.
+  - **Amended 2026-08-16 (work item #23).** `okf upgrade` is the single exception and the
+    only network path in the toolset: it replaces the binary with a release it verifies
+    against the published manifest. It is confined to one library file, reachable from no
+    other verb, and never runs unless it is the verb invoked — no startup check, no
+    background poll (`docs/architecture.md` AD-7, AD-53).
 - **CLI-17 — Distribution. BUILT (2026-08-15, work items #25 and #36), except the NuGet
   package.** Each tag pipeline publishes seven assets under one package version: three
   binaries — `okf-linux-x64` (NativeAOT), `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe
@@ -518,6 +525,7 @@ Every row below is what `okf` dispatches today, and every verb `okf help` lists 
 | `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
 | `okf skills <list\|path\|install>` | Report the agent skills this binary carries, where one is installed, or install them | `--host`, `--dir`, `--scope <user\|project>` (an install target, not a search scope), `--force` | 0 installed or reported · 1 `path` for a skill that is not installed · 2 usage |
 | `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | `--scope` (at launch only) | 0 clean shutdown · 2 startup failure |
+| `okf upgrade` | Replace this binary with a release from the artifact host — the only command that uses a network, and only when it is run (`docs/architecture.md` AD-53) | `--check`, `--version <x.y.z>`, `--channel <stable\|rc>` (`rc` reserved), `--dry-run`, `--json`; `OKF_INSTALL_URL` | 0 upgraded, already current, or reported · 1 `--check` found an upgrade · 2 refused before writing: unusable base URL, unreadable manifest, no asset for this platform, digest mismatch, unwritable install directory |
 | `okf version` · `okf help` | Report the informational version — the bare `<semver>` from a build stamped off a tag, `<semver>+<short-sha>` from an untagged one (#53); print the verb list | `--verbose` / `-v` on `version` adds a `commit: <sha>` second line; `--version`, `--help`, `-h` as aliases | 0 |
 | `okf register [path]` | Add a vault or bundle root to the registry (idempotent) | `--verbose` | 0 registered or already registered · 2 usage |
 | `okf unregister [path\|id]` | Remove a registry entry (idempotent) | `--verbose` | 0 removed or not registered · 2 usage |

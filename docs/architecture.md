@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Fifty-two numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty-three numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -124,7 +124,9 @@ flowchart TB
     mcp["MCP server<br/>okf mcp"] --> core
     core["Okf.Core<br/>all logic"] --> fs["filesystem<br/>markdown + YAML"]
     core -. never .-> cli
-    core -. never .-> net["network · models"]
+    core -. never .-> models["models"]
+    core -. one file .-> upgrade["OkfUpgrade.cs<br/>okf upgrade only"]
+    upgrade --> net["network<br/>https, digest-verified"]
 ```
 
 ### AD-1 — The format is the interop layer; okf-net is optional
@@ -199,14 +201,20 @@ flowchart TB
 - **Binds:** `Okf.Core`, every CLI command, every lint rule
 - **Prevents:** a gate that fails because a network did, and a library that cannot run in
   a hook or an air-gapped CI job.
-- **Rule:** No command makes a network call or invokes a model. Exactly one subprocess is
-  launched anywhere in the toolset, and it is `okf verify`'s identity fallback:
-  `OkfVerifyIdentity` reads `git config --global user.email` through an environment the
-  caller controls, and every other entry point takes that read as an injected delegate. No
-  other code path starts a process — which is why `raw/` immutability is detected by the
-  manifest's recorded `sha256` and not by git.
+- **Rule:** *(amended 2026-08-16 by #23, which added the one network path; the
+  no-network-anywhere wording this replaces was true when written.)* No command invokes a
+  model. Exactly one subprocess is launched anywhere in the toolset, and it is `okf
+  verify`'s identity fallback: `OkfVerifyIdentity` reads `git config --global user.email`
+  through an environment the caller controls, and every other entry point takes that read
+  as an injected delegate. No other code path starts a process — which is why `raw/`
+  immutability is detected by the manifest's recorded `sha256` and not by git. And there is
+  **exactly one network path: `okf upgrade`, confined to `OkfUpgrade.cs`, never invoked by
+  any other verb** — no startup check, no cached staleness banner, no background poll, no
+  opt-out to configure — and injectable, so no test reaches a host and no gate can be
+  failed by a network (AD-53).
 - **Source:** PRD CLI-16, [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15),
-  [acknowledgment loop](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-staleness-refresh-and-acknowledgment-loop-work-item-7-2026-08-15)
+  [acknowledgment loop](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-staleness-refresh-and-acknowledgment-loop-work-item-7-2026-08-15),
+  [`okf upgrade`](decisions.md#proposed-decisions-okf-upgrade-work-item-23-2026-08-16)
 
 ### AD-8 — NativeAOT is both the distribution shape and a build-time gate
 
@@ -911,6 +919,34 @@ flowchart TB
   (AD-24).
 - **Source:** [deterministic write bookkeeping](decisions.md#proposed-decisions-deterministic-write-bookkeeping-work-item-44-2026-08-16)
 
+### AD-53 — `okf upgrade` is the one network path, and it never widens past its own directory
+
+- **Binds:** `OkfUpgrade`, `OkfUpgradeManifest`, `OkfUpgradeVersion`, `UpgradeCommand`,
+  `latest.json`, and AD-7's exception
+- **Prevents:** a toolset that phones home on a verb nobody pointed at a network, and a
+  self-replacing binary that leaves a half-written file where an executable was.
+- **Rule:** All of okf-net's network access is `okf upgrade`, and all of it lives in
+  `OkfUpgrade.cs` behind an injectable fetch delegate — no other file references
+  `System.Net.Http`, no other verb reaches it, and okf never checks for an update it was
+  not asked to check for. Only an `https` base URL is accepted, or `http` to **loopback**;
+  redirects are followed by hand, five hops, and one that leaves `https` is refused, because
+  a digest fetched down the same cleartext channel as the bytes it describes proves nothing.
+  The manifest is `latest.json` at `<base>/` or `<base>/v<version>/`, read relative to
+  `OKF_INSTALL_URL` — the same variable both installers read, and never the registry `url`
+  the same manifest carries for the host's `sync.sh` (AD-42). Integrity, not authenticity:
+  the `sha256` is AD-19's, the manifest is unsigned, and that is AD-35's and AD-42's
+  deferral unchanged. The download is staged **inside the running binary's own directory**
+  (a rename is atomic only within a filesystem), verified there, and only then renamed into
+  place; POSIX overwrites in one move, Windows renames the loaded image to `okf.exe.old`
+  first and `okf upgrade` alone deletes that file, at the start of its own install path.
+  Nothing outside that directory is read or written, and any refusal — an unusable base URL,
+  an unreadable manifest, no asset for this platform, a digest mismatch printing both
+  digests, a target not named `okf`, a directory that cannot be written — happens before a
+  byte moves and is exit 2. `--check` is severity-blind and mechanical in AD-5's sense: 0
+  current, 1 available, no download.
+- **Source:** [`okf upgrade`](decisions.md#proposed-decisions-okf-upgrade-work-item-23-2026-08-16),
+  [self-hosted install](decisions.md#proposed-decisions-decided-2026-08-15-review-9-self-hosted-install-work-item-25-2026-08-15)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -1068,6 +1104,7 @@ flowchart TB
 | `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32, AD-52 | SKILL-7, ACC-5, ACC-6 |
 | Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
+| `okf upgrade` | `OkfUpgrade` (the only network path), `OkfUpgradeManifest`, `OkfUpgradeVersion`, `OkfUpgradePlan`; `UpgradeCommand` + `UpgradeArguments` render | AD-5, AD-6, AD-7, AD-9, AD-19, AD-41, AD-42, AD-53 | CLI-14, CLI-17 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 | Registry and scope | `OkfRegistry`, `OkfScope`; `RegistryCommand`, `RegistryArguments`, `ScopeSettings` render and layer | AD-7, AD-26, AD-30, AD-31, AD-51 | CLI-2, CLI-3, MCP-3 |
 
@@ -1094,8 +1131,8 @@ not fix. Board:
 | [#15](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/15) — SOLID and DI audit, boundary isolation | Formalizes AD-9's boundary rule; a DI container is itself an AOT question, so it is a considered change rather than a cleanup. |
 | [#18](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/18) — site UX polish | Client-side search, provenance panel, staleness badges, a `log.md` timeline; none changes an invariant. |
 | [#31](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/31) — C# style enforced by configuration | Ringo has not yet picked between `_camelCase` and `camelCase` private fields; until he does, the Consistency Conventions row records what the code shows. |
-| [#23](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/23) — self-updating CLI | The installer exists (AD-42); a binary that replaces itself is a separate trust decision. |
-| Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35). |
+| Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35), and `okf upgrade` inherits the same gap (AD-53). |
+| A second release channel for `okf upgrade` | The two-channel split (stable from `main`, rc from `dev`) is decided; the host publishes one manifest at its root, so `--channel rc` is parsed, documented as reserved, and reads the same file rather than requesting a URL nothing serves (AD-53). |
 | An on-disk search index | Every search walks the resolved bundles and reads them; four reference bundles is milliseconds. When it stops being, the generated artifact is #24's, and a bundle must stay complete without it. |
 | Phrase queries, negation, field-qualified free text | Each is a new grammar to freeze in the JSON contract (AD-28), and none is needed by the capture skill's search-before-create loop. |
 | Q8's near-duplicate heuristic, Q9's CI-commit signal | `OKF0303` ships a normalized title-or-filename collision and keeps its id when #24 replaces the heuristic. The "human actor on a CI commit" warning has no reliable signal decided, so it has no rule id. |

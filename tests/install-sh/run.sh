@@ -254,6 +254,13 @@ if compgen -G "$dir/.okf.install.*" >/dev/null; then
   bad "leaves no staging file behind" "found $(echo "$dir"/.okf.install.*)"
 else ok "leaves no staging file behind"; fi
 
+note "[$sh_bin] the upgrade hint"
+# A person who just installed okf should not have to discover `okf upgrade` by reading the
+# README; the installer is the last place they will be looking. Asserted on the happy
+# path's output, which is still in $out.
+check_contains "names the verb that replaces this script next time" "okf upgrade" "$out"
+check_contains "and the flag that only reports" "okf upgrade --check" "$out"
+
 note "[$sh_bin] PATH hint"
 check_contains "hints when the install dir is not on PATH" "is not on your PATH" "$out"
 dir_onpath="$work/bin-onpath-$sh_bin"

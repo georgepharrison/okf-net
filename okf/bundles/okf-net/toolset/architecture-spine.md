@@ -62,7 +62,8 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The fifty-two rules cover layering and the offline contract, the diagnostic
+The fifty-three rules cover layering and the offline contract — including the
+single, bounded exception to it, the self-replacing `okf upgrade` — the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, which bookkeeping a verb writes rather than an agent,
 trust derivation and acknowledgment, the canonical timestamp,
