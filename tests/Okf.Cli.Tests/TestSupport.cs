@@ -45,8 +45,8 @@ internal static class Cli
     /// <returns>The exit code and captured output.</returns>
     public static CliRun Run(OkfEnvironment environment, params string[] args)
     {
-        var output = new StringWriter { NewLine = "\n" };
-        var error = new StringWriter { NewLine = "\n" };
+        using var output = new StringWriter { NewLine = "\n" };
+        using var error = new StringWriter { NewLine = "\n" };
         var exitCode = CliApplication.Run(args, environment, output, error);
         return new CliRun(exitCode, output.ToString(), error.ToString());
     }
@@ -201,8 +201,8 @@ internal static class Mcp
     public static McpRun Run(OkfEnvironment environment, string[] args, params string[] requests)
     {
         var input = new StringReader(string.Concat(requests.Select(request => request + "\n")));
-        var output = new StringWriter { NewLine = "\n" };
-        var error = new StringWriter { NewLine = "\n" };
+        using var output = new StringWriter { NewLine = "\n" };
+        using var error = new StringWriter { NewLine = "\n" };
         var exitCode = CliApplication.Run(["mcp", .. args], environment, output, error, input);
         return new McpRun(exitCode, output.ToString(), error.ToString());
     }

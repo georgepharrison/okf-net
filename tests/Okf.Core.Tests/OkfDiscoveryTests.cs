@@ -1,7 +1,7 @@
 namespace Okf.Core.Tests;
 
 /// <summary>Vault and bundle discovery (PRD CORE-13, CLI-1).</summary>
-public class OkfDiscoveryTests : IDisposable
+public sealed class OkfDiscoveryTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
 

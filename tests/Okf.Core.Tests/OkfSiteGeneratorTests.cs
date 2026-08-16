@@ -356,7 +356,8 @@ public class OkfSiteGeneratorTests
 
             foreach (var file in plan.Files.Where(file => file.Path.EndsWith(".html", StringComparison.Ordinal)))
             {
-                Check(XDocument.Load(Reader(file.Content)));
+                using var reader = Reader(file.Content);
+                Check(XDocument.Load(reader));
             }
 
             foreach (var article in Articles(plan))
@@ -426,7 +427,8 @@ public class OkfSiteGeneratorTests
             {
                 // Well-formedness first: a tag that closed its own attribute, its element or
                 // the CDATA section around the inline script fails here.
-                Check(XDocument.Load(Reader(file.Content)));
+                using var reader = Reader(file.Content);
+                Check(XDocument.Load(reader));
             }
 
             // A single-file site keeps every concept's article in an embedded JSON payload

@@ -150,7 +150,7 @@ public static class OkfAgentPointer
         // ends — trailing blank lines are trimmed first so "one blank line" is not "one plus
         // however many the file already had".
         var trimmed = original.TrimEnd('\r', '\n');
-        var appended = trimmed + newline + newline + Block.Replace("\n", newline) + newline;
+        var appended = trimmed + newline + newline + Block.Replace("\n", newline, StringComparison.Ordinal) + newline;
         AtomicWrite(path, appended);
         return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
     }
@@ -262,7 +262,7 @@ public static class OkfAgentPointer
         IReadOnlyList<Line> lines,
         int begin,
         int end,
-        IReadOnlyList<string> replacement,
+        string[] replacement,
         string newline)
     {
         // The replaced region's last line keeps the terminator the line it replaces had —
@@ -276,9 +276,9 @@ public static class OkfAgentPointer
             builder.Append(lines[i].Content).Append(lines[i].Terminator);
         }
 
-        for (var i = 0; i < replacement.Count; i++)
+        for (var i = 0; i < replacement.Length; i++)
         {
-            builder.Append(replacement[i]).Append(i == replacement.Count - 1 ? lastTerminator : newline);
+            builder.Append(replacement[i]).Append(i == replacement.Length - 1 ? lastTerminator : newline);
         }
 
         for (var i = end + 1; i < lines.Count; i++)

@@ -29,6 +29,16 @@ implementation choices in this repo.
 - **Markdown lint.** Linted with `markdownlint-cli2` (config in
   `.markdownlint.yaml`). Dot-folders (e.g. `.claude/`, `.github/`) are
   excluded.
+- **Analyzers are on at `latest-all` and every finding is an error.**
+  `Directory.Build.props` sets `AnalysisLevel`, `EnforceCodeStyleInBuild` and
+  `CodeAnalysisTreatWarningsAsErrors` for the whole solution, so a `CA`, `IDE`,
+  `xUnit` or compiler diagnostic fails `dotnet build`. Fix the finding first.
+  When a rule is genuinely wrong for this repo, downgrade it in the repo-root
+  `.editorconfig` with the reason on the same line — that file is the one place
+  severities are set, and `[tests/**/*.cs]` is where test code is held to a
+  lower bar. A one-off false positive is a `#pragma warning disable <rule>` at
+  the site, also with its reason. Never reach for `-p:TreatWarningsAsErrors=false`
+  outside measurement. `docs/spikes/2026-08-16-analyzers.md` is the triage.
 - **AOT trim safety.** `mise run trim-check` is the per-change AOT proxy — the tag pipeline alone runs the real NativeAOT compile (AD-8).
 - **Dependencies must be Apache-2.0-compatible.** Only permissively licensed
   NuGet packages (MIT, Apache 2.0, BSD). Check the license of the EXACT

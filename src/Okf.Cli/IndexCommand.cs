@@ -114,7 +114,7 @@ internal static class IndexCommand
     }
 
     private static void WriteWrite(
-        IReadOnlyList<OkfIndex> indexes,
+        List<OkfIndex> indexes,
         int bundleCount,
         string baseDirectory,
         TextWriter output)
@@ -154,7 +154,7 @@ internal static class IndexCommand
     }
 
     private static void WriteCheck(
-        IReadOnlyList<OkfIndex> indexes,
+        List<OkfIndex> indexes,
         int bundleCount,
         string baseDirectory,
         TextWriter output)

@@ -512,7 +512,7 @@ public static class OkfUpgrade
     /// <returns>A fetch over the real network.</returns>
     public static Fetch HttpFetch(string userAgent) => uri => Get(uri, userAgent);
 
-    private static Stream Get(Uri uri, string userAgent)
+    private static ResponseStream Get(Uri uri, string userAgent)
     {
         ArgumentNullException.ThrowIfNull(uri);
 
@@ -569,11 +569,16 @@ public static class OkfUpgrade
     {
         // Redirects are followed by hand (see ResolveRedirect), which is the only way to
         // refuse one that leaves https — the handler would have followed it already.
+#pragma warning disable CA2000 // ownership of `handler` transfers to the HttpClient below
+        // (disposeHandler: true), which disposes it; the analyzer cannot see ownership
+        // transfer through a bool ctor argument, and a `using` here would dispose the
+        // handler before the returned HttpClient ever uses it.
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.None,
         };
+#pragma warning restore CA2000
 
         return new HttpClient(handler, disposeHandler: true) { Timeout = RequestTimeout };
     }

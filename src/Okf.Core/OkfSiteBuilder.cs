@@ -310,7 +310,7 @@ public static class OkfSiteBuilder
     private static OkfSiteLink Resolve(
         string url,
         OkfSitePage page,
-        IReadOnlyDictionary<string, OkfSitePage> pages,
+        Dictionary<string, OkfSitePage> pages,
         bool singleFile,
         string fromHref)
     {
@@ -413,10 +413,12 @@ public static class OkfSiteBuilder
         return segments.Count == 0 ? null : string.Join('/', segments);
     }
 
+#pragma warning disable CA1859 // return flows straight into OkfSitePage.Crumbs, frozen public API (2026-08-15)
     private static IReadOnlyList<OkfSiteCrumb> Crumbs(
         OkfSitePage page,
-        IReadOnlyDictionary<string, OkfSitePage> pages,
+        Dictionary<string, OkfSitePage> pages,
         bool singleFile)
+#pragma warning restore CA1859
     {
         var crumbs = new List<OkfSiteCrumb>();
         var segments = page.Path.Split('/');

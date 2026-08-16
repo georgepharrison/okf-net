@@ -3,8 +3,6 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- decisions.md §3 / PRD CLI-17: NativeAOT single-file is the preferred
          publish mode, so the core library is analyzed for AOT and trim safety. -->
     <IsAotCompatible>true</IsAotCompatible>

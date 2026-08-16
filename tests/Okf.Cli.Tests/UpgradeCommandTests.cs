@@ -74,9 +74,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            ["--check"], Environment(), new StringWriter(), new StringWriter(), Self(host, target));
+            ["--check"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitDiagnostics, exitCode);
         Assert.Equal(0, host.AssetRequests);
@@ -89,10 +91,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var output = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            ["--dry-run"], Environment(), output, new StringWriter(), Self(host, target));
+            ["--dry-run"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitSuccess, exitCode);
         Assert.Contains("--dry-run: nothing was downloaded or written", output.ToString(), StringComparison.Ordinal);
@@ -108,10 +111,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var output = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            [], Environment(), output, new StringWriter(), Self(host, target));
+            [], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitSuccess, exitCode);
         Assert.Equal(NewBytes, File.ReadAllText(target));
@@ -126,13 +130,14 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var output = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
             [],
             Environment(),
             output,
-            new StringWriter(),
+            error,
             new UpgradeRuntime { Fetch = host.Fetch, ExecutablePath = target, Version = "1.1.0-rc.1" });
 
         Assert.Equal(CliApplication.ExitSuccess, exitCode);
@@ -151,9 +156,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.0.0");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            ["--version", "v1.0.0"], Environment(), new StringWriter(), new StringWriter(), Self(host, target));
+            ["--version", "v1.0.0"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitSuccess, exitCode);
         Assert.Equal(1, host.AssetRequests);
@@ -167,10 +174,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var output = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            ["--check", "--json"], Environment(), output, new StringWriter(), Self(host, target));
+            ["--check", "--json"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitDiagnostics, exitCode);
         using var document = JsonDocument.Parse(output.ToString());
@@ -195,12 +203,13 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
             ["--check"],
             Environment("http://artifacts.example"),
-            new StringWriter(),
+            output,
             error,
             Self(host, target));
 
@@ -219,12 +228,14 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         UpgradeCommand.Run(
             ["--check"],
             Environment("https://mirror.example/okf/"),
-            new StringWriter(),
-            new StringWriter(),
+            output,
+            error,
             Self(host, target));
 
         Assert.Equal("https://mirror.example/okf/latest.json", host.ManifestRequest);
@@ -236,9 +247,10 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1") { ServeInstead = "something else entirely" };
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
-        var exitCode = UpgradeCommand.Run([], Environment(), new StringWriter(), error, Self(host, target));
+        var exitCode = UpgradeCommand.Run([], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitUsage, exitCode);
         Assert.Contains("sha256 mismatch", error.ToString(), StringComparison.Ordinal);
@@ -255,10 +267,11 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exitCode = UpgradeCommand.Run(
-            ["--check", "--channel", "rc"], Environment(), new StringWriter(), error, Self(host, target));
+            ["--check", "--channel", "rc"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitDiagnostics, exitCode);
         Assert.Contains("reserved", error.ToString(), StringComparison.Ordinal);
@@ -271,9 +284,10 @@ public sealed class UpgradeCommandTests
         using var tree = new TempTree();
         var target = Install(tree);
         var host = new FakeHost("1.1.0-rc.1");
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
-        UpgradeCommand.Run(["--check"], Environment(), new StringWriter(), error, Self(host, target));
+        UpgradeCommand.Run(["--check"], Environment(), output, error, Self(host, target));
 
         Assert.DoesNotContain("reserved", error.ToString(), StringComparison.Ordinal);
     }
@@ -349,8 +363,8 @@ public sealed class UpgradeCommandTests
         File.WriteAllText(target, "the binary that is running");
 
         var host = new FakeHost(available);
-        var output = new StringWriter { NewLine = "\n" };
-        var error = new StringWriter { NewLine = "\n" };
+        using var output = new StringWriter { NewLine = "\n" };
+        using var error = new StringWriter { NewLine = "\n" };
         var exitCode = UpgradeCommand.Run(
             [flag],
             Environment(),

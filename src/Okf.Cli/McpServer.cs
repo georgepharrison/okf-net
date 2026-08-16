@@ -167,6 +167,10 @@ internal sealed class McpServer
             {
                 WriteError(identifier, exception.Code, exception.Message);
             }
+#pragma warning disable CA1031 // deliberate: see the comment below — the stdio loop's
+            // contract is that it survives whatever arrives on stdin, so this is the one
+            // place a failure of any type is turned back into a response instead of killing
+            // the loop.
             catch (Exception exception)
             {
                 // A bundle that moved or turned unreadable under us is the environment's
@@ -180,6 +184,7 @@ internal sealed class McpServer
                 // the next line is read.
                 WriteError(identifier, InternalError, exception.Message);
             }
+#pragma warning restore CA1031
         }
     }
 
@@ -237,7 +242,7 @@ internal sealed class McpServer
                 break;
 
             case "tools/list":
-                WriteResult(id, this.tools.List());
+                WriteResult(id, McpToolset.List());
                 break;
 
             case "tools/call":
