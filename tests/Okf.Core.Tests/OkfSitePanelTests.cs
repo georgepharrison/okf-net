@@ -292,7 +292,10 @@ public class OkfSitePanelTests
             Backlinks(Page(plan, "kb/hub.html")).Order(StringComparer.Ordinal));
 
         // Nothing cites `fresh.md`, so it carries no panel at all rather than an empty one.
-        Assert.Empty(Backlinks(Page(plan, "kb/fresh.html")));
+        // An empty list would satisfy `Backlinks` too, so the absence is asserted on the
+        // section: a heading over nothing tells the reader a question was asked and answered
+        // "nobody", where the page in fact never asked it.
+        Assert.Null(Panel(Page(plan, "kb/fresh.html"), "Cited by"));
     }
 
     private static XDocument Page(OkfSitePlan plan, string path)
