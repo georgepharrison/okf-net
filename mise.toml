@@ -203,6 +203,39 @@ echo "==> artifacts/linux-x64/okf version reports:"
 ./artifacts/linux-x64/okf version
 """
 
+[tasks.trim-check]
+description = "Run the per-MR AOT proxy locally: publish linux-x64 trim-safe self-contained with the trim analyzer set to fail on any IL2xxx, then smoke the result (CI job trim-check)"
+# The same command the CI job runs. This machine has clang and zlib1g-dev (whatever a
+# builder needs for `publish-aot`), so it COULD run a real NativeAOT publish — but this
+# task deliberately does not, because the point is to mirror the gate a merge request
+# actually gets, not to run the fuller check that is already `mise run publish-aot`.
+# `PublishTrimmed` runs the same IL trim analyzer `PublishAot=true` hands to ILC, minus
+# the native compile, which is what makes it a fast stand-in the CI runner (no clang, no
+# zlib headers) can also run. `-p:TrimmerSingleWarn=false
+# -p:SuppressTrimAnalysisWarnings=false -p:TreatWarningsAsErrors=true` is the same trio
+# work item #36 wrote down for osx-arm64 and win-x64: expand summaries into individual
+# IL2xxx findings and fail the publish on one rather than let it print into a green log.
+run = """
+set -eu
+
+dotnet publish src/Okf.Cli \\
+  --configuration Release \\
+  --runtime linux-x64 \\
+  --self-contained \\
+  -p:PublishAot=false \\
+  -p:PublishTrimmed=true \\
+  -p:PublishSingleFile=true \\
+  -p:TrimmerSingleWarn=false \\
+  -p:SuppressTrimAnalysisWarnings=false \\
+  -p:TreatWarningsAsErrors=true \\
+  --output artifacts/trim-check
+
+echo "==> smoke-testing artifacts/trim-check/okf"
+artifacts/trim-check/okf version
+artifacts/trim-check/okf help >/dev/null
+echo "==> trim-check: zero trim-analysis warnings, okf version and okf help both exit 0"
+"""
+
 [tasks.lint-ps1]
 description = "Static-analyse install.ps1 with PSScriptAnalyzer (needs pwsh: `mise use -g powershell`). No Windows runner exists, so this is the only mechanical check the PowerShell installer gets."
 # install.ps1 is what install.sh is for Linux and macOS — the one file a stranger pipes
