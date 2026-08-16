@@ -508,8 +508,149 @@ public class OkfCaptureWriterTests
             Directory.EnumerateFiles(raw.Root).Select(Path.GetFileName));
     }
 
+    /// <summary>
+    /// The temp file is cleaned up on the failing path too, which is the only path where it
+    /// still exists to clean up. A directory where the manifest must go fails the move on
+    /// every platform.
+    /// </summary>
+    [Fact]
+    public void AFailedWriteLeavesNoTemporaryFileBehindEither()
+    {
+        using var raw = new RawZone();
+        var path = Path.Combine(raw.Root, OkfCaptureManifest.FileName);
+        Directory.CreateDirectory(path);
+
+        Assert.ThrowsAny<IOException>(() => OkfCaptureWriter.Save(path, Dogfood));
+        Assert.Empty(Directory.EnumerateFiles(raw.Root));
+    }
+
+    [Fact]
+    public void SavingCreatesTheDirectoryWhenItIsAbsent()
+    {
+        using var raw = new RawZone();
+        var path = Path.Combine(raw.Vault, "nowhere", "deeper", OkfCaptureManifest.FileName);
+
+        OkfCaptureWriter.Save(path, Dogfood);
+
+        Assert.Equal(Dogfood, File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// A manifest is not required to hold only the keys okf writes, and a number that is not
+    /// <c>manifestVersion</c> is not the manifest version.
+    /// </summary>
+    [Fact]
+    public void APropertyOkfDoesNotKnowIsCarriedThroughUntouched()
+    {
+        const string manifest = """
+            {
+              "manifestVersion": 1,
+              "captureCount": 3,
+              "captures": []
+            }
+            """;
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-a-second-page.html", "<html>second</html>\n");
+
+        var result = OkfCaptureWriter.Add(manifest, raw.Root, raw.Addition("2026-08-16-a-second-page.html"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.Added, result.Outcome);
+        Assert.Contains("\"captureCount\": 3", result.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The manifest's own shape decides the indent and the line ending an entry is written
+    /// with, and neither is read from a fixed offset: a manifest that opens with a blank
+    /// line, and one written on a single line, both still gain a readable entry.
+    /// </summary>
+    [Fact]
+    public void AManifestOpeningWithABlankLineGainsAReadableEntry()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-a-second-page.html", "<html>second</html>\n");
+
+        var result = OkfCaptureWriter.Add("\n" + Dogfood, raw.Root, raw.Addition("2026-08-16-a-second-page.html"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.Added, result.Outcome);
+        Assert.StartsWith("\n{", result.Text, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            OkfCaptureManifest.Parse(result.Text!, "manifest.json")!.Captures.Count);
+    }
+
+    [Fact]
+    public void ACompactManifestGainsAnIndentedEntryRatherThanAFlushOne()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-a-second-page.html", "<html>second</html>\n");
+
+        var result = OkfCaptureWriter.Add(
+            """{"manifestVersion":1,"captures":[]}""",
+            raw.Root,
+            raw.Addition("2026-08-16-a-second-page.html"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.Added, result.Outcome);
+        Assert.Contains(
+            "\n    {\n      \"id\": \"2026-08-16-a-second-page\"",
+            result.Text,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An uningested entry re-captured under the same id is replaced even when the files it
+    /// claims changed completely — the id is the entry's identity (AD-18), so a re-fetch
+    /// that renamed everything must not leave two entries answering to one name.
+    /// </summary>
+    [Fact]
+    public void ARecaptureWithAWhollyDifferentFileSetStillReplacesTheEntry()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-okapi-paper/first.md", "# First\n");
+        var open = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-okapi-paper")).Text!;
+
+        File.Delete(Path.Combine(raw.Root, "2026-08-16-okapi-paper", "first.md"));
+        raw.Drop("2026-08-16-okapi-paper/second.md", "# Second\n");
+        var again = OkfCaptureWriter.Add(open, raw.Root, raw.Addition("2026-08-16-okapi-paper"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.Recaptured, again.Outcome);
+        Assert.Equal(
+            ["2026-08-14-equipping-agents-with-agent-skills", "2026-08-16-okapi-paper"],
+            OkfCaptureManifest.Parse(again.Text!, "manifest.json")!.Captures.Select(capture => capture.Id));
+    }
+
+    /// <summary>
+    /// A flat capture's id is its file name with the extension taken off, which means a name
+    /// with no extension keeps all of it and a packet — whose id is the whole directory
+    /// name — keeps a dot rather than being truncated at it.
+    /// </summary>
+    [Fact]
+    public void AFlatItemWithNoExtensionKeepsItsWholeNameAsTheId()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-no-extension", "plain text\n");
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-no-extension"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.Added, result.Outcome);
+        Assert.Equal("2026-08-16-no-extension", result.Id);
+    }
+
+    [Fact]
+    public void APacketWhoseDirectoryNameHasADotIsRefusedRatherThanTruncated()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-okapi-v1.2/page.md", "# Page\n");
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-okapi-v1.2"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.ItemRefused, result.Outcome);
+        Assert.Contains("2026-08-16-okapi-v1.2", result.Problem, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("2026-08-16-a-slug", true)]
+    // The slug's first word is a word: a hyphen straight after the date is an empty one.
+    [InlineData("2026-08-16--leading", false)]
     [InlineData("2026-08-16-a", true)]
     [InlineData("2026-02-30-nonexistent-day", false)]
     [InlineData("2026-08-16-", false)]
