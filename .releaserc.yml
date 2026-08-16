@@ -34,6 +34,10 @@ plugins:
   # Analyze commits to determine version bump
   - - "@semantic-release/commit-analyzer"
     - preset: conventionalcommits
+      # No `major` rule here on purpose: Ringo's 2026-08-16 rule keeps okf-net on 1.x,
+      # enforced upstream by scripts/check-commit-msg.sh rejecting `!` headers and
+      # BREAKING CHANGE:/BREAKING-CHANGE: footers before a commit lands. See
+      # docs/decisions.md, "Proposed decisions: no major bumps (2026-08-16)".
       releaseRules:
         - type: feat
           release: minor

@@ -8,7 +8,8 @@ implementation choices in this repo.
 
 - **Commits.** All commits except merge commits MUST follow [Conventional
   Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). Enforced by
-  a `commit-msg` git hook.
+  a `commit-msg` git hook. No `!` types and no `BREAKING CHANGE:` footers —
+  the project stays on 1.x (enforced by the hook and CI).
 - **Setup.** Run `mise run setup` once after cloning to install git hooks.
 - **Branches and releases.** Merge requests target **`dev`**, not `main`. `dev`
   is the `rc` prerelease channel: every merge there cuts a `vX.Y.Z-rc.N` tag

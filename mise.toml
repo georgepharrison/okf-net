@@ -272,6 +272,10 @@ pwsh -NoProfile -Command '
 description = 'Validate a commit message against Conventional Commits. No args = check HEAD; pass -- -m "<message>" for a literal string, or -- <file> for a file. Shares scripts/check-commit-msg.sh with the commit-msg git hook.'
 run = "scripts/check-commit-msg.sh"
 
+[tasks.check-commit-test]
+description = "Run scripts/check-commit-msg.test.sh: unit tests for the commit-message guard, including Ringo's 2026-08-16 no-major-bumps rule (docs/decisions.md)."
+run = "scripts/check-commit-msg.test.sh"
+
 [tasks.site]
 description = 'Generate the static site for the dogfood vault into artifacts/site. Pass -- <args> to override, e.g. `mise run site -- --single-file`.'
 # The proof of `okf site` (issue #6), and the way to look at the dashboard while
