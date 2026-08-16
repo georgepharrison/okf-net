@@ -1,0 +1,6 @@
+# `Okf.Core.csproj` embeds `skills/*/SKILL.md` into the binary byte for byte, and
+# `okf skills install` writes those bytes out again — so an installed skill's digest is
+# meant to be the same fact on every machine. A checkout with `core.autocrlf=true` (Git
+# for Windows' default) would hand the build CRLF and quietly break that. Pinned to LF
+# here rather than trusted to a setting each clone chooses for itself.
+skills/*/SKILL.md text eol=lf

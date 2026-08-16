@@ -11,7 +11,8 @@
 
     Downloads okf-win-x64.exe, verifies it, and installs it as okf.exe into
     $env:LOCALAPPDATA\okf\bin - a user-writable directory, so nothing here needs
-    Administrator. Re-running is safe: it reinstalls over itself rather than accumulating.
+    Administrator. It then runs "okf skills install" to place the agent skills the binary
+    carries. Re-running is safe: it reinstalls over itself rather than accumulating.
 
 .PARAMETER Version
     Install this release instead of the newest, e.g. 1.0.0-rc.15 (a leading "v" is fine).
@@ -35,6 +36,7 @@
     Requires Windows PowerShell 5.1 or PowerShell 7+.
 
     OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
+    OKF_SKIP_SKILLS   set to 1 to install okf.exe only, no agent skills
 
     This file is deliberately pure ASCII. Windows PowerShell 5.1 decodes a BOM-less file
     using the system ANSI code page, so a single typographic dash in a comment renders as
@@ -326,6 +328,44 @@ if ($exitCode -eq 0 -and $reported) {
     Write-Note "    okf.exe $reported"
 } else {
     Write-Warning "install.ps1: $destination was installed but did not answer ``okf version``"
+}
+
+# ---------------------------------------------------------------------------
+# The agent skills (#41)
+#
+# They ship INSIDE okf.exe, so this is a set of file writes and not a second download:
+# "okf skills install" writes okf's own copy under %LOCALAPPDATA%\okf\skills, and
+# additionally into Claude Code's and pi's skill directories when this machine already has
+# them. It asks nothing, the same promise install.sh makes.
+#
+# A failure is a WARNING and never a failed install: the binary is verified and in place by
+# this point, and skills that did not land are one command away.
+#
+# $LASTEXITCODE is read inside the try and immediately after the call, for the reason the
+# version check above spells out: under Set-StrictMode reading it before any native command
+# has run in the session is a terminating error, and the throwing branch is exactly the
+# branch where none has.
+# ---------------------------------------------------------------------------
+
+if ($env:OKF_SKIP_SKILLS -eq '1') {
+    Write-Note '==> skills: skipped (OKF_SKIP_SKILLS=1)'
+} else {
+    Write-Note '==> installing the agent skills'
+    $skillsExit = $null
+    try {
+        & $destination skills install
+        $skillsExit = $LASTEXITCODE
+    } catch {
+        $skillsExit = $null
+    }
+
+    if ($skillsExit -ne 0) {
+        Write-Warning @"
+install.ps1: could not install the agent skills. okf.exe itself is installed;
+    run this when you want them:
+        $destination skills install
+"@
+    }
 }
 
 # ---------------------------------------------------------------------------

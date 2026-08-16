@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing three-platform release the installers can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T22:57:41Z }
+generated: { by: claude-fable/5, at: 2026-08-15T23:59:00Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -67,7 +67,7 @@ successful release, which is how a team learns to stop reading them.
 
 # Distribution
 
-The `publish` job produces seven artifacts under one package version, and the
+The `publish` job produces eight artifacts under one package version, and the
 release gains an asset link per artifact.
 
 Three are binaries, of the kind described in [library, CLI, MCP
@@ -88,10 +88,20 @@ knowledge as an installable OKF bundle. How it is packaged — and why the
 archive is byte-reproducible from the tag — is [bundling and
 distribution](../toolset/bundling-and-distribution.md).
 
+The fifth is `okf-skills.tar.gz`: the three agent skills of [the custodian
+model](custodian-model.md), as a deterministic tar of `skills/*/SKILL.md` —
+sorted by name, one fixed mtime, uid and gid zeroed, `gzip -n`, so a rerun of a
+tag pipeline produces the same digest. No installer fetches it, because every
+binary **embeds** the same three files and `okf skills install` writes them from
+inside the image; the archive is for a reader who wants the prose without the
+binary — an agent host okf-net does not know about, or a project vendoring the
+files under its own `skills/`.
+
 The last three make a release **self-describing**. `latest.json` names the
 version and, per asset, a relative path, a size and a `sha256` computed in the
 job from the exact bytes it uploaded; it has been a map keyed by asset name
-from the start, so three platforms were more entries rather than a new shape.
+from the start, so three platforms and a second archive were more entries
+rather than a new shape.
 `install.sh` and `install.ps1` are the installers that read it, uploaded from
 the repository so that the installer a release hands you is the one that
 release was cut with, rather than whatever is on `main` today. Both are
@@ -115,6 +125,13 @@ verifies it against the digest in the manifest, and installs atomically — to
 `~/.local/bin/okf`, or to `%LOCALAPPDATA%\okf\bin\okf.exe` with the user
 `PATH` updated. Neither needs root or Administrator. Pinning a version,
 reporting without writing, and re-running safely all work the same on both.
+
+Both then run `okf skills install`, which downloads nothing: it writes the
+embedded skills to `~/.local/share/okf/skills` and into Claude Code's or pi's
+skill directory when the machine already has one. A failure there is a warning
+naming the command to re-run and never a failed install — the binary is
+verified and in place by then — and `OKF_SKIP_SKILLS=1` skips the step for
+anyone who manages those directories themselves.
 
 `install.sh` decides the platform in one `case` and refuses everything else by
 name — an Intel Mac gets told that Rosetta translates the wrong way and where
@@ -167,7 +184,7 @@ cross-compiled on a Linux runner and cannot be executed by it, so their first
 execution anywhere is a tester's. `install.ps1` has no acceptance suite at all,
 because this pipeline has no Windows runner; it is static-analysed with
 PSScriptAnalyzer and reviewed, which catches an unapproved verb and nothing
-about Gatekeeper. `install.sh` is covered by 82 assertions per shell, run
+about Gatekeeper. `install.sh` is covered by 93 assertions per shell, run
 under `sh` and — **only where it is installed** — under `dash`. That
 distinction is not pedantry: a workstation without `dash` runs half the matrix
 and still prints a green, so the `test-install` CI job fails outright when
@@ -185,8 +202,8 @@ download URL is **predictable** from the version alone, which is what lets
 pinned by name. And attaching the asset link is **idempotent**: link names and
 URLs must be unique within a release, so the job asks whether the link is
 already there rather than posting blindly and swallowing the error — a rerun of
-a tag pipeline is a normal thing to do, and the two new assets go through the
-same loop as the first two.
+a tag pipeline is a normal thing to do, and every asset added since goes
+through the same loop as the first two.
 
 Still open from PRD Q10: `Okf.Core` as a NuGet package on the instance's
 built-in registry; NativeAOT for macOS and Windows, which needs a runner on

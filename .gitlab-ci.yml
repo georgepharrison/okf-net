@@ -321,6 +321,11 @@ publish:
     # file under it — which is exactly what the generic registry's one-version-
     # many-files shape is for.
     OKF_KNOWLEDGE_FILE: okf-net-knowledge.tar.gz
+    # The agent skills (issue #41). Every binary already carries them, so this
+    # asset is not how they reach a user of the installer; it is how they reach
+    # anyone who wants the prose without the binary — another agent host, a
+    # vendored copy under a project's own skills/, a reviewer reading a release.
+    OKF_SKILLS_FILE: okf-skills.tar.gz
     # The self-describing pair (issue #25): a manifest naming every asset with
     # its sha256, and the installers that read it. Uploading them from the repo —
     # rather than letting the artifact host serve whatever is on main — means the
@@ -344,6 +349,7 @@ publish:
       OKF_OSX_URL="${OKF_PACKAGE_BASE}/${OKF_OSX_FILE}"
       OKF_WIN_URL="${OKF_PACKAGE_BASE}/${OKF_WIN_FILE}"
       OKF_KNOWLEDGE_URL="${OKF_PACKAGE_BASE}/${OKF_KNOWLEDGE_FILE}"
+      OKF_SKILLS_URL="${OKF_PACKAGE_BASE}/${OKF_SKILLS_FILE}"
       OKF_MANIFEST_URL="${OKF_PACKAGE_BASE}/${OKF_MANIFEST_FILE}"
       OKF_INSTALLER_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_FILE}"
       OKF_INSTALLER_PS_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_PS_FILE}"
@@ -363,6 +369,7 @@ publish:
       echo "    osx-arm64:   ${OKF_OSX_URL}"
       echo "    win-x64:     ${OKF_WIN_URL}"
       echo "    knowledge:   ${OKF_KNOWLEDGE_URL}"
+      echo "    skills:      ${OKF_SKILLS_URL}"
       echo "    manifest:    ${OKF_MANIFEST_URL}"
       echo "    install.sh:  ${OKF_INSTALLER_URL}"
       echo "    install.ps1: ${OKF_INSTALLER_PS_URL}"
@@ -498,6 +505,37 @@ publish:
       echo
 
     - |
+      # The agent skills archive (issue #41). Deterministic by construction, the same
+      # discipline the bundler follows: entries sorted by name, one fixed mtime, uid/gid
+      # zeroed, fixed mode, and `gzip -n` so the compressed stream carries no timestamp
+      # and no file name. Rerun the tag pipeline and the bytes are identical, which is
+      # what makes the sha256 in the manifest a fact about the release rather than about
+      # the day it was cut.
+      #
+      # Only skills/*/SKILL.md: skills/README.md is this repository's documentation ABOUT
+      # the skills, and shipping it would put a file naming repo-relative paths into an
+      # archive a consumer unpacks somewhere else.
+      # `--sort=name` orders what tar READS FROM A DIRECTORY and leaves operands in the
+      # order it was handed them, so the member order here is the shell's glob order,
+      # which sorts by LC_COLLATE. Sorted explicitly under LC_ALL=C instead: byte order,
+      # on any runner, whatever its locale.
+      echo "==> packaging the agent skills"
+      OKF_SKILL_FILES="$(printf '%s\n' skills/*/SKILL.md | LC_ALL=C sort)"
+      echo "${OKF_SKILL_FILES}"
+      # shellcheck disable=SC2086 -- one path per skill, none with whitespace in it
+      tar --sort=name --mtime='1980-01-01 00:00:00Z' --owner=0 --group=0 \
+          --numeric-owner --mode='u=rw,go=r' --format=gnu \
+          -cf - ${OKF_SKILL_FILES} | gzip -n > "artifacts/${OKF_SKILLS_FILE}"
+      tar -tzf "artifacts/${OKF_SKILLS_FILE}"
+
+      echo "==> uploading ${OKF_SKILLS_FILE} to the generic package registry"
+      curl --silent --show-error --fail-with-body \
+        --header "${OKF_AUTH_HEADER}" \
+        --upload-file "artifacts/${OKF_SKILLS_FILE}" \
+        "${OKF_SKILLS_URL}"
+      echo
+
+    - |
       # The release manifest (issue #25). This is what makes a release self-describing
       # and what install.sh reads: a version, and per asset a location and a digest.
       #
@@ -515,10 +553,10 @@ publish:
       # runs, it has already run) and it is not a signature; what it closes is the gap
       # between the bytes this job published and the bytes a mirror serves.
       #
-      # Six assets since issue #36, and the schema did not have to change to hold them:
-      # `assets` was a map keyed by asset name from the day it was written, so three RIDs
-      # and two installers are more entries, not a new shape. install.sh reads exactly the
-      # one it selected; sync.sh reads the ones it is told to.
+      # Eight assets since issue #41, and the schema has never had to change to hold them:
+      # `assets` was a map keyed by asset name from the day it was written, so three RIDs,
+      # two archives and two installers are more entries, not a new shape. install.sh reads
+      # exactly the one it selected; sync.sh reads the ones it is told to.
       #
       # Two locations per asset, because there are two kinds of consumer:
       #   path — relative to whatever base URL the installer was given. This is the one
@@ -548,6 +586,8 @@ publish:
       OKF_WIN_SIZE="$(wc -c < artifacts/win-x64/okf.exe | tr -d ' ')"
       OKF_KNOWLEDGE_SHA="$(sha256sum "artifacts/${OKF_KNOWLEDGE_FILE}" | cut -d' ' -f1)"
       OKF_KNOWLEDGE_SIZE="$(wc -c < "artifacts/${OKF_KNOWLEDGE_FILE}" | tr -d ' ')"
+      OKF_SKILLS_SHA="$(sha256sum "artifacts/${OKF_SKILLS_FILE}" | cut -d' ' -f1)"
+      OKF_SKILLS_SIZE="$(wc -c < "artifacts/${OKF_SKILLS_FILE}" | tr -d ' ')"
       OKF_INSTALLER_SHA="$(sha256sum "${OKF_INSTALLER_FILE}" | cut -d' ' -f1)"
       OKF_INSTALLER_SIZE="$(wc -c < "${OKF_INSTALLER_FILE}" | tr -d ' ')"
       OKF_INSTALLER_PS_SHA="$(sha256sum "${OKF_INSTALLER_PS_FILE}" | cut -d' ' -f1)"
@@ -582,6 +622,12 @@ publish:
             "size": ${OKF_KNOWLEDGE_SIZE},
             "sha256": "${OKF_KNOWLEDGE_SHA}",
             "url": "${OKF_KNOWLEDGE_URL}"
+          },
+          "${OKF_SKILLS_FILE}": {
+            "path": "v${OKF_VERSION}/${OKF_SKILLS_FILE}",
+            "size": ${OKF_SKILLS_SIZE},
+            "sha256": "${OKF_SKILLS_SHA}",
+            "url": "${OKF_SKILLS_URL}"
           },
           "${OKF_INSTALLER_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_INSTALLER_FILE}",
@@ -651,6 +697,7 @@ publish:
                    "${OKF_OSX_FILE}|${OKF_OSX_URL}" \
                    "${OKF_WIN_FILE}|${OKF_WIN_URL}" \
                    "${OKF_KNOWLEDGE_FILE}|${OKF_KNOWLEDGE_URL}" \
+                   "${OKF_SKILLS_FILE}|${OKF_SKILLS_URL}" \
                    "${OKF_MANIFEST_FILE}|${OKF_MANIFEST_URL}" \
                    "${OKF_INSTALLER_FILE}|${OKF_INSTALLER_URL}" \
                    "${OKF_INSTALLER_PS_FILE}|${OKF_INSTALLER_PS_URL}"; do
@@ -686,6 +733,7 @@ publish:
       - artifacts/osx-arm64/okf
       - artifacts/win-x64/okf.exe
       - artifacts/okf-net-knowledge.tar.gz
+      - artifacts/okf-skills.tar.gz
       - artifacts/latest.json
 
 # ============================================================================

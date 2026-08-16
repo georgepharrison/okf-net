@@ -48,6 +48,35 @@ public sealed class OkfEnvironment
             ? System.IO.Path.Combine(xdg, "okf")
             : System.IO.Path.Combine(HomeDirectory, ".config", "okf");
 
+    /// <summary>
+    /// okf's user-level data directory, which is where <c>okf skills install</c> keeps the
+    /// canonical copy of the skills: <c>%LOCALAPPDATA%\okf</c> on Windows, else
+    /// <c>$XDG_DATA_HOME/okf</c> when set, else <c>~/.local/share/okf</c>.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ConfigDirectory" /> on purpose and by the same convention
+    /// the rest of the desktop follows: config is what a person edits and backs up, data is
+    /// what a tool writes and can rewrite. A skill copy is the second kind — reinstalling it
+    /// is <c>okf skills install</c>, not a restore.
+    /// </remarks>
+    public string DataDirectory
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var local = GetVariable("LOCALAPPDATA") is { Length: > 0 } appData
+                    ? appData
+                    : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                return System.IO.Path.Combine(local, "okf");
+            }
+
+            return GetVariable("XDG_DATA_HOME") is { Length: > 0 } xdg
+                ? System.IO.Path.Combine(xdg, "okf")
+                : System.IO.Path.Combine(HomeDirectory, ".local", "share", "okf");
+        }
+    }
+
     /// <summary>The global configuration file, <c>okf.json</c> in <see cref="ConfigDirectory" />.</summary>
     public string GlobalConfigPath => System.IO.Path.Combine(ConfigDirectory, OkfDiscovery.ConfigFileName);
 
@@ -72,7 +101,8 @@ public sealed class OkfEnvironment
         // which is how that read is made hermetic in a test.
         foreach (var name in (string[])
                  [
-                     "HOME", "XDG_CONFIG_HOME", HomeVariable, "USERPROFILE",
+                     "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "LOCALAPPDATA",
+                     HomeVariable, "USERPROFILE",
                      "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
                  ])
         {

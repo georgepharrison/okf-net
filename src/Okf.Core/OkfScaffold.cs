@@ -41,6 +41,15 @@ public enum OkfScaffoldStatus
     Exists,
 }
 
+/// <summary>How a scaffolded recipe names one skill.</summary>
+/// <param name="Name">The skill's name.</param>
+/// <param name="Resource">
+/// What the recipe's <c>resource</c> says: a project-relative path when this project has
+/// the skill on disk, else the machine-independent instruction form SPEC §5.1 allows.
+/// </param>
+/// <param name="IsPath">Whether the resource is a path that resolves in this project.</param>
+public sealed record OkfSkillPointer(string Name, string Resource, bool IsPath);
+
 /// <summary>One file in a scaffolded vault, and what became of it.</summary>
 /// <param name="Path">The file's absolute path.</param>
 /// <param name="Status">Whether the run created it or found it.</param>
@@ -77,14 +86,21 @@ public sealed class OkfScaffoldResult
     /// <param name="vaultRoot">The vault that was scaffolded.</param>
     /// <param name="bundleRoot">The bundle root inside it.</param>
     /// <param name="files">Every file the layout calls for, and what became of each.</param>
-    public OkfScaffoldResult(string vaultRoot, string bundleRoot, IReadOnlyList<OkfScaffoldFile> files)
+    /// <param name="skillPointers">How the custodian recipe names each skill.</param>
+    public OkfScaffoldResult(
+        string vaultRoot,
+        string bundleRoot,
+        IReadOnlyList<OkfScaffoldFile> files,
+        IReadOnlyList<OkfSkillPointer> skillPointers)
     {
         ArgumentException.ThrowIfNullOrEmpty(vaultRoot);
         ArgumentException.ThrowIfNullOrEmpty(bundleRoot);
         ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(skillPointers);
         VaultRoot = vaultRoot;
         BundleRoot = bundleRoot;
         Files = files;
+        SkillPointers = skillPointers;
     }
 
     /// <summary>The vault root, <c>&lt;project&gt;/okf</c> or the personal vault.</summary>
@@ -95,6 +111,9 @@ public sealed class OkfScaffoldResult
 
     /// <summary>Every file the layout calls for, in write order, and what became of each.</summary>
     public IReadOnlyList<OkfScaffoldFile> Files { get; }
+
+    /// <summary>How the custodian recipe names each skill, in the order the recipe lists them.</summary>
+    public IReadOnlyList<OkfSkillPointer> SkillPointers { get; }
 
     /// <summary>How many files this run wrote.</summary>
     public int CreatedCount => Files.Count(file => file.Status == OkfScaffoldStatus.Created);
@@ -138,6 +157,21 @@ public static class OkfScaffold
 
     /// <summary>The tags <c>about-this-bundle.md</c> is scaffolded with, and the registry's seed.</summary>
     private static readonly string[] SeedTags = ["bundle", "meta", "okf"];
+
+    /// <summary>
+    /// The producer-side skills a scaffolded recipe names, and when each fires. The
+    /// consumer-side <c>okf-vault</c> ships beside them and is not custodian machinery, so
+    /// the recipe does not list it.
+    /// </summary>
+    private static readonly (string Name, string When)[] RecipeSkills =
+    [
+        ("okf-capture",
+            "Something was just learned and belongs in the bundle: search first, apply the capture-vs-cite test, "
+            + "drop what cannot defend itself into raw/ with a manifest entry, write the concept."),
+        ("okf-custodian",
+            "A capture is waiting in raw/, or the bundle needs enrichment, index regeneration, lint clearing, "
+            + "or a log.md line."),
+    ];
 
     /// <summary>How many symbolic links one path resolution will follow before giving up.</summary>
     private const int MaxLinkDepth = 40;
@@ -205,13 +239,15 @@ public static class OkfScaffold
         Directory.CreateDirectory(Path.Combine(vault, CustodianDirectoryName));
         Directory.CreateDirectory(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName));
 
+        var pointers = SkillPointers(vault);
+
         var files = new List<OkfScaffoldFile>
         {
             Write(Path.Combine(vault, "README.md"), VaultReadme(name)),
             Write(Path.Combine(vault, OkfDiscovery.ConfigFileName), ProjectConfig(name)),
             Write(Path.Combine(vault, MarkdownLintFileName), MarkdownLintConfig(vault)),
-            Write(Path.Combine(vault, CustodianDirectoryName, "README.md"), CustodianReadme(name)),
-            Write(Path.Combine(vault, CustodianDirectoryName, "recipe.json"), CustodianRecipe(name)),
+            Write(Path.Combine(vault, CustodianDirectoryName, "README.md"), CustodianReadme(name, pointers)),
+            Write(Path.Combine(vault, CustodianDirectoryName, "recipe.json"), CustodianRecipe(name, pointers)),
             Write(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
             Write(
                 Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
@@ -222,7 +258,7 @@ public static class OkfScaffold
 
         files.Add(WriteRootIndex(bundleRoot));
 
-        return new OkfScaffoldResult(vault, bundleRoot, files);
+        return new OkfScaffoldResult(vault, bundleRoot, files, pointers);
     }
 
     /// <summary>
@@ -648,7 +684,7 @@ public static class OkfScaffold
         return MarkdownLintConfigNames.FirstOrDefault(name => File.Exists(Path.Combine(host, name)));
     }
 
-    private static string CustodianReadme(string name) => $$"""
+    private static string CustodianReadme(string name, IReadOnlyList<OkfSkillPointer> pointers) => $$"""
         # The {{name}} custodian
 
         This directory is the **custodian machinery** for the `{{name}}` bundle: the
@@ -663,21 +699,26 @@ public static class OkfScaffold
 
         ## The skills
 
-        The custodian is not a program. It is prose skills, shipped by the okf toolset
-        and **referenced by path, never copied here** — a vendored copy is a copy that
+        The custodian is not a program. It is prose skills, shipped inside the `okf`
+        binary and **referenced, never copied here** — a vendored copy is a copy that
         drifts:
 
-        - `skills/okf-capture/SKILL.md` — capture. Something was just learned and
-          belongs in the bundle: search the bundle first, apply the capture-versus-cite
-          test, drop what cannot defend itself into `raw/` with an entry in the capture
-          manifest, write the concept and cite it by key.
-        - `skills/okf-custodian/SKILL.md` — maintenance. A capture is waiting in `raw/`,
-          or the bundle needs enrichment, index regeneration, lint clearing, or a
-          `log.md` line.
+        - **okf-capture** — capture. Something was just learned and belongs in the
+          bundle: search the bundle first, apply the capture-versus-cite test, drop what
+          cannot defend itself into `raw/` with an entry in the capture manifest, write
+          the concept and cite it by key.
+        - **okf-custodian** — maintenance. A capture is waiting in `raw/`, or the bundle
+          needs enrichment, index regeneration, lint clearing, or a `log.md` line.
 
-        Those paths are where `recipe.json` points. Point them at wherever this project
-        gets the skills from — a released okf toolset, a submodule, a checkout — and
-        keep them pointing at one copy.
+        `recipe.json` names them as:
+
+        {{SkillReadmePointers(pointers)}}
+
+        Run `okf skills install` to put them on this machine — they ship inside the
+        binary, so nothing is downloaded — and `okf skills path okf-capture` to print
+        where one landed. A project that would rather keep its own copy can commit them
+        under `skills/` (`okf skills install --dir skills`), which is the path a
+        re-scaffolded recipe then points at.
 
         ## What runs where
 
@@ -698,7 +739,49 @@ public static class OkfScaffold
 
         """;
 
-    private static string CustodianRecipe(string name) => $$"""
+    /// <summary>
+    /// How the scaffolded recipe names each skill, resolved against the project the vault
+    /// sits in: this repository's own <c>skills/</c> layout first, then a project-scoped
+    /// host install, and otherwise the instruction form.
+    /// </summary>
+    /// <remarks>
+    /// Only project-relative candidates are considered. A committed <c>recipe.json</c> is
+    /// read on every machine that clones the project, so an absolute path — or a <c>~</c>
+    /// one — would be a pointer that resolves for exactly the person who ran
+    /// <c>okf init</c>.
+    /// </remarks>
+    private static IReadOnlyList<OkfSkillPointer> SkillPointers(string vault)
+    {
+        var projectRoot = Path.GetDirectoryName(vault);
+
+        return
+        [
+            .. RecipeSkills.Select(skill =>
+            {
+                var relative = projectRoot is null
+                    ? null
+                    : OkfSkillInstaller.ProjectRelativeCandidates(skill.Name).FirstOrDefault(candidate =>
+                        File.Exists(Path.Combine(projectRoot, candidate.Replace('/', Path.DirectorySeparatorChar))));
+
+                return relative is null
+                    ? new OkfSkillPointer(skill.Name, $"okf skills path {skill.Name}", IsPath: false)
+                    : new OkfSkillPointer(skill.Name, relative, IsPath: true);
+            }),
+        ];
+    }
+
+    private static string SkillEntries(IReadOnlyList<OkfSkillPointer> pointers) =>
+        string.Join(
+            ",\n",
+            pointers.Select(pointer => $$"""
+                    {
+                      "name": "{{pointer.Name}}",
+                      "resource": "{{pointer.Resource}}",
+                      "when": "{{RecipeSkills.Single(skill => skill.Name == pointer.Name).When}}"
+                    }
+                """.TrimEnd()));
+
+    private static string CustodianRecipe(string name, IReadOnlyList<OkfSkillPointer> pointers) => $$"""
         {
           // {{name}}'s custodian recipe: what maintains this vault, and the exact
           // commands that maintenance runs. Read this file to know what the custodian
@@ -713,19 +796,16 @@ public static class OkfScaffold
           "vault": "okf/",
           "bundle": "okf/bundles/{{name}}",
 
-          // The skills, REFERENCED by path and never copied into this directory.
-          // Point `resource` at wherever this project gets the okf skills from.
+          // The skills, REFERENCED and never copied into this directory: a vendored
+          // copy is a copy that drifts. A `resource` is a project-relative path when
+          // this project has the skill on disk, and otherwise the instruction SPEC §5.1
+          // allows in place of one — an absolute or ~ path would name one machine's
+          // home directory in a file the whole team commits.
+          //
+          // `okf skills install` puts the skills on this machine (they ship inside the
+          // okf binary), and `okf skills path <skill>` prints where one landed.
           "skills": [
-            {
-              "name": "okf-capture",
-              "resource": "skills/okf-capture/SKILL.md",
-              "when": "Something was just learned and belongs in the bundle: search first, apply the capture-vs-cite test, drop what cannot defend itself into raw/ with a manifest entry, write the concept."
-            },
-            {
-              "name": "okf-custodian",
-              "resource": "skills/okf-custodian/SKILL.md",
-              "when": "A capture is waiting in raw/, or the bundle needs enrichment, index regeneration, lint clearing, or a log.md line."
-            }
+        {{SkillEntries(pointers)}}
           ],
 
           // Search terms an enrichment pass starts from — this bundle's own subject
@@ -755,6 +835,14 @@ public static class OkfScaffold
         }
 
         """;
+
+    private static string SkillReadmePointers(IReadOnlyList<OkfSkillPointer> pointers) =>
+        string.Join(
+            "\n",
+            pointers.Select(pointer => pointer.IsPath
+                ? $"- `{pointer.Name}` \u2192 `{pointer.Resource}`, a path in this project."
+                : $"- `{pointer.Name}` \u2192 `{pointer.Resource}` \u2014 an instruction, not a\n"
+                    + "  path: this project keeps no copy of its own."));
 
     private static string RawGitignore() => """
         # Nothing in raw/ is ignored, ever.

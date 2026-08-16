@@ -39,6 +39,9 @@ consume.
     cross-links coloured by trust tier, and one browsable page per concept.
     Hostable on GitLab Pages, openable straight from `file://`, and with
     `--single-file` reducible to one HTML file you can hand to someone
+  - `okf skills` — the three agent skills ship inside the binary;
+    `okf skills install` places them for Claude Code, pi, or any directory
+    you name, and `okf skills path <skill>` says where one landed
   - `okf mcp` — the same capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
@@ -49,7 +52,8 @@ consume.
   run from git hooks and CI
 - **[Agent skills](skills/README.md)** — three host-neutral skills over the
   same doctrine: `okf-capture` gets knowledge in, `okf-custodian` keeps it
-  alive, and `okf-vault` gets it back out for an agent answering a question
+  alive, and `okf-vault` gets it back out for an agent answering a question.
+  They ship inside the binary and the installers place them for you
 - **Guardrails** — immutable `references/` evidence capture, provenance
   citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)
@@ -96,6 +100,42 @@ curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 The scripts are [`install.sh`](install.sh) and [`install.ps1`](install.ps1) in
 this repository, and every release ships the copies it was cut with.
 
+### The agent skills come with it
+
+Once the binary is in place, both installers run `okf skills install`. Nothing
+is downloaded for it: the three skills ship *inside* the binary, so this is a
+set of file writes. It puts okf's own copy in `~/.local/share/okf/skills`
+(`%LOCALAPPDATA%\okf\skills` on Windows) and, when your machine already has
+them, into `~/.claude/skills` for Claude Code and `~/.pi/agent/skills` for pi.
+A directory that does not exist is not created — okf does not install a host
+you have not installed.
+
+```sh
+okf skills list                       # what this binary carries
+okf skills path okf-capture           # where a skill landed
+okf skills install --host claude      # one host, explicitly
+okf skills install --scope project    # beside this project, not in your home
+okf skills install --dir ./skills     # any other agent, or a vendored copy
+```
+
+A skill file you have edited is never overwritten: it is reported as
+`skipped (modified)` and the run still exits 0, until you pass `--force`. To
+skip the step entirely — if you manage your agent's skill directories
+yourself — set `OKF_SKIP_SKILLS=1`:
+
+```sh
+curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_SKIP_SKILLS=1 sh
+```
+
+```powershell
+$env:OKF_SKIP_SKILLS = '1'; irm https://get.okf.tychostation.dev/install.ps1 | iex
+```
+
+If the step fails, the install does not: it warns and names the command to run
+again. Every release also carries `okf-skills.tar.gz` — the same three files,
+for a host okf-net does not know about or a project that would rather vendor
+them.
+
 > **`get.okf.tychostation.dev` resolves only inside Ringo's network today.** The
 > host is an internal nginx behind the internal Caddy; there is no public DNS
 > record and no public route, so the one-liners above will not resolve for
@@ -119,6 +159,10 @@ this repository, and every release ships the copies it was cut with.
 | Linux x86_64 | `okf-linux-x64` | NativeAOT | ~6.0 MB |
 | macOS Apple Silicon | `okf-osx-arm64` | trimmed self-contained | ~14.7 MB |
 | Windows x64 | `okf-win-x64.exe` | trimmed self-contained | ~14.0 MB |
+
+Beside the binaries each release carries `okf-net-knowledge.tar.gz` (this
+repository's own knowledge bundle), `okf-skills.tar.gz` (the three agent
+skills), `latest.json` and both installers — eight assets in all.
 
 The difference is worth being plain about. NativeAOT compiles ahead of time to
 a native image with no runtime inside it, and it compiles through the *host's*
@@ -223,10 +267,11 @@ violate OKF conformance):
 - **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
   site. Its public API was frozen by the 1.0.0 review.
 - **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `inbox`,
-  `verify`, `bundle`, `site`, `mcp`, plus `help` and `version`.
+  `verify`, `bundle`, `site`, `skills`, `mcp`, plus `help` and `version`.
 - **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
   `okf_search`, `okf_read`) over stdio.
-- **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`; see
+- **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`,
+  embedded in the binary and installed by `okf skills install`; see
   [skills/README.md](skills/README.md).
 - **This repo's own knowledge bundle**, linted and index-checked by the
   `dogfood` job on every push, and rendered to the Pages site below.
@@ -235,11 +280,12 @@ Not built: the registry (`okf register` / `okf unregister`, so search is
 project-scoped full stop) and the Pi shim. Neither blocks 1.0.0.
 
 Every merge to `main` cuts an `rc` tag, and that tag's pipeline publishes
-seven assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
+eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
 `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe self-contained, ~15 MB each,
 because NativeAOT compiles through the host's toolchain and the only runner
 here is Linux) — this repo's knowledge bundle as `okf-net-knowledge.tar.gz`,
-the `latest.json` release manifest, and the two installers that read it:
+the agent skills as `okf-skills.tar.gz`, the `latest.json` release manifest,
+and the two installers that read it:
 
 ```sh
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh

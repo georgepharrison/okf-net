@@ -19,9 +19,12 @@
   // The custodian is two prose skills, REFERENCED by repo path and never
   // copied here. A vendored copy is a copy that drifts; decisions.md §1 says
   // the shared toolset is referenced by version, never vendored per project,
-  // and okf-net is its own consumer. In another repo these paths would be a
-  // released version of okf-net; here the toolset and the vault are the same
-  // checkout, so the reference is a path.
+  // and okf-net is its own consumer. Here the toolset and the vault are the
+  // same checkout, so `skills/` IS the installed copy and the reference is a
+  // path. In another repo the same files come out of the binary —
+  // `okf skills install` places them, `okf skills path <skill>` finds them —
+  // and `okf init` writes `okf skills path <name>` instead of a path that would
+  // resolve on one machine only.
   "skills": [
     {
       "name": "okf-capture",

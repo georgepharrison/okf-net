@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Forty-nine numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -694,11 +694,14 @@ flowchart TB
   host's `sync.sh` (which lives on the host, not in this repository)
 - **Prevents:** a package whose name lies about its contents, and an SSH credential on a
   shared runner that can write to the box serving the install script.
-- **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform; the
-  single-binary wording this replaces was true when written.)* One tag pipeline publishes
-  **seven** assets under one package version: three binaries (`okf-linux-x64`,
-  `okf-osx-arm64`, `okf-win-x64.exe`), the knowledge bundle
-  (`okf-net-knowledge.tar.gz`), `latest.json`, and both installers. CI stamps from the tag,
+- **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform, and
+  again after #41, which added the skills archive; the single-binary wording this replaces
+  was true when written.)* One tag pipeline publishes **eight** assets under one package
+  version: three binaries (`okf-linux-x64`, `okf-osx-arm64`, `okf-win-x64.exe`), the
+  knowledge bundle (`okf-net-knowledge.tar.gz`), the agent skills
+  (`okf-skills.tar.gz`, a deterministic tar of `skills/*/SKILL.md` that no installer
+  fetches, because every binary embeds the same files), `latest.json`, and both
+  installers. CI stamps from the tag,
   never from `git describe`, and the job compares `okf version` from the freshly compiled
   binary against `<tag minus the leading v>+<short sha>` before uploading anything — a
   runnable check for `linux-x64` only, because a Linux runner cannot execute the other two,
@@ -824,6 +827,28 @@ flowchart TB
   directory is still never descended, dot-prefixed or not.
 - **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15)
 
+### AD-50 — The skills ship inside the binary, and a committed pointer never names a home directory
+
+- **Binds:** `skills/*/SKILL.md`, `OkfSkills`, `OkfSkillInstaller`, `okf skills`, `okf init`,
+  both installers
+- **Prevents:** an installed `okf` whose custodian recipe points at files the machine does
+  not have — the whole of #41 — and a second download standing between a fresh install and
+  a working one.
+- **Rule:** `Okf.Core.csproj` globs `../../skills/*/SKILL.md` into `EmbeddedResource`, so a
+  skill added to the repository is embedded by the next build, and a test asserts the
+  embedded set equals the on-disk set name for name and byte for byte. `okf skills install`
+  writes them — never a network call (AD-7) — to `$XDG_DATA_HOME/okf/skills`
+  (`%LOCALAPPDATA%\okf\skills` on Windows) plus each host directory that already exists,
+  resolving every path through `OkfEnvironment`. A file whose bytes differ is
+  `skipped (modified)` and the run exits 0 unless `--force`, the same never-overwrite
+  discipline as `okf init`. `okf init` resolves each recipe pointer against the **project**
+  only — `skills/<name>/SKILL.md`, then a project-scoped host install — and otherwise writes
+  the §5.1 descriptor `okf skills path <name>` — the command that resolves it — because an
+  absolute or `~` path in a committed
+  file resolves on one machine. Both installers run `okf skills install` after the version
+  check, non-interactively, and treat its failure as a warning naming the command to re-run.
+- **Source:** [shipping the skills](decisions.md#proposed-decisions-shipping-the-skills-work-item-41-2026-08-15)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -925,7 +950,7 @@ flowchart TB
     pub --> build["publish 3 RIDs<br/>linux-x64 AOT · osx-arm64<br/>win-x64 · stamped from the tag"]
     build --> gate{"okf version matches<br/>tag plus short sha?"}
     gate -- no --> stop["fail · upload nothing"]
-    gate -- yes --> reg["generic package registry<br/>okf/VERSION · 7 assets<br/>3 binaries · knowledge bundle"]
+    gate -- yes --> reg["generic package registry<br/>okf/VERSION · 8 assets<br/>3 binaries · knowledge bundle<br/>skills archive"]
     reg --> man["latest.json<br/>per asset: path · size · sha256 · url"]
     man --> sync["sync.sh on the host<br/>pull · re-verify · rename"]
     sync --> host["get.okf.tychostation.dev"]
@@ -975,9 +1000,10 @@ flowchart TB
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
-| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI | AD-1, AD-6, AD-16, AD-18, AD-20 | SKILL-1 … SKILL-8 |
+| Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50 | SKILL-1 … SKILL-8 |
+| `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32 | SKILL-7, ACC-5, ACC-6 |
-| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43 | CLI-17, Q10 |
+| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 
 `okf register` / `okf unregister` (PRD CLI-2, CLI-3's opt-in) are specified and **not
@@ -1014,7 +1040,7 @@ not fix. Board:
 | Q8's near-duplicate heuristic, Q9's CI-commit signal | `OKF0303` ships a normalized title-or-filename collision and keeps its id when #24 replaces the heuristic. The "human actor on a CI commit" warning has no reliable signal decided, so it has no rule id. |
 | An extractor (`okf bundle --extract`) | Reading an archive is needed for `--verify` and writing one for packaging; unpacking is `tar -xzf`'s job and a consumer already has it. |
 | Branch review environments on Pages | Built, tried against the real instance, and removed: `pages.path_prefix` and `pages.expire_in` are Premium/Ultimate keywords silently ignored on GitLab CE 19.0.1, so a feature branch published over the production site. Reviewers run `mise run site` locally. |
-| NativeAOT beyond `linux-x64`, and the targets nobody has asked for | *(updated 2026-08-15 after #36.)* Three RIDs ship: `linux-x64` is NativeAOT, `osx-arm64` and `win-x64` are trim-safe self-contained, because NativeAOT compiles through the host's toolchain and the only runner here is Linux (AD-8). Still deferred: NativeAOT for those two, which needs a macOS runner ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38)) and a Windows runner ([#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)) and buys back ~9 MB and the cold start and nothing else; and `osx-x64`, musl and `linux-arm64`, each one line in the publish job and one case label in `install.sh`, not built on speculation. `latest.json`'s asset map carries the release's seven assets and has room for more. |
+| NativeAOT beyond `linux-x64`, and the targets nobody has asked for | *(updated 2026-08-15 after #36.)* Three RIDs ship: `linux-x64` is NativeAOT, `osx-arm64` and `win-x64` are trim-safe self-contained, because NativeAOT compiles through the host's toolchain and the only runner here is Linux (AD-8). Still deferred: NativeAOT for those two, which needs a macOS runner ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38)) and a Windows runner ([#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)) and buys back ~9 MB and the cold start and nothing else; and `osx-x64`, musl and `linux-arm64`, each one line in the publish job and one case label in `install.sh`, not built on speculation. `latest.json`'s asset map carries the release's eight assets and has room for more. |
 
 Several milestone items whose work has landed (#2 – #7) are still open on the board; they
 are execution bookkeeping, not deferrals.

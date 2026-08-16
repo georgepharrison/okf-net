@@ -82,19 +82,37 @@ make_release() { # make_release <version>
   # ones do, so the installer's final "prints the installed version" step is exercised
   # rather than mocked away. Two of them, with DIFFERENT bytes — that is what makes "did
   # it pick the right asset" an answerable question rather than a coincidence.
+  #
+  # They also answer `okf skills install`, which the installer runs once the binary is in
+  # place (#41). Every invocation is appended to $OKF_STUB_LOG when that is set — the
+  # environment is inherited through sh -> install.sh -> the binary — so a test can assert
+  # WHICH subcommands the installer called rather than inferring it from an exit code. The
+  # log lives outside the install directory on purpose: a file beside `okf` would break the
+  # "second run leaves exactly one file" assertion further down.
+  #
+  # OKF_STUB_SKILLS_FAIL=1 makes the skills step fail, which is how "a failed skills
+  # install is a warning, not a failed install" gets exercised without a second fixture
+  # release whose digests would all have to be recomputed.
   for name in okf-linux-x64 okf-osx-arm64; do
     cat >"$dir/$name" <<EOF
 #!/bin/sh
+[ -n "\${OKF_STUB_LOG:-}" ] && printf '%s\n' "\$*" >>"\$OKF_STUB_LOG"
 [ "\${1:-}" = version ] && echo "$v+abc1234 ($name)" && exit 0
+if [ "\${1:-}" = skills ] && [ "\${2:-}" = install ]; then
+  [ "\${OKF_STUB_SKILLS_FAIL:-0}" = 1 ] && echo "okf: error: nope" >&2 && exit 2
+  echo "skills installed" && exit 0
+fi
 echo "okf $v" && exit 0
 EOF
     chmod +x "$dir/$name"
   done
 
   # Never selected by install.sh; present because a release carries them and the reader
-  # has to walk past them.
+  # has to walk past them. The skills archive is one of these: the installer never fetches
+  # it, because every binary already carries the skills (#41).
   printf 'MZ this is not really a PE binary, version %s\n' "$v" >"$dir/okf-win-x64.exe"
   printf 'not really a tarball, version %s\n' "$v" >"$dir/okf-net-knowledge.tar.gz"
+  printf 'not really the skills archive, version %s\n' "$v" >"$dir/okf-skills.tar.gz"
   cp "$installer" "$dir/install.sh"
   cp "$repo/install.ps1" "$dir/install.ps1"
 
@@ -133,6 +151,12 @@ EOF
       "sha256": "$(sha_line okf-net-knowledge.tar.gz)",
       "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz"
     },
+    "okf-skills.tar.gz": {
+      "path": "v$v/okf-skills.tar.gz",
+      "size": $(wc -c <"$dir/okf-skills.tar.gz"),
+      "sha256": "$(sha_line okf-skills.tar.gz)",
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-skills.tar.gz"
+    },
     "install.sh": {
       "path": "v$v/install.sh",
       "size": $(wc -c <"$dir/install.sh"),
@@ -156,7 +180,8 @@ make_release "$VERSION_NEW"
 # The root is the "latest" channel: copies of the newest version, exactly as sync.sh
 # publishes them on the artifact host.
 for f in latest.json install.sh install.ps1 \
-         okf-linux-x64 okf-osx-arm64 okf-win-x64.exe okf-net-knowledge.tar.gz; do
+         okf-linux-x64 okf-osx-arm64 okf-win-x64.exe \
+         okf-net-knowledge.tar.gz okf-skills.tar.gz; do
   cp "$www/v$VERSION_NEW/$f" "$www/$f"
 done
 
@@ -189,10 +214,14 @@ curl -fsS "$base/latest.json" >/dev/null || { echo "fixture server never came up
 
 out=""
 rc=0
+stub_log=""
 run() {
   local shell="$1" dir="$2"; shift 2
+  stub_log="$work/stub-$(basename "$dir").log"
+  : >"$stub_log"
   set +e
-  out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" "$shell" "$installer" "$@" 2>&1)"
+  out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_LOG="$stub_log" \
+         "$shell" "$installer" "$@" 2>&1)"
   rc=$?
   set -e
 }
@@ -262,6 +291,43 @@ set -e
 check_eq "exits 0 installing through a symlinked dir" "0" "$rc"
 check_not_contains "a symlinked install dir is still the dir it points at" \
   "is not on your PATH" "$out"
+
+note "[$sh_bin] the installer installs the agent skills"
+# The skills ship inside the binary (#41), so the installer runs `okf skills install`
+# instead of downloading anything. The stub records its own argv, which is what makes
+# "the installer called it, with those arguments" answerable rather than inferred.
+dir="$work/bin-skills-$sh_bin"
+run "$sh_bin" "$dir"
+check_eq "exits 0" "0" "$rc"
+check_contains "runs \`okf skills install\`" "skills install" "$(cat "$stub_log")"
+check_contains "and says what it is doing" "installing the agent skills" "$out"
+
+dir="$work/bin-skip-skills-$sh_bin"
+skip_log="$work/skip-skills-$sh_bin.log"
+: >"$skip_log"
+set +e
+out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_LOG="$skip_log" \
+       OKF_SKIP_SKILLS=1 "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "OKF_SKIP_SKILLS=1 still exits 0" "0" "$rc"
+check_not_contains "OKF_SKIP_SKILLS=1 calls no skills subcommand" "skills install" "$(cat "$skip_log")"
+check_contains "but the binary was still installed and asked its version" "version" "$(cat "$skip_log")"
+check_contains "and the run says it skipped them" "OKF_SKIP_SKILLS=1" "$out"
+
+# A failed skills step must not fail an install that already landed verified bytes: the
+# binary works, and the skills are one command away.
+dir="$work/bin-skills-fail-$sh_bin"
+set +e
+out="$(OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$dir" OKF_STUB_SKILLS_FAIL=1 \
+       "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "a failed skills install still exits 0" "0" "$rc"
+check_contains "warns instead of failing" "could not install the agent skills" "$out"
+check_contains "and names the command to re-run" "$dir/okf skills install" "$out"
+if [[ -x "$dir/okf" ]]; then ok "and the binary is installed anyway"
+else bad "and the binary is installed anyway" "no executable at $dir/okf"; fi
 
 note "[$sh_bin] a trailing slash on the base URL"
 dir="$work/bin-baseslash-$sh_bin"
