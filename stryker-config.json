@@ -8,6 +8,11 @@
       "break": 60
     },
     "mutation-level": "Standard",
+    "ignore-methods": [
+      "ArgumentNullException.ThrowIfNull",
+      "ArgumentException.ThrowIfNullOrEmpty",
+      "ArgumentException.ThrowIfNullOrWhiteSpace"
+    ],
     "since": {
       "enabled": false,
       "target": "origin/main",

@@ -379,3 +379,15 @@ internal sealed class TempTree : IDisposable
         }
     }
 }
+
+/// <summary>
+/// The suites that run <c>okf bundle --lint</c> over an archive. It unpacks into one
+/// process-global directory — <c>okf-bundle</c> under the system temporary path — so a
+/// suite that counts what is in there cannot run beside another suite that is putting
+/// things into it. Naming both into one xUnit collection serializes them.
+/// </summary>
+internal static class BundleLintCollection
+{
+    /// <summary>The collection name.</summary>
+    public const string Name = "okf bundle --lint";
+}

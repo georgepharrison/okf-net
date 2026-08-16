@@ -58,21 +58,46 @@ public class SkillsCommandTests
             Cli.RunIn(home.Root, home.Root, "skills").Output);
     }
 
+    /// <summary>
+    /// Each refusal is named by the message it produces, not merely by exiting 2: every
+    /// row here is a different guard, and "okf: error:" alone would pass whichever of them
+    /// fired.
+    /// </summary>
     [Theory]
-    [InlineData("wat")]
-    [InlineData("install", "--host", "codex")]
-    [InlineData("install", "--scope", "everywhere")]
-    [InlineData("install", "--host", "generic")]
-    [InlineData("install", "okf-capture")]
-    [InlineData("path")]
-    public void AMalformedCommandLineIsAUsageFailure(params string[] arguments)
+    [InlineData(new[] { "wat" }, "Unknown subcommand 'wat'; expected 'list', 'path' or 'install'.")]
+    [InlineData(new[] { "install", "--host", "codex" }, "Unknown --host value 'codex'")]
+    [InlineData(new[] { "install", "--scope", "everywhere" }, "Unknown --scope value 'everywhere'")]
+    [InlineData(new[] { "install", "--host", "generic" }, "`--host generic` needs `--dir <path>` to write into.")]
+    [InlineData(new[] { "install", "okf-capture" }, "`okf skills install` takes no skill name; got 'okf-capture'.")]
+    [InlineData(new[] { "path" }, "`okf skills path` needs a skill name")]
+    [InlineData(new[] { "install", "--names" }, "`--names` belongs to `okf skills list`")]
+    [InlineData(new[] { "path", "okf-vault", "--names" }, "`--names` belongs to `okf skills list`")]
+    public void AMalformedCommandLineIsAUsageFailure(string[] arguments, string expected)
     {
         using var home = new TempTree();
         var run = Cli.RunIn(home.Root, home.Root, ["skills", .. arguments]);
 
         Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
-        Assert.Contains("okf: error:", run.Error, StringComparison.Ordinal);
+        Assert.Contains(expected, run.Error, StringComparison.Ordinal);
         Assert.Empty(run.Output);
+    }
+
+    /// <summary>
+    /// `--help` short-circuits every one of those checks: asking what a command line means
+    /// must not require it to be a legal one.
+    /// </summary>
+    [Theory]
+    [InlineData("install", "--names")]
+    [InlineData("path")]
+    [InlineData("install", "--host", "generic")]
+    public void HelpIsAnsweredEvenForACommandLineThatWouldOtherwiseBeRefused(params string[] arguments)
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(home.Root, home.Root, ["skills", .. arguments, "--help"]);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("okf skills", run.Output, StringComparison.Ordinal);
+        Assert.Empty(run.Error);
     }
 
     [Fact]
