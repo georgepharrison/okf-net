@@ -41,6 +41,96 @@ public class OkfIndexGeneratorTests
     }
 
     [Fact]
+    public void SectionOrderIsCaseInsensitiveThenOrdinalWithSubdirectoriesLastWhateverItSortsLike()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("p.md", Concept("alpha", "P"))
+            .Add("q.md", Concept("Beta", "Q"))
+            .Add("z.md", Concept("Metric", "Z"))
+            .Add("a.md", Concept("metric", "A"))
+            .Add("r.md", Concept("Zeta", "R"))
+            .Add("sub/leaf.md", Concept("Reference", "Leaf"));
+
+        // AD-15's ordering rule, exercised where each of its three clauses decides
+        // something the next one cannot. `Zeta` sorts after `Subdirectories`, so only the
+        // subdirectory-last clause can put the navigation section at the end. `alpha` and
+        // `Beta` sort one way case-insensitively and the other way ordinally, so only the
+        // case-insensitive compare can order them. `Metric` and `metric` are equal
+        // case-insensitively, so only the ordinal tiebreak can separate them — and their
+        // filenames run the other way, so a comparison that fell through to the link would
+        // be visible here.
+        Assert.Equal(
+            [
+                "alpha|p.md",
+                "Beta|q.md",
+                "Metric|z.md",
+                "metric|a.md",
+                "Zeta|r.md",
+                "Subdirectories|sub/index.md",
+            ],
+            Root(bundle).Entries.Select(entry => entry.Section + "|" + entry.Link));
+    }
+
+    [Fact]
+    public void WithinASectionTheOrdinalTiebreakOrdersLinksThatDifferOnlyInCase()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("alpha.md", Concept("Reference", "Alpha"))
+            .Add("Beta.md", Concept("Reference", "Beta"))
+            .Add("a%28b.md", Concept("Reference", "Encoded"))
+            .Add("a(B.md", Concept("Reference", "Bracketed"));
+
+        // `a(B.md` percent-encodes to `a%28B.md`, which differs from `a%28b.md` only in
+        // case — the pair the ordinal tiebreak exists for. The walk hands them over in the
+        // opposite order (`%` sorts before `(`), so a comparison that stopped at
+        // OrdinalIgnoreCase would leave them in the order they arrived, and the order would
+        // be the sort's rather than the rule's. AD-15 requires it to be total.
+        Assert.Equal(
+            ["a%28B.md", "a%28b.md", "alpha.md", "Beta.md"],
+            Root(bundle).Entries.Select(entry => entry.Link));
+    }
+
+    [Fact]
+    public void LinkTargetsPercentEncodeTheThreeCharactersThatWouldBreakTheEntry()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("net (gross) rate.md", Concept("Metric", "Net (gross) rate"))
+            .Add("q (a)/leaf.md", Concept("Reference", "Leaf"));
+
+        // A markdown link target ends at the first `)`, and a bare space ends it too, so a
+        // filename or a directory name carrying either would emit an entry that no longer
+        // matches the §8 form `okf lint` enforces (OKF0003). Nothing else is escaped: `/`
+        // has to stay a separator.
+        var root = Root(bundle);
+
+        Assert.Equal(
+            ["net%20%28gross%29%20rate.md", "q%20%28a%29/index.md"],
+            root.Entries.Select(entry => entry.Link));
+        Assert.Contains(
+            "* [Net (gross) rate](net%20%28gross%29%20rate.md)",
+            root.Content,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABlurbLosesItsPaddingRatherThanCarryingItIntoTheBullet()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add(
+            "orders.md",
+            "---\ntype: Metric\ntitle: \"  Orders  \"\ndescription: \"  The   orders.  \"\n---\n\n# Orders\n");
+
+        var entry = Assert.Single(Root(bundle).Entries);
+
+        // An index entry is one line, so runs of whitespace inside a value collapse to a
+        // single space and whitespace at either edge disappears entirely — a quoted YAML
+        // scalar keeps its padding and a bullet must not.
+        Assert.Equal("Orders", entry.Title);
+        Assert.Equal("The orders.", entry.Description);
+        Assert.Equal("* [Orders](orders.md) - The orders.", entry.ToString());
+    }
+
+    [Fact]
     public void TitleFallsBackToTheFilenameStemAndDescriptionIsSimplyOmitted()
     {
         using var bundle = new TempBundle();
@@ -153,6 +243,53 @@ public class OkfIndexGeneratorTests
     }
 
     [Fact]
+    public void OneBlankLineSeparatesSectionsAndNothingPrecedesTheFirstHeading()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders", "The orders."))
+            .Add("revenue.md", Concept("Metric", "Revenue"));
+
+        // The whole file, byte for byte: §12's root frontmatter, AD-13's marker on its own
+        // line, §8's bullet form, and exactly one blank line between sections with none
+        // before the first heading. Idempotence (PRD ACC-7) is a byte comparison, so the
+        // separators are as much the output as the entries are.
+        Assert.Equal(
+            """
+            ---
+            okf_version: "0.2"
+            ---
+
+            <!-- generated by okf -->
+
+            # BigQuery Table
+
+            * [Orders](orders.md) - The orders.
+
+            # Metric
+
+            * [Revenue](revenue.md)
+
+            """.ReplaceLineEndings("\n"),
+            Root(bundle).Content);
+    }
+
+    [Fact]
+    public void TheReadSideAnswersNullForADirectoryWithNothingToList()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"))
+            .Add("attesters/sql_equality.py", "# not a concept");
+
+        var plan = OkfIndexGenerator.Plan(bundle.Bundle);
+
+        // PRD CORE-10's read side, which `okf_list` renders as `"source": "empty"`: asking
+        // for a directory the generator would not write an index for is an ordinary
+        // question with a null answer, not a failure.
+        Assert.Null(plan.For(Path.Combine(bundle.Root, "attesters")));
+        Assert.NotNull(plan.For(bundle.Root));
+    }
+
+    [Fact]
     public void GenerationIsIdempotent()
     {
         using var bundle = new TempBundle();
@@ -252,6 +389,14 @@ public class OkfIndexGeneratorTests
     [InlineData("<!-- generated by okf --> and more on the line\n", false)]
     [InlineData("---\nokf_version: \"0.2\"\n<!-- generated by okf -->\n", false)]
     [InlineData("", false)]
+    // An unterminated frontmatter block is not something the renderer can have produced,
+    // so the marker inside it claims nothing — the scan stops rather than restarting at
+    // the line after the opening delimiter.
+    [InlineData("---\n<!-- generated by okf -->\n", false)]
+    // A `---` further down is a thematic break in the body, not a second frontmatter
+    // fence: the block ends at the *first* closing delimiter and the marker is read from
+    // there.
+    [InlineData("---\nokf_version: \"0.2\"\n---\n\n<!-- generated by okf -->\n\n# Metric\n\n---\n\nMore.\n", true)]
     public void TheMarkerIsReadWhereAGeneratedFileCarriesIt(string text, bool generated) =>
         Assert.Equal(generated, OkfIndexGenerator.IsGenerated(text));
 
