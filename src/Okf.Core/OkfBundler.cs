@@ -460,7 +460,7 @@ public static class OkfBundler
         }
 
         var remainder = resolved[prefix.Length..];
-        var separator = remainder.IndexOf(Path.DirectorySeparatorChar);
+        var separator = remainder.IndexOf(Path.DirectorySeparatorChar, StringComparison.Ordinal);
         return separator < 0 ? remainder : remainder[..separator];
     }
 

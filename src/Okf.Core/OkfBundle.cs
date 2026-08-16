@@ -142,7 +142,9 @@ public sealed class OkfBundle
     /// </remarks>
     /// <param name="pattern">The search pattern to collect.</param>
     /// <returns>The absolute paths, ordered by their bundle-relative form.</returns>
+#pragma warning disable CA1859 // return type matches MarkdownFiles/ContentFiles, both frozen public API (2026-08-15)
     private IReadOnlyList<string> Walk(string pattern)
+#pragma warning restore CA1859
     {
         var files = new List<string>();
         Collect(Root, pattern, files);

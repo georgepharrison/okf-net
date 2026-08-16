@@ -440,7 +440,7 @@ public static class OkfInboxScanner
     /// drift than <c>OKF0103</c>, which compares the written dates alone, or a concept lint
     /// reports would be missing from the list of what needs a person.
     /// </remarks>
-    private static IReadOnlyList<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfLifecycleInstant? generatedAt)
+    private static List<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfLifecycleInstant? generatedAt)
     {
         if (generatedAt is not { } generated
             || !frontmatter.TryGetValue("sources", out var value)

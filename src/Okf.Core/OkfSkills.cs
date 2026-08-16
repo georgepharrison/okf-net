@@ -64,7 +64,9 @@ public static class OkfSkills
     public static OkfSkill? Find(string? name) =>
         All.FirstOrDefault(skill => string.Equals(skill.Name, name, StringComparison.Ordinal));
 
+#pragma warning disable CA1859 // backs the frozen public All property (2026-08-15) via Lazy<IReadOnlyList<OkfSkill>>
     private static IReadOnlyList<OkfSkill> Load()
+#pragma warning restore CA1859
     {
         var assembly = typeof(OkfSkills).Assembly;
         var suffix = $".{SkillFileName}";

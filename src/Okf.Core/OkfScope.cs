@@ -258,7 +258,7 @@ public static class OkfScope
     /// point at, and guessing one would apply a team's committed contract to somebody
     /// else's vault (AD-31).
     /// </summary>
-    private static string? VaultOf(IReadOnlyList<OkfBundle> bundles)
+    private static string? VaultOf(List<OkfBundle> bundles)
     {
         var vaults = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).ToList();
         return vaults.Count == 1 ? vaults[0] : null;
@@ -272,7 +272,7 @@ public static class OkfScope
             ? vault
             : bundle.Root;
 
-    private static string Sentence(string scope, IReadOnlyList<OkfBundle> bundles, string registryPath)
+    private static string Sentence(string scope, List<OkfBundle> bundles, string registryPath)
     {
         var roots = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).Count();
         return $"--scope {scope}: {bundles.Count} bundles from {roots} registered " +

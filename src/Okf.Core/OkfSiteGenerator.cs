@@ -88,7 +88,9 @@ public static class OkfSiteGenerator
         return written;
     }
 
+#pragma warning disable CA1859 // return flows straight into OkfSitePlan.Files, frozen public API (2026-08-15)
     private static IReadOnlyList<OkfSiteFile> MultiPage(OkfSiteModel model)
+#pragma warning restore CA1859
     {
         var files = new List<OkfSiteFile>
         {
