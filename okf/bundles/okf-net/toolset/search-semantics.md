@@ -3,7 +3,7 @@ type: Reference
 title: Search Semantics
 description: Deterministic BM25 over field-weighted concept text, links-first results, and filters that never contribute score.
 tags: [okf-net, search, bm25, determinism]
-generated: { by: claude-fable/5, at: 2026-08-16T09:00:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:55:26Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md

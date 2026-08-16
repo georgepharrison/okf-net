@@ -4,7 +4,7 @@ title: The Architecture Spine
 description: A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
 tags: [okf-net, architecture, layering, governance]
-generated: { by: "claude-fable/5", at: 2026-08-16T09:00:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:55:24Z }
 sources:
   - id: spine
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md

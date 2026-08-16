@@ -3,7 +3,7 @@ type: Concept
 title: Vaults, Registry, and Configuration
 description: How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
 tags: [okf-net, vault, registry, configuration, discovery]
-generated: { by: claude-fable/5, at: 2026-08-16T09:00:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T04:55:28Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
