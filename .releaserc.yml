@@ -46,7 +46,20 @@ plugins:
         - type: ci
           release: patch
 
-  # Generate release notes from commits
+  # Generate release notes from commits.
+  #
+  # `preset: conventionalcommits` is resolved by NAME at runtime, from
+  # whatever `conventional-changelog-conventionalcommits` the release job
+  # happens to have installed — nothing here or in semantic-release's own
+  # dependency tree constrains that version. The two must match, and when
+  # they do not the notes come out as a bare header with no sections (work
+  # item #52). The pin that makes this file mean what it says lives in the
+  # `release` job in .gitlab-ci.yml; the comment there has the mechanism.
+  #
+  # `types` REPLACES the preset's defaults rather than extending them, so a
+  # type absent from this list is a type absent from the notes — that is how
+  # `test`, `build` and `style` stay out, and `chore` is spelled out as
+  # hidden only to say so deliberately.
   - - "@semantic-release/release-notes-generator"
     - preset: conventionalcommits
       presetConfig:

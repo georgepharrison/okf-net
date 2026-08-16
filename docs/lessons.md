@@ -20,6 +20,43 @@ future session (human or agent) relearns them. Newest first within sections.
 
 ## semantic-release
 
+- **Pin the release plugins, exactly.** `npm install -g semantic-release
+  @semantic-release/… conventional-changelog-conventionalcommits` resolves
+  five independently versioned packages fresh on every pipeline, and a
+  release job is the one job whose output nobody reads until it is already
+  published. Work item #52: every release the project had ever cut — all 34,
+  v1.0.0-rc.1 through v1.0.0-rc.34 — shipped a GitLab Release whose
+  description was the `## version (date)` header and nothing else.
+- **The root cause was a writer-version mismatch across a runtime name
+  lookup.** `@semantic-release/release-notes-generator@14` renders through
+  `conventional-changelog-writer@^8`, which takes Handlebars template
+  *strings* under a `mainTemplate` key.
+  `conventional-changelog-conventionalcommits@10` emits the writer-9 shape
+  instead: template *functions* (from `@conventional-changelog/template`)
+  under a `template` key. Nothing catches this, because
+  `preset: conventionalcommits` is resolved by NAME at run time and no
+  dependency edge constrains its major. The failure is silent rather than
+  fatal: Handlebars accepts a function as a partial, so the preset's
+  `headerPartial` still rendered the header, `template` was ignored in
+  favour of writer 8's default `mainTemplate`, and every commit section
+  rendered empty. Pinning the preset to `9.3.1` restores sectioned notes;
+  the pin lives in the `release` job in `.gitlab-ci.yml`.
+- **Reproduce release notes without releasing anything.** `git clone
+  --mirror` the repo into a scratch dir, delete the tag you want to release
+  *past*, and point the working clone at the mirror with
+  `git config url.<mirror-path>.insteadOf <real-remote-url>`. semantic-release
+  then still reports `repositoryUrl` as the real remote — so the compare and
+  commit links in the generated notes are the real ones — while every fetch
+  and push-dry-run it performs lands on the local mirror. `--dry-run --no-ci`
+  against that prints the exact notes the GitLab Release will carry. Mirror
+  the REMOTE, not a local clone: semantic-release reads each prerelease
+  tag's channel from `refs/notes/semantic-release-*`, which an ordinary
+  clone never fetches, and without those notes it finds no previous release
+  and renders the whole history instead of the one tag's commits.
+- **`presetConfig.types` REPLACES the preset's default type list, it does not
+  extend it.** A type missing from `.releaserc.yml` is a type missing from the
+  notes, with no warning — `test:`, `build:` and `style:` commits are absent
+  from okf-net's release notes for this reason, deliberately.
 - On a prerelease branch with no stable release, every releasable commit
   produces the next `1.0.0-rc.N` — bump *type* (feat/fix/docs) does not
   change the target version until a stable release exists.

@@ -270,7 +270,23 @@ release:
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates
     - git fetch --tags --force
-    - npm install -g semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/gitlab conventional-changelog-conventionalcommits
+    # Pinned exactly, and the pin is load-bearing (work item #52). These are
+    # five independently versioned packages that npm resolves fresh on every
+    # run, and semantic-release only declares four of them: the preset named
+    # in .releaserc.yml is looked up by name at runtime, so npm is free to
+    # install a major that the resolved release-notes-generator cannot drive.
+    # That is what happened. release-notes-generator 14.x renders through
+    # conventional-changelog-writer ^8 (Handlebars template STRINGS), while
+    # conventional-changelog-conventionalcommits 10.x emits the writer-9
+    # shape instead — template FUNCTIONS, under a `template` key where
+    # writer 8 reads `mainTemplate`. The mismatch is silent, not fatal:
+    # Handlebars accepts a function as a partial, so the preset's
+    # headerPartial still rendered the `## version (date)` line, while every
+    # commit section rendered empty. Every release this project had cut —
+    # all 34, v1.0.0-rc.1 to v1.0.0-rc.34 — shipped a header and nothing
+    # else. Bump these together, and only after `semantic-release --dry-run`
+    # shows sectioned notes.
+    - npm install -g semantic-release@25.0.9 @semantic-release/commit-analyzer@13.0.1 @semantic-release/release-notes-generator@14.1.1 @semantic-release/gitlab@13.3.3 conventional-changelog-conventionalcommits@9.3.1
   script:
     - semantic-release
 
