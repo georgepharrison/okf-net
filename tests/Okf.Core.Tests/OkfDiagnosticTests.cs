@@ -39,22 +39,25 @@ public class OkfDiagnosticTests
     }
 
     /// <summary>
-    /// A <c>raw/</c> artifact keeps whatever name it was captured under, so OKF0310 can
-    /// report on <c>notes</c> and <c>notes.pdf</c> in one run: one path is a prefix of the
-    /// other, and only the length decides between them.
+    /// Once <c>\</c> is ranked as <c>/</c>, two paths spelled with different separators can
+    /// compare as one being a prefix of the other, and the shorter one sorts first. The
+    /// ordinal tiebreak that closes <see cref="OkfDiagnostic.CompareTo" /> cannot stand in
+    /// for that: it compares the unranked characters, where <c>\</c> (0x5C) outranks
+    /// <c>/</c> (0x2F) and so puts the pair the other way round.
     /// </summary>
     [Fact]
     public void APathThatIsAPrefixOfAnotherSortsFirst()
     {
         var diagnostics = new List<OkfDiagnostic>
         {
-            Diagnostic("/v/raw/notes.pdf", null, "OKF0310", "m"),
-            Diagnostic("/v/raw/notes", null, "OKF0310", "m"),
+            Diagnostic("/v/a/bc", null, "OKF0301", "m"),
+            Diagnostic(@"/v/a\b", null, "OKF0301", "m"),
+            Diagnostic("/v/a", null, "OKF0301", "m"),
         };
 
         diagnostics.Sort();
 
-        Assert.Equal(["/v/raw/notes", "/v/raw/notes.pdf"], diagnostics.Select(d => d.Path));
+        Assert.Equal(["/v/a", @"/v/a\b", "/v/a/bc"], diagnostics.Select(d => d.Path));
     }
 
     /// <summary><see cref="IComparable{T}" />: everything sorts after a null.</summary>
