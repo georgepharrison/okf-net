@@ -1,31 +1,33 @@
 # .releaserc.yml
 # Semantic release config for okf-net.
 #
-# Pre-1.0 phase: `main` is configured as a prerelease branch (tag e.g.
-# 1.0.0-rc.1) so every merge to main ships an installable prerelease
-# without committing to API/format stability yet.
+# Post-1.0.0 flip (work item #10, 2026-08-16). `main` is a plain release
+# branch: merging to it cuts a stable `vX.Y.Z` tag. `dev` carries the `rc`
+# prerelease channel, so day-to-day merges ship an installable
+# `vX.Y.Z-rc.N` without committing to the number that comes next. Promotion
+# is deliberate: `dev` is fast-forwarded into `main` when the release is
+# wanted, and that merge is what makes a version stable.
 #
-# Future flip (tracked in docs/decisions.md): once the toolset reaches a
-# stable 1.0, swap `main` to a plain (non-prerelease) release branch and add
-# a `dev` branch with `prerelease: true`/`beta` for the pre-release channel.
-#
-# IMPORTANT — release-branch requirement: semantic-release requires at
-# least one RELEASE-type branch (plain name: no range, no prerelease) to
-# exist on the remote, or it fails with ERELEASEBRANCHES. Two traps,
+# HISTORY — the release-branch requirement, and the two traps that shaped
+# this file. semantic-release requires at least one RELEASE-type branch
+# (plain name: no range, no prerelease) to exist on the remote, or it fails
+# with ERELEASEBRANCHES. Before the flip, `main` was itself a prerelease
+# branch, so a placeholder release branch (`stable`) had to exist to satisfy
+# the minimum. Two ways to think you have a release branch when you do not,
 # both verified empirically on this repo (2026-08-14):
 #   1. An unmatched maintenance glob expands to nothing and does not
 #      count (semantic-release/semantic-release#2503 — intended behavior).
 #   2. A branch named like `1.x` DOES match the glob but is classified as
 #      a MAINTENANCE-type branch, which also does not count toward the
 #      release-branch minimum. Only a plain-named branch does.
-# Hence `stable` below: a placeholder release-type branch (pushed,
-# pointing at main, never built — the release CI job runs on main only).
-# On the future flip: make `main` the release branch, add `dev` as the
-# prerelease channel, delete `stable`.
+# `main` is now that plain-named branch, so the requirement is satisfied by
+# the branch we actually release from and the `stable` placeholder is gone.
+# The maintenance glob stays unmatched on purpose: it costs nothing and is
+# what a future `1.x` backport line would land on.
 branches:
   - "+([0-9])?(.{+([0-9]),x}).x"
-  - stable
-  - name: main
+  - main
+  - name: dev
     prerelease: rc
 
 plugins:

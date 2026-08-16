@@ -1,9 +1,9 @@
 ---
 type: Playbook
 title: Release and Versioning
-description: Conventional commits drive semantic-release, main ships release candidates until 1.0, and every tag publishes a self-describing three-platform release the installers can verify.
+description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, and every tag publishes a self-describing three-platform release the installers can verify.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: claude-fable/5, at: 2026-08-15T23:59:00Z }
+generated: { by: claude-fable/5, at: 2026-08-16T00:00:00Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -22,17 +22,23 @@ Every non-merge commit follows **Conventional Commits v1.0.0**, enforced by a
 rather than only at the tip.[^agents-md] The commit history is therefore not
 just a log: it is the input that decides the next version number.
 
-`semantic-release` runs on the default branch and derives the bump from the
-commit types — `feat` minor, `fix`/`docs`/`refactor`/`perf`/`ci` patch — then
-cuts the tag and writes the GitLab release notes.[^releaserc]
+`semantic-release` runs on the two release branches and derives the bump from
+the commit types — `feat` minor, `fix`/`docs`/`refactor`/`perf`/`ci` patch —
+then cuts the tag and writes the GitLab release notes.[^releaserc]
 
-# Pre-1.0: main is a prerelease branch
+# Two branches: dev proposes, main releases
 
-`main` is configured as a **prerelease branch with the `rc` channel**, so
-every merge ships an installable release candidate without committing to API
-or format stability yet. When the toolset reaches a stable 1.0, the flip is:
-make `main` a plain release branch, add a `dev` branch carrying the
-prerelease channel, and delete the placeholder described below.
+Merge requests target **`dev`**, which is configured as a prerelease branch on
+the `rc` channel: every merge there cuts a `vX.Y.Z-rc.N` tag and an installable
+release candidate. **`main`** is a plain release branch — merging to it cuts a
+stable `vX.Y.Z` — and it only ever advances by an explicit promotion of `dev`,
+a fast-forward or merge performed when the release is wanted.[^releaserc]
+
+That split makes a stable version a *decision* rather than a side effect.
+Nothing is scheduled and nothing promotes itself; the branch graph is where the
+decision to ship is recorded. The CI rule names both branches literally rather
+than deriving one from `$CI_DEFAULT_BRANCH`, because the default branch is one
+of the two and naming only it would quietly mean "main only".
 
 # The release-branch trap
 
@@ -47,18 +53,47 @@ verified empirically on this repository:
    classified as a **maintenance**-type branch, which also does not count
    toward the minimum. Only a plain-named branch does.
 
-Hence `stable`: a placeholder release-type branch, pushed, pointing at main,
-and never built — the release job runs on `main` only. It exists to satisfy
-the minimum, and it is the first thing to delete at the 1.0 flip.
+Before the 1.0.0 flip this repository had no release-type branch at all — `main`
+was itself a prerelease branch — so it carried a placeholder called `stable`,
+pushed and never built, purely to satisfy the minimum. `main` is now that
+plain-named branch, so the placeholder is gone. The traps are kept written down
+because the pressure to "tidy up" the unmatched maintenance glob recurs, and
+the glob is not what satisfies the requirement.
+
+# What the flip computed
+
+Flipping `main` to a plain release branch does **not** continue from
+`v1.0.0-rc.35`: prerelease tags establish no previous release on the release
+channel, so semantic-release reports no previous release, takes the whole
+history, and computes **1.0.0** — with release notes covering every commit the
+project has. Afterwards, `dev` resumes from the stable version it now sees: one
+`fix:` on `dev` past `v1.0.0` computes `1.0.1-rc.1`. Both numbers were measured
+before the flip by running `semantic-release --dry-run` against a writable
+mirror of the remote, with the second future manufactured in the mirror — a
+fake `v1.0.0` tag and a `dev` branch off it — because that state does not exist
+until the flip has already happened.
+
+The symmetry cuts both ways, and that is the trap the second measurement
+exposed. A prerelease branch reads its last release from tags on its own
+history and its own channel, so the pre-flip `rc` tags — cut while a different
+branch carried the channel — do not count for `dev` either. A `dev` that does
+not yet contain the stable tag reports no previous release and computes
+`1.0.0-rc.1`, which already exists on the remote, and the release job fails
+pushing it. Moving the prerelease channel to a branch therefore means
+fast-forwarding that branch onto the stable tag *before* anything merges into
+it; it is a prerequisite, not tidying up.
 
 # Two pipelines per release
 
 A release is cut by two pipelines, not one, and they do different jobs.
 
 The **branch** pipeline runs `semantic-release`, which decides the bump, pushes
-the `vX.Y.Z-rc.N` tag and writes the GitLab release notes. Pushing that tag
-starts the **tag** pipeline, whose `publish` job builds the artifact and
-attaches it to the release the first pipeline just made.
+the tag — `vX.Y.Z-rc.N` from `dev`, `vX.Y.Z` from `main` — and writes the GitLab
+release notes. Pushing that tag starts the **tag** pipeline, whose `publish` job
+builds the artifacts and attaches them to the release the first pipeline just
+made. The `publish` job is identical either way: it reads the version out of the
+tag, so a release candidate and a stable release are published by the same
+code path.
 
 That second pipeline used to do nothing at all. Tag pipelines were permitted,
 but no job matched a tag, so every tag produced a pipeline that failed with
