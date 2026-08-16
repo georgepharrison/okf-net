@@ -1,7 +1,8 @@
 # okf-net — Product Requirements
 
-> **Status:** MVP requirements, reconciled against the code on 2026-08-15 (work item #37).
-> Everything in §2 is **BUILT** except CLI-2, the registry; the three post-MVP items in §5
+> **Status:** MVP requirements, reconciled against the code on 2026-08-15 (work item #37);
+> CLI-2 and CLI-3's registry scope landed in work item #43 (2026-08-16).
+> Everything in §2 is **BUILT**; the three post-MVP items in §5
 > marked **BUILT** shipped too. A `BUILT` marker names the work item that delivered the
 > requirement and is a pointer, not a rewrite — where a resolution has since been
 > superseded, the original text stays and the correction sits beside it.
@@ -91,8 +92,8 @@ work references them.
 Build order is fixed by decisions §"MVP build order": Core parse/validate → `okf index` →
 `okf search` → `okf mcp` → skills.
 
-**Status of this section as of 1.0.0: every requirement below is BUILT except CLI-2**, the
-registry, which is specified and not implemented. The per-section notes give the work item
+**Status of this section: every requirement below is BUILT.** CLI-2, the registry, was the
+last one and landed in work item #43. The per-section notes give the work item
 that delivered each group; `docs/architecture.md`'s Capability → Architecture Map names the
 types each one lives in.
 
@@ -205,13 +206,16 @@ item #9) on 2026-08-15, and the two changes that review ordered landed in work i
   - IDs are validated and confined to the bundle root; `..` traversal and absolute paths
     are rejected.
 - **CORE-13 — Vault and bundle discovery.** Given a starting directory, discover the
-  project vault, the bundle roots inside it, and registered vaults.
+  project vault, the bundle roots inside it, and registered vaults. **BUILT** —
+  registered vaults joined the other two in work item #43 (`OkfRegistry`, `OkfScope`).
   - Walk up from the start directory for a directory named `okf/`; the nearest one wins.
   - `OKF_HOME` overrides the personal-vault location; the default personal vault is
     `~/okf/` (visible, not hidden).
   - A bundle root is a directory under `<vault>/bundles/`; a directory pointed at
     directly (a foreign bundle) is also a valid bundle root.
-  - Discovery is pure: it reads the filesystem and configuration and performs no writes.
+  - Discovery is pure: it reads the filesystem and configuration and performs no writes —
+    reading the registry included; only `okf register`, `okf unregister` and
+    `okf registry prune` write it.
 - **CORE-14 — Stamping.** Provide the two stamp operations, writing only the fields
   decisions §7 permits.
   - Generation stamping writes `generated.{by,at}` and nothing else.
@@ -229,11 +233,11 @@ item #9) on 2026-08-15, and the two changes that review ordered landed in work i
 The CLI is a thin wrapper over `Okf.Core` (decisions §4). It must be usable from a git
 hook: single process, no daemon, no network, meaningful exit code.
 
-**BUILT, except CLI-2.** The shipped verbs are `okf init` (work item #4), `okf lint`,
+**BUILT.** The shipped verbs are `okf init` (work item #4), `okf lint`,
 `okf index`, `okf search` (work item #1), `okf inbox` and `okf verify` (work item #7),
-`okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2), plus
-`okf help` and `okf version`. `okf register` / `okf unregister` (CLI-2, and CLI-3's opt-in)
-are **not built** — see §3.
+`okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2),
+`okf register` / `okf unregister` / `okf registry` (work item #43), plus
+`okf help` and `okf version`.
 
 - **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
   - Default target is the project vault found by walking up for `okf/`.
@@ -243,24 +247,34 @@ are **not built** — see §3.
     including a foreign one.
   - Resolution is reported in `--verbose` output so "which bundle did it read" is never a
     guess.
-- **CLI-2 — Registry. DEFERRED — specified, not built (as of 1.0.0).** No `okf register` or
-  `okf unregister` verb exists and nothing reads a registry file, so search is
-  project-scoped full stop and no `--scope`/`--all` flag ships (see §3 and
-  `docs/architecture.md`, Capability → Architecture Map). The requirement below stands as
-  the contract those verbs must satisfy when they land. `~/.config/okf/` holds the registry
-  of known bundles.
+- **CLI-2 — Registry. BUILT (work item #43, `docs/architecture.md` AD-51).**
+  `$XDG_CONFIG_HOME/okf/registry.json` (else `~/.config/okf/registry.json`) holds the
+  registry of known vaults and bundles — strict JSON, written deterministically and
+  atomically, and read by nothing that writes.
   - `okf register [path]` adds an entry; it is idempotent (re-registering the same path is
-    a no-op success).
-  - `okf unregister [path]` removes an entry; removing an unknown entry is a no-op
+    a no-op success). With no path it targets the vault CLI-1 resolves.
+  - `okf unregister [path|id]` removes an entry; removing an unknown entry is a no-op
     success.
+  - An entry carries `id`, absolute `path`, `kind` (`vault`|`bundle`) and `registeredAt`.
+    The id is a slug of the directory name chosen once at register time and never
+    recomputed, so an entry survives its directory being moved.
+  - `okf registry list [--json]` reports every entry and whether its path still exists;
+    `okf registry prune` removes the entries whose paths are gone. No lint rule writes.
   - The personal vault is an ordinary registry entry with no special-casing
-    (decisions §6).
-  - Auto-registration is **off** by default; a global setting opts into it.
-- **CLI-3 — Search scope.** Search defaults to project-only.
+    (decisions §6). `--scope personal` still resolves it from `OKF_HOME`/`~/okf` without
+    a registry entry, because discovery has always known where it is.
+  - Auto-registration is **off** by default and is not implemented; `autoRegister` is
+    accepted, validated and recorded in the **global** config only.
+- **CLI-3 — Search scope. BUILT (work item #43).** Search defaults to project-only.
   - With a project vault resolved, only that vault's bundles are searched — identical
     results on every machine and in CI.
   - Registry entries (including the personal vault) are included only when configuration
     or an explicit flag opts them in.
+  - The four scopes are `project` (default), `personal`, `registered` and `all`, spelled
+    the same as the `--scope` flag and as the `search.scope` setting. `okf mcp` takes the
+    same flag, at launch only (MCP-5, AD-30).
+  - A registered path that no longer exists is reported once on stderr and skipped; it is
+    never an error.
 - **CLI-4 — Configuration precedence.** CLI args > `OKF_HOME` environment variable >
   project config > global config at `~/.config/okf/okf.json` (decisions §6, Q4 resolved).
   **As shipped the chain is built-in defaults → global file (`XDG_CONFIG_HOME`, else
@@ -493,21 +507,17 @@ Every row below is what `okf` dispatches today, except the two marked **deferred
 | --- | --- | --- | --- |
 | `okf lint [path]` | Validate §11 conformance plus the configured warning set | `--json`, `--format`, `--severity <OKF####>=<level>`, `--treat-all-warnings-as-errors`, `--config`, `--list-rules` | 0 clean · 1 errors present · 2 usage/environment |
 | `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift), `--json`, `--format` | 0 written/no drift · 1 drift under `--check` · 2 usage |
-| `okf search <query> [path]` | Search resolved bundles | `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
+| `okf search <query> [path]` | Search resolved bundles | `--scope`, `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
 | `okf inbox [path]` | List unacknowledged concepts (regenerated-since-verified, `draft`, stale or source-drifted) | `--json`, `--format`, `--fail-if-any` | 0 (whatever it finds) · 1 non-empty inbox under `--fail-if-any` · 2 usage |
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
 | `okf init [name]` | Scaffold `okf/` project layout, first bundle, and project config | `--name`, `--personal` | 0 created · 1 refused (would overwrite) · 2 usage |
 | `okf bundle [path]` | Package the vault's bundles for consume-only distribution (post-MVP, §5) | `--out`, `--format`, `--bundle`, `--lint`, `--generated-at`, `--verify` | 0 packaged/verified · 1 `--verify` mismatch or `--lint` errors · 2 usage |
 | `okf site [path]` | Render the vault as a self-contained static site — landing page, trust dashboard, cross-link graph, one page per markdown file (post-MVP, §5) | `--out`, `--name`, `--single-file`, `--json`, `--format` | 0 generated · 2 usage, including an `--out` inside a bundle or at a bundle's parent |
-| `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | — | 0 clean shutdown · 2 startup failure |
+| `okf mcp [path]` | Run the stdio MCP server (`okf_list`, `okf_search`, `okf_read`) | `--scope` (at launch only) | 0 clean shutdown · 2 startup failure |
 | `okf version` · `okf help` | Report the informational version — the bare `<semver>` from a build stamped off a tag, `<semver>+<short-sha>` from an untagged one (#53); print the verb list | `--verbose` / `-v` on `version` adds a `commit: <sha>` second line; `--version`, `--help`, `-h` as aliases | 0 |
-| `okf register [path]` | **Deferred — not built.** Add a bundle/vault to the registry (idempotent) | — | — |
-| `okf unregister [path]` | **Deferred — not built.** Remove a registry entry (idempotent) | — | — |
-
-The two deferred rows wait on the registry itself (CLI-2), which does not exist: no
-registry file is read or written, and with nothing to opt in to there is no scope flag on
-`okf search` either. They are specified rather than dropped, so the contract is already
-written when they land — the same treatment `okf bundle` carried while it was post-MVP.
+| `okf register [path]` | Add a vault or bundle root to the registry (idempotent) | `--verbose` | 0 registered or already registered · 2 usage |
+| `okf unregister [path\|id]` | Remove a registry entry (idempotent) | `--verbose` | 0 removed or not registered · 2 usage |
+| `okf registry [list\|prune]` | Report the registry, or drop the entries whose path is gone | `--json`, `--format`, `--verbose` | 0 reported or pruned · 2 usage |
 
 Global flags apply to every command: `--verbose` (report vault resolution and effective
 configuration), `--json` / `--format json` where output is data, and the configuration

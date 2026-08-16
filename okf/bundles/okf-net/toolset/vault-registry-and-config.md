@@ -3,7 +3,7 @@ type: Concept
 title: Vaults, Registry, and Configuration
 description: How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
 tags: [okf-net, vault, registry, configuration, discovery]
-generated: { by: claude-fable/5, at: 2026-08-15T07:00:00Z }
+generated: { by: claude-fable/5, at: 2026-08-16T09:00:00Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -45,20 +45,35 @@ configuration and writes nothing.[^prd]
 
 # The registry
 
-`~/.config/okf/` lists known bundles, and **the personal vault is an ordinary
-entry in it** — no special-casing, no privileged path. Everything beyond the
-current project enters through the registry, which means there is exactly one
+`$XDG_CONFIG_HOME/okf/registry.json` — else `~/.config/okf/registry.json` —
+lists known vaults and bundles, and **the personal vault is an ordinary entry
+in it**: no special-casing, no privileged path. Everything beyond the current
+project enters through the registry, which means there is exactly one
 mechanism to reason about rather than one mechanism plus an exception.
 
-`okf register` and `okf unregister` are specified as explicit and idempotent:
-re-registering a known path and unregistering an unknown one are both no-op
-successes. **Auto-registration is off by default**, with a global setting to
-opt into it.
+`okf register [path]` and `okf unregister [path|id]` are explicit and
+idempotent: re-registering a known path and unregistering an unknown one are
+both no-op successes that exit 0 and say so. `okf registry list` reports every
+entry, marking any whose path has gone away, and `okf registry prune` removes
+those. **Auto-registration is off by default** and is not implemented; the
+`autoRegister` key is accepted, validated and recorded in the *global* config
+only, because a committed project file that could switch it on would let
+cloning a repository write to a contributor's machine-wide registry.
 
-Neither command is built yet, which makes the registry a designed layer
-rather than one you can populate today. Search is therefore project-scoped
-full stop — there is nothing to opt in to, and no `--scope`/`--all` flag
-ships — until they land.
+An entry is an absolute path plus a `kind` (`vault` or `bundle`), a canonical
+`registeredAt` stamp, and an **`id` that is a slug of the directory name,
+uniquified once at register time and never recomputed**. That last property is
+the one worth remembering: hashing the path would re-key an entry the first
+time a checkout moved, and a random identifier would make `okf unregister` and
+`okf registry list` unreadable. A directory named `okf` is slugged from its
+parent, so `~/okf` and `<project>/okf` do not all want the same name.
+
+Unlike `okf.json` the registry is **strict JSON**, not JSONC. `okf.json` is
+JSONC because a person writes it and their reasons are the half a reviewer
+needs; the registry has exactly one writer, and a comment in it would be erased
+by the next `okf register`. It is written sorted by id and atomically — a temp
+file, then a rename — so an interrupted write cannot leave half a registry
+where the readable one was. Reading it never writes it.
 
 # Scope is project-only by default
 
@@ -69,6 +84,33 @@ that silently widened to include whatever happened to be on one contributor's
 laptop would produce answers nobody else could reproduce — and the same
 reasoning is what makes [search
 semantics](search-semantics.md) refuse a clock and a network call.
+
+Four scopes exist, spelled the same as a `--scope` flag and as the
+`search.scope` setting:
+
+| Scope | Sees |
+| --- | --- |
+| `project` (default) | the vault the walk-up found, else the personal vault |
+| `personal` | the personal vault (`OKF_HOME`, else `~/okf`) |
+| `registered` | every registry entry whose path still exists |
+| `all` | the project scope plus the registry, de-duplicated |
+
+`--scope personal` works whether or not the personal vault has been
+registered. That is not the registry making an exception: discovery has always
+known where the personal vault is, so it resolves it directly rather than
+looking it up.
+
+`okf mcp` takes the same flag, **at launch only** — a tool call can never
+widen the scope its server was started with. Both surfaces resolve scope
+through one function in `Okf.Core`, and a test asserts that the same query
+returns byte-identical results from `okf search --json` and from the server's
+`okf_search` at every scope.
+
+A registered path that has gone missing is reported once on stderr and
+skipped; it never fails a query, because a registry is per-machine state that
+goes stale on its own. With more than one root in scope, human search output
+prints each result's absolute path and counts the vaults, because two vaults
+can hold the same bundle-relative path.
 
 # Configuration layers
 
@@ -106,5 +148,5 @@ vault — that is, it changes which bundles get linted — and never changes a
 rule's severity. Environment variables that quietly rewrite policy are how a
 build passes locally and fails in CI for reasons nobody can reconstruct.
 
-[^decisions]: okf-net — Architecture Decisions, §6, Q4, and the `okf lint` milestone.
+[^decisions]: okf-net — Architecture Decisions, §6, Q4, the `okf lint` milestone, and the vault registry and scope (work item #43).
 [^prd]: okf-net — Product Requirements, CLI-1 through CLI-4, CORE-13.

@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Fifty numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty-two numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -859,6 +859,34 @@ flowchart TB
   check, non-interactively, and treat its failure as a warning naming the command to re-run.
 - **Source:** [shipping the skills](decisions.md#proposed-decisions-shipping-the-skills-work-item-41-2026-08-15)
 
+### AD-51 — The registry is the only way scope widens, and widening it is always explicit
+
+- **Binds:** `OkfRegistry`, `OkfScope`, `okf register`, `okf unregister`, `okf registry`,
+  `okf search --scope`, `okf mcp --scope`, `search.scope`
+- **Prevents:** a query that returns different results on two machines because one of them
+  had something extra lying around — and a tool that put it there without being asked.
+- **Rule:** `registry.json` lives beside the global config
+  (`$XDG_CONFIG_HOME/okf/`, else `~/.config/okf/`) and is **strict JSON**, not the JSONC
+  `okf.json` is (AD-32), because its only writer is `okf register`. It is written
+  deterministically (entries sorted by id, one trailing newline) and atomically (temp file,
+  then rename); reading one never writes one. An entry is `id` + absolute `path` + `kind`
+  (`vault`|`bundle`) + canonical `registeredAt`, where the **id is a slug of the directory
+  name chosen once at register time and never recomputed**, so an entry survives its
+  directory moving; a path is classified exactly as `OkfDiscovery` classifies one.
+  `okf register` and `okf unregister` are idempotent and spend exit 0 on the no-op; nothing
+  auto-registers, and `autoRegister` is accepted in the **global layer only**, recorded and
+  validated, with no behaviour attached. Dead entries are *reported* by `okf registry list`
+  and removed only by the explicit `okf registry prune` — no lint rule writes. Scope is
+  `project` (the default, byte-for-byte AD-31's CLI-1 resolution) | `personal` (resolvable
+  from `OKF_HOME`/`~/okf` without the registry) | `registered` | `all`, set by `search.scope`
+  through AD-31's chain and by `--scope` above it, and resolved for the CLI and for
+  `okf mcp` by one Core entry point (`OkfScope.Resolve`). A registered path that has gone
+  missing is a note on stderr, never an error; bundles are de-duplicated by the path the
+  filesystem ends at, because AD-26's collection statistics span the whole resolved corpus.
+  MCP scope is fixed at launch and no tool argument grew (AD-30): a bundle is named by a
+  `label` that is unique in scope.
+- **Source:** [the vault registry and scope](decisions.md#proposed-decisions-the-vault-registry-and-scope-work-item-43-2026-08-16)
+
 ### AD-52 — Bookkeeping is written by a verb, spliced rather than re-serialized, and never repaired
 
 - **Binds:** `okf capture add`, `okf capture close`, `okf generated stamp`,
@@ -1029,8 +1057,8 @@ flowchart TB
 | --- | --- | --- | --- |
 | `okf lint` | `OkfLinter`, `OkfRules`, `OkfSeverityResolver`, `LintText`, `MarkdownScanner`; `LintCommand` renders | AD-3, AD-4, AD-5, AD-11, AD-12, AD-31, AD-49 | CORE-3, CORE-4, CORE-8, CLI-5, CLI-6, CLI-7, CLI-15, ACC-1 |
 | `okf index` | `OkfIndexGenerator`, `OkfIndex`; `IndexCommand` renders | AD-5, AD-13, AD-14, AD-15, AD-49 | CORE-9, CORE-10, CLI-9, CLI-10, ACC-3, ACC-7 |
-| `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49 | CORE-11, CLI-3, CLI-11 |
-| `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator` | AD-6, AD-28, AD-29, AD-30, AD-49 | MCP-1 … MCP-5, CORE-12 |
+| `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`, `OkfScope`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49, AD-51 | CORE-11, CLI-3, CLI-11 |
+| `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator`, `OkfScope` | AD-6, AD-28, AD-29, AD-30, AD-49, AD-51 | MCP-1 … MCP-5, CORE-12 |
 | `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
 | `okf capture` / `okf generated` | `OkfCaptureWriter`, `OkfCaptureManifest`, `OkfStamp`; `CaptureCommand` + `GeneratedCommand` render | AD-16, AD-18, AD-19, AD-21, AD-23, AD-24, AD-30, AD-52 | SKILL-3, ACC-5 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
@@ -1041,9 +1069,7 @@ flowchart TB
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32, AD-52 | SKILL-7, ACC-5, ACC-6 |
 | Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
-
-`okf register` / `okf unregister` (PRD CLI-2, CLI-3's opt-in) are specified and **not
-built**; search is project-scoped, full stop, until they land.
+| Registry and scope | `OkfRegistry`, `OkfScope`; `RegistryCommand`, `RegistryArguments`, `ScopeSettings` render and layer | AD-7, AD-26, AD-30, AD-31, AD-51 | CLI-2, CLI-3, MCP-3 |
 
 ## Deferred
 

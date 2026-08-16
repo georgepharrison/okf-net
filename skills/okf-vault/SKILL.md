@@ -69,8 +69,16 @@ Failing that, the personal vault at `OKF_HOME`, else `~/okf`.
 okf search "<the topic>" --verbose
 ```
 
-`--verbose` names the vault and the bundles it resolved, on stderr, so one run
-answers *is there a vault here* and starts the retrieval.
+`--verbose` names the scope, the vault and the bundles it resolved, on stderr,
+so one run answers *is there a vault here* and starts the retrieval.
+
+Scope is the project's vault and nothing else by default, which is what makes a
+query answer the same on every machine. When the project's vault does not hold
+the answer and the human keeps knowledge elsewhere, widen it deliberately:
+`--scope personal` for their own vault, `--scope registered` for the vaults
+they registered, `--scope all` for both plus this project. Say which scope
+produced an answer, because a result from outside the repository is not
+something a teammate's `okf search` will reproduce.
 
 For a question about the vault's shape rather than its content — *what does
 this project document?* — read the bundle's `index.md` and then the `about.md`

@@ -3043,3 +3043,139 @@ typed proves nothing about the artifact it claims to describe.
   the acceptance test: `CaptureCommandTests` runs the repository's real
   `check-manifest.py` against a temp vault the CLI wrote, which is an oracle this
   repository did not author for the occasion.
+
+### Proposed decisions: the vault registry and scope (work item #43, 2026-08-16)
+
+The layered personal-plus-project system decisions.md §6 describes, built. Until now the
+registry was a designed layer with no file, no verbs and nothing to opt into; `okf search`
+was project-scoped full stop. The outside review's P0: "without this, personal and project
+knowledge exist but do not yet form the layered system."
+
+- **`registry.json` lives beside the global config and is strict JSON, not JSONC.**
+  `$XDG_CONFIG_HOME/okf/registry.json`, else `~/.config/okf/registry.json` — the same
+  `OkfEnvironment.ConfigDirectory` the global `okf.json` already resolves, so there is one
+  answer to "where does okf keep per-machine state" rather than two. It is *not* parsed
+  with comments and trailing commas, which is the one place this repo deliberately departs
+  from AD-32: `okf.json` is JSONC because a person writes it and their reasons are the half
+  a reviewer needs, while `registry.json` has exactly one writer (`okf register`) and a
+  comment in it would be erased by the next write. Machine-maintained files in this repo
+  already read that way — `latest.json`, `okf-bundle.json`, `raw/manifest.json`. Written
+  through `Utf8JsonWriter` (no reflection, AOT-clean), entries sorted by id, two-space
+  indent, one trailing `\n`, and atomically: a sibling temp file, then a rename, so an
+  interrupted write can never leave half a registry where the readable one was. Reading
+  one never writes one — discovery stays pure (CORE-13).
+
+- **An entry is a path plus an id, and the id is a slug chosen once — not a hash, not a
+  GUID.** The issue asks that a moved path not corrupt the registry, which is really a
+  question about what an entry's *identity* is. Three candidates:
+  - **sha256 of the normalized path.** Rejected: stable only while the path is. The first
+    `mv ~/code/foo ~/code/bar` re-keys the entry, which is exactly the case the id exists
+    to survive.
+  - **a random GUID.** Survives a move, and is unreadable. `okf unregister <id>` and
+    `okf registry list` are the "inspectable state" the issue asks for, and
+    `okf unregister 6f2a…` is not inspectable.
+  - **a slug of the directory name, uniquified at register time and never recomputed.**
+    Taken. Readable, stable across moves (an entry keeps the name it was registered under
+    even when the directory it points at has moved and no longer matches), and unique by
+    construction: a colliding slug gets `-2`, `-3`. A vault directory literally named
+    `okf` is slugged from its *parent* instead, because `~/okf` and every
+    `<project>/okf` would otherwise all want to be called `okf`. That is the whole of the
+    "name guessing" — there is no `name` field.
+  Fields are `id`, `path` (absolute; a relative one is refused on read, because a registry
+  must mean the same thing from every directory), `kind` (`vault` | `bundle`) and
+  `registeredAt` (canonical Z, `OkfCanonicalTimestamp`, like every other stamp okf writes).
+
+- **A registered path is classified the way discovery classifies one.** A directory holding
+  `bundles/` is a vault; a project root holding `okf/bundles/` is stored as the vault
+  *inside* it; anything else is a bare bundle root. So `okf register <project>` and
+  `okf lint <project>` name the same directory, and `okf unregister <project>` finds the
+  entry `okf register <project>` created. A test asserts that agreement against
+  `OkfDiscovery` rather than restating the rule.
+
+- **Nothing auto-registers, and `autoRegister` is recorded rather than implemented.** The
+  key is parsed and type-validated, is accepted in the **global layer only** — a committed
+  project `okf.json` that could switch it on would let cloning a repository write to a
+  contributor's machine-wide registry, so that is a hard error naming the file — and
+  `okf registry list --verbose` reports its value, its layer, and that nothing acts on it.
+  Implementing the behaviour was the alternative; it is a write triggered by a read, which
+  is the shape AD-7 and AD-31 spend the most effort keeping out of this toolset, and §6
+  already says off by default. When it lands it lands with its own tests.
+
+- **`okf registry prune` writes; no lint rule does.** The issue floated pruning dead entries
+  "via lint". Rejected: every rule in `okf lint` reports, and a rule that repaired
+  machine-wide state would be the first with a side effect (AD-7's spirit, AD-31's). The
+  split is a *report* — `okf registry list` marks an entry `(missing)` and its summary line
+  counts them, and `okf search --scope registered` says so once on stderr — and an explicit
+  writer, `okf registry prune`. No new diagnostic id: the registry is outside every vault,
+  and `okf lint`'s scope is a vault (the one exception, `OKF0310`, is vault-scoped for a
+  reason and stays that way).
+
+- **Both verbs are idempotent, and both spend exit code 0 on the no-op.** Registering a
+  known path reports `Already registered as '<id>'` and writes nothing; unregistering
+  something absent reports "Nothing to unregister". Exit 1 stays reserved for diagnostics
+  at error severity (AD-5), and a setup script that runs twice must not fail the second
+  time.
+
+- **The personal vault is an ordinary registry entry, and `--scope personal` still works
+  without one.** Those are not in tension, and the distinction is worth stating because it
+  is the one place the design looks like it has an exception. The *registry* has no special
+  case: register `~/okf` and you get an entry shaped like any other, ordered by id like any
+  other. *Discovery* has always known where the personal vault is — `OKF_HOME`, else
+  `~/okf` — so `--scope personal` resolves it directly rather than looking it up. Requiring
+  registration first would have made a fresh machine answer "the registry is empty" to a
+  question about a directory okf can see from the environment alone.
+
+- **Four scopes, and `project` stays the default: `project | personal | registered | all`.**
+  `project` is byte-for-byte today's CLI-1 resolution (walk up for `okf/`, then the personal
+  vault) — asserted by a test comparing the working set, the vault and the resolution
+  sentence against `OkfDiscovery.Resolve(null, …)`, so the determinism rule cannot be
+  eroded by a change to scope code. `registered` is every entry whose path exists. `all` is
+  the project plus the registry, and with no project vault it is the registry alone and says
+  so. Precedence is AD-31's, unchanged: built-in default → global `okf.json` → project
+  `okf.json` → `--scope`, with `--verbose` naming the effective value and the layer that set
+  it. The setting is `search.scope` and takes exactly the four names the flag does.
+
+- **A missing registered path is a note on stderr, never an error.** A registry is
+  per-machine state that goes stale on its own — a checkout moved, a drive unmounted — and
+  failing a query because of it would make `--scope all` unusable on the machine that most
+  needs it. It is reported once per run, and `okf registry list` and `okf registry prune`
+  are where it gets fixed. An *empty* resolution is still a failure (exit 2), with the
+  message naming `okf register`: no bundles at all is a question okf cannot answer.
+
+- **De-duplication is by the path the filesystem ends at, not the path that was typed.**
+  Symlinks are followed, including links on the way down — a registered vault is usually a
+  link to a directory whose own components are not links. The reason is AD-26: collection
+  statistics (N, document frequency, average length) are computed over the whole resolved
+  corpus, so counting one directory twice would change every score, not just the result
+  list.
+
+- **`okf mcp` takes `--scope` at launch, and no tool argument grew.** AD-30 says the scope
+  is fixed by the command line and cannot be widened per call; a `--scope` flag is that same
+  statement, made at the same moment. The one thing multi-root scope broke is that two
+  bundles in scope can share a directory name, and `okf_list`/`okf_read` name a bundle by a
+  string. Rather than add a `root` argument — which is a scope path in a tool, exactly what
+  AD-30 forbids — `okf_list`'s scope listing now emits a `label` per bundle: the bundle's
+  name while that is unique in scope, and its absolute root when it is not. The `bundle`
+  argument accepts a label, matched against the closed set already in scope, so it can never
+  widen anything; an ambiguous name is a tool-level failure naming the labels, which is a
+  miss the model can act on (the two-error-channel rule). The alternative considered and
+  rejected was resolving `okf_read`'s path against each root in turn and taking the first
+  hit: it makes the answer depend on registry order, which is the same defect the existing
+  ambiguity refusal was written to avoid.
+
+- **Human search output names the root when more than one is in play.** Two vaults can hold
+  `notes/widgets.md`, and a bare relative path would name both. With one root the display
+  is unchanged (relative to the working directory, as before); with several, every result
+  prints its absolute path and the summary line counts the vaults. The JSON contract is
+  untouched — every record already carried `bundle` and `absolutePath` (AD-28).
+
+- **CLI and MCP resolve scope through one Core entry point, and the parity claim is about
+  bytes.** `OkfScope.Resolve` is the only thing that turns a scope into an
+  `OkfWorkingSet`; `SearchCommand` and `McpToolset` both call it. The test runs the same
+  query at all four scopes through `okf search --json` and through the server's
+  `okf_search` and asserts the payloads are equal, which is how MCP-3 was already asserted
+  for the result contract.
+
+- **An explicit path and a non-default `--scope` are refused together.** A path names the
+  bundles; a scope names how to find them. Honouring either would mean silently ignoring
+  the other, and a flag that does nothing is worse than a refusal (exit 2, nothing written).
