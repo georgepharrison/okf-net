@@ -87,6 +87,9 @@ internal static class CliApplication
             case "bundle":
                 return BundleCommand.Run(args[1..], environment, output, error);
 
+            case "skills":
+                return SkillsCommand.Run(args[1..], environment, output, error);
+
             case "site":
                 return SiteCommand.Run(args[1..], environment, output, error);
 
@@ -151,6 +154,8 @@ internal static class CliApplication
               okf verify <concept>...     Stamp human verification on one or more concepts
               okf bundle [path] --out <f> Package the bundles for consume-only distribution
               okf site [path] --out <dir> Render the bundles as a static site (dashboard, graph, pages)
+              okf skills <list|path|install>
+                                          The agent skills this binary carries, and where they install
               okf mcp [path]              Run the read-only MCP server over stdio
               okf help                    Show this help
               okf version                 Show the version
