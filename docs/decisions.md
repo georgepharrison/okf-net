@@ -2581,6 +2581,16 @@ What is deliberately **not** on it: `.gitignore`, `.gitattributes`, `.editorconf
 argument the bundler already makes for a file whose name does not say it is junk. They are
 content, and they ship.
 
+**Case-insensitively**, and that is a decision rather than a convenience. macOS and
+Windows filesystems fold case, so `.Git` and `.git` are one directory there and two on
+Linux; an ordinal match would make a bundle's conformance depend on which machine ran the
+linter, which is the one thing a conformance tool may not do. It costs the ability to
+carry a directory genuinely named `.GIT` on Linux, which nobody wants. This is the one
+place in `Okf.Core` where a name is matched case-insensitively — `IsReservedFile` and
+`IsConventionalFile` stay ordinal, because §3.1 spells its reserved names in one case and
+the spec, not a filesystem, is what they answer to. A test pins the comparer, so the
+asymmetry cannot be tidied away by a later consistency pass.
+
 The list's contents are asserted literally by a test, so an addition cannot arrive
 silently: growing it is a decision, and a decision nobody reviewed is how a small list
 becomes a shape rule again.
@@ -2625,3 +2635,21 @@ The cost lands on someone else's bundle: a producer who kept scratch markdown un
 include it. That is the correct report — those files are in the tree §11 talks about — and
 the two ways out are both cheap: give the file frontmatter, or move it outside the bundle
 root, which is where producer-side material already belongs (AD-17).
+
+#### What this supersedes in this log
+
+Two passages above described the old walk and are now wrong; they stay as written, because
+the record of what was once true is what makes a reversal reviewable.
+
+- [What ships, and what never does](#what-ships-and-what-never-does) says
+  `ContentFiles()` keeps "no dotfiles, no dot-directories". It keeps the symlink rule and
+  nothing else; the dot rule is now the nine names.
+- The same section says `.DS_Store` and `.obsidian/` "need no entry — the dotfile rule
+  already has them". They now have entries, in `OkfBundle.IgnoredMetadataNames` rather
+  than in the bundler's list, which is where `Thumbs.db` and `desktop.ini` went too.
+
+[The vectorization spike](spikes/2026-08-15-vectorization.md) leans on the same retired
+rule when it argues that `<vault-root>/.okf/` costs the bundler nothing. The conclusion
+survives for the other reason it gives — the walk starts at `bundles/<name>/`, so a
+vault-root directory is never reached whatever it is called — but an index kept *inside*
+a bundle root would now be walked, and #24 has to place it accordingly.

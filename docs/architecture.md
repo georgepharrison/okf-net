@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Forty-eight numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Forty-nine numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
