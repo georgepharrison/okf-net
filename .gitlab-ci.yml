@@ -362,12 +362,15 @@ publish:
     OKF_INSTALLER_PS_FILE: install.ps1
   script:
     - |
-      # The tag is `vX.Y.Z-rc.N`; the package version is the same string without
-      # the `v`, so that it is character-for-character what the binary inside it
-      # answers to `okf version` (modulo the `+sha` metadata). The registry would
-      # take the `v` too — this instance was probed with a deliberately
-      # non-semver version and accepted it (2026-08-14), so the strip is a
-      # consistency choice, not a validation workaround.
+      # The tag is `vX.Y.Z` from `main` or `vX.Y.Z-rc.N` from `dev`, and this job
+      # does not care which: the package version is that string without the `v`,
+      # so that it is character-for-character what the binary inside it answers
+      # to `okf version` (modulo the `+sha` metadata). Nothing below branches on
+      # the `-rc.N`, which is what makes a candidate and a release the same build
+      # verified the same way. The registry would take the `v` too — this
+      # instance was probed with a deliberately non-semver version and accepted
+      # it (2026-08-14), so the strip is a consistency choice, not a validation
+      # workaround.
       OKF_VERSION="${CI_COMMIT_TAG#v}"
       OKF_PACKAGE_BASE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${OKF_PACKAGE_NAME}/${OKF_VERSION}"
       OKF_LINUX_URL="${OKF_PACKAGE_BASE}/${OKF_LINUX_FILE}"
