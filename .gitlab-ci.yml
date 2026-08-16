@@ -230,8 +230,8 @@ licenses:
 
 # Mutation testing (Stryker.NET), the mechanical form of AGENTS.md's "tests must be
 # shown to constrain the code": every surviving mutant is a change to the source that
-# no test noticed. Deliberately NOT a per-push gate — a full solution run is ~3400
-# mutants and ~8 minutes of saturated CPU locally, which is not a price worth paying on
+# no test noticed. Deliberately NOT a per-push gate — a full solution run is ~11000
+# mutants and ~22 minutes of saturated CPU locally, which is not a price worth paying on
 # every commit for a signal that moves slowly.
 #
 # Two ways in, and no third:
@@ -244,8 +244,8 @@ licenses:
 mutation:
   extends: .dotnet
   stage: validate
-  # ~8 minutes locally on 8 cores; a shared runner is slower and the default job
-  # timeout (1h) is uncomfortably close.
+  # ~22 minutes locally on 8 cores (2026-08-16 baseline); a shared runner is slower and
+  # the default job timeout (1h) is uncomfortably close.
   timeout: 2h
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
