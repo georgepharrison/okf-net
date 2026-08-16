@@ -65,12 +65,16 @@ public class CaptureCommandTests
         Assert.Contains("\"sourceLastModified\": \"2026-08-01\"", manifest, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [SkippableFact]
     public void TheWrittenManifestSatisfiesTheCustodianCheck()
     {
         // The script specified these invariants first and remains the belt-and-braces gate
         // beside `okf lint`, so it — not this repository's reading of it — is the oracle
         // for whether a CLI-written entry is well formed.
+        Skip.IfNot(
+            Tooling.IsOnPath("python3"),
+            "python3 not installed — check-manifest.py oracle skipped (the dogfood CI job runs it)");
+
         using var vault = new CaptureVault();
         vault.Drop("2026-08-16-a-page.html", "<html>a page</html>\n");
         vault.Drop("2026-08-16-okapi-paper/original.pdf", "%PDF pretend\n");
