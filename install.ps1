@@ -12,7 +12,8 @@
     Downloads okf-win-x64.exe, verifies it, and installs it as okf.exe into
     $env:LOCALAPPDATA\okf\bin - a user-writable directory, so nothing here needs
     Administrator. It then runs "okf skills install" to place the agent skills the binary
-    carries. Re-running is safe: it reinstalls over itself rather than accumulating.
+    carries, and adds one line to your PowerShell profile so tab completion is loaded in
+    new sessions. Re-running is safe: it reinstalls over itself rather than accumulating.
 
 .PARAMETER Version
     Install this release instead of the newest, e.g. 1.0.0-rc.15 (a leading "v" is fine).
@@ -37,6 +38,7 @@
 
     OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
     OKF_SKIP_SKILLS   set to 1 to install okf.exe only, no agent skills
+    OKF_SKIP_COMPLETIONS  set to 1 to leave the PowerShell profile alone
 
     This file is deliberately pure ASCII. Windows PowerShell 5.1 decodes a BOM-less file
     using the system ANSI code page, so a single typographic dash in a comment renders as
@@ -364,6 +366,57 @@ if ($env:OKF_SKIP_SKILLS -eq '1') {
 install.ps1: could not install the agent skills. okf.exe itself is installed;
     run this when you want them:
         $destination skills install
+"@
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Shell completion (#51)
+#
+# PowerShell has no completions directory to drop a file into: a native argument completer
+# is registered by RUNNING code, so what a profile needs is one line asking okf for its own
+# completer at session start. install.sh writes a file for bash, zsh or fish; this is the
+# same step in the shape this shell takes.
+#
+# Appended once. The test is for the line itself, so re-running the installer does not stack
+# copies of it, and a profile that already loads it is left exactly as it is - this script
+# never rewrites a file a person owns, it only ever adds to the end of one.
+#
+# OKF_SKIP_COMPLETIONS=1 opts out, and a failure is a warning naming the line to add by
+# hand: the binary is installed and verified by this point.
+# ---------------------------------------------------------------------------
+
+$completionLine = 'okf completion pwsh | Out-String | Invoke-Expression'
+
+if ($env:OKF_SKIP_COMPLETIONS -eq '1') {
+    Write-Note '==> completions: skipped (OKF_SKIP_COMPLETIONS=1)'
+} else {
+    Write-Note '==> installing the PowerShell completion'
+    try {
+        $profilePath = $PROFILE
+        $existing = ''
+        if (Test-Path -LiteralPath $profilePath) {
+            $existing = [string] (Get-Content -LiteralPath $profilePath -Raw)
+        } else {
+            # -Force creates the directory chain as well; a machine that has never had a
+            # profile has no WindowsPowerShell folder either.
+            New-Item -ItemType File -Path $profilePath -Force | Out-Null
+        }
+
+        if ($existing.Contains($completionLine)) {
+            Write-Note "    $profilePath already loads it"
+        } else {
+            Add-Content -LiteralPath $profilePath -Value ''
+            Add-Content -LiteralPath $profilePath -Value '# okf shell completion'
+            Add-Content -LiteralPath $profilePath -Value $completionLine
+            Write-Note "    added to $profilePath"
+            Write-Note '    Already-open sessions will not see it; new ones will.'
+        }
+    } catch {
+        Write-Warning @"
+install.ps1: could not update your PowerShell profile ($($_.Exception.Message))
+    okf.exe is installed; add this line to your profile when you want completion:
+        $completionLine
 "@
     }
 }

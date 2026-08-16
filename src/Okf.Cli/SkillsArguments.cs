@@ -49,8 +49,19 @@ internal sealed class SkillsArguments
     /// </summary>
     public bool NoAgentsMd { get; private set; }
 
+    /// <summary>
+    /// Whether <c>list</c> prints bare names, one per line — the form a completion script
+    /// reads (issue #51). It answers from the binary, so it needs no vault and touches no
+    /// file.
+    /// </summary>
+    public bool Names { get; private set; }
+
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
+
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+        ["--help", "-h", "--force", "--names", "--host", "--dir", "--scope", "--no-agents-md"];
 
     /// <summary>Parses <c>okf skills</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>skills</c>.</param>
@@ -92,6 +103,9 @@ internal sealed class SkillsArguments
 
                 case "--no-agents-md":
                     parsed.NoAgentsMd = true;
+                    break;
+                case "--names":
+                    parsed.Names = true;
                     break;
 
                 case "--host":
@@ -143,6 +157,15 @@ internal sealed class SkillsArguments
         if (parsed.ShowHelp)
         {
             return parsed;
+        }
+
+        // `--names` names a rendering of the list and nothing else. Accepting it on
+        // `install` would mean accepting a flag that changes nothing, which is how a flag
+        // ends up meaning two things later.
+        if (parsed.Names && parsed.Action != SkillsAction.List)
+        {
+            throw new OkfConfigException(
+                $"`--names` belongs to `okf skills list`; `okf skills {Verb(parsed.Action)}` does not take it.");
         }
 
         if (parsed.Action == SkillsAction.Path && parsed.SkillName is null)

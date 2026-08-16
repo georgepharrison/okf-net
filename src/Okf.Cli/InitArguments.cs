@@ -33,6 +33,14 @@ internal sealed class InitArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>
+    /// Every option <see cref="Parse" /> accepts. <see cref="CompletionTable" /> is checked
+    /// against this array, and this array against the parser's own <c>case</c> labels
+    /// (issue #51), so an option cannot ship without a completion entry.
+    /// </summary>
+    public static readonly string[] Flags =
+        ["--help", "-h", "--personal", "--verbose", "-v", "--name", "--no-agents-md"];
+
     /// <summary>Parses <c>okf init</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>init</c>.</param>
     /// <returns>The parsed arguments.</returns>

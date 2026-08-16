@@ -43,6 +43,10 @@ internal sealed class SearchArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+        ["--help", "-h", "--verbose", "-v", "--json", "--format", "--limit", "--scope", "--type", "--tag"];
+
     /// <summary>Parses <c>okf search</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>search</c>.</param>
     /// <returns>The parsed arguments.</returns>

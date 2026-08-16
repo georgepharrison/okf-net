@@ -46,7 +46,7 @@ internal static class SkillsCommand
             {
                 SkillsAction.Path => WritePath(parsed, environment, output, error),
                 SkillsAction.Install => Install(parsed, environment, output, error),
-                _ => WriteList(output),
+                _ => WriteList(parsed, output),
             };
         }
         catch (IOException exception)
@@ -61,8 +61,18 @@ internal static class SkillsCommand
         }
     }
 
-    private static int WriteList(TextWriter output)
+    private static int WriteList(SkillsArguments arguments, TextWriter output)
     {
+        if (arguments.Names)
+        {
+            foreach (var name in OkfSkills.Names)
+            {
+                output.WriteLine(name);
+            }
+
+            return CliApplication.ExitSuccess;
+        }
+
         var width = OkfSkills.Names.Max(name => name.Length);
         foreach (var skill in OkfSkills.All)
         {
@@ -177,9 +187,14 @@ internal static class SkillsCommand
             Subcommands:
               list                          The skills this binary carries, with the
                                             one-line description a host preloads
+                                            (--names for bare names, one per line)
               path <name>                   Where that skill is installed on this machine
                                             (exit 1 when it is not)
               install                       Write the skills onto this machine
+
+            Options (list):
+              --names                       Bare names, one per line, for a script to read
+                                            (this is what the shell completions call)
 
             Options (install):
               --host <claude|pi|generic|all>

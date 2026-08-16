@@ -9,6 +9,13 @@ namespace Okf.Cli;
 /// </summary>
 internal static class McpCommand
 {
+    /// <summary>
+    /// Every option this command's argument loop accepts — <c>okf mcp</c>'s command line is
+    /// small enough that it never grew an `Arguments` class (see
+    /// <see cref="InitArguments.Flags" />).
+    /// </summary>
+    public static readonly string[] Flags = ["--help", "-h", "--verbose", "-v", "--scope"];
+
     /// <summary>Runs the command.</summary>
     /// <param name="args">The arguments after <c>mcp</c>.</param>
     /// <param name="environment">The environment to resolve vaults against.</param>

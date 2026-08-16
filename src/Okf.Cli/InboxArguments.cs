@@ -27,6 +27,10 @@ internal sealed class InboxArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+        ["--help", "-h", "--verbose", "-v", "--json", "--fail-if-any", "--format"];
+
     /// <summary>Parses <c>okf inbox</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>inbox</c>.</param>
     /// <returns>The parsed arguments.</returns>

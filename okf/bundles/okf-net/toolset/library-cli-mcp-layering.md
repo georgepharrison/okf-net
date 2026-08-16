@@ -3,7 +3,7 @@ type: Concept
 title: Library, CLI, and MCP Layering
 description: All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
 tags: [okf-net, architecture, cli, mcp, layering]
-generated: { by: "claude-fable/5", at: 2026-08-16T04:50:32Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T05:54:46Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -29,16 +29,20 @@ Okf.Core   parse · validate · trust · staleness · index · search
    ├── Okf.Cli    okf init | lint | index | search | inbox | verify   (built)
    │              okf register | unregister | registry               (built)
    │              okf capture | generated                            (built)
-   │              okf bundle | site | skills | help | version        (built)
+   │              okf bundle | site | skills | completion            (built)
+   │              okf upgrade | help | version                       (built)
    └── okf mcp    okf_list · okf_search · okf_read, over stdio       (built)
 ```
 
-Every verb above is built. `register`, `unregister` and `registry` were the
-last, and they are what `okf search --scope` and `okf mcp --scope` read (see
-[vaults, registry, and config](vault-registry-and-config.md)); scope resolution
-itself is one function in `Okf.Core`, so the CLI and the server cannot disagree
-about which bundles a scope names. The build order that got here was
-Core → index → search → MCP → skills, then the post-MVP additions.
+Every verb above is built. `register`, `unregister` and `registry` are what
+`okf search --scope` and `okf mcp --scope` read (see [vaults, registry, and
+config](vault-registry-and-config.md)); scope resolution itself is one function
+in `Okf.Core`, so the CLI and the server cannot disagree about which bundles a
+scope names. `okf completion` came last and describes the rest: it prints a
+bash, zsh, fish or PowerShell script generated from the same verb table the
+binary dispatches on, so a completion cannot lag a verb — a table that is
+missing one fails a test rather than a keystroke. The build order that got here
+was Core → index → search → MCP → skills, then the post-MVP additions.
 
 # Why the library is the core
 

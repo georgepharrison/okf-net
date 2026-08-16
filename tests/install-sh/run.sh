@@ -29,6 +29,15 @@ installer="$repo/install.sh"
 command -v python3 >/dev/null || { echo "python3 is required to serve the fixture" >&2; exit 2; }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/okf-install-tests.XXXXXX")"
+
+# A fake HOME for every installer run below. install.sh writes a shell completion under
+# $XDG_DATA_HOME (else $HOME/.local/share) since #51, and a test suite that let that land in
+# the developer's real home would be editing the machine it is running on. Exported once,
+# here, so no case can forget it.
+export HOME="$work/home"
+export XDG_DATA_HOME="$work/home/.local/share"
+export XDG_CONFIG_HOME="$work/home/.config"
+mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
 server_pid=""
 cleanup() {
   [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null || true
@@ -103,6 +112,10 @@ make_release() { # make_release <version>
 if [ "\${1:-}" = skills ] && [ "\${2:-}" = install ]; then
   [ "\${OKF_STUB_SKILLS_FAIL:-0}" = 1 ] && echo "okf: error: nope" >&2 && exit 2
   echo "skills installed" && exit 0
+fi
+if [ "\${1:-}" = completion ]; then
+  [ "\${OKF_STUB_COMPLETION_FAIL:-0}" = 1 ] && echo "okf: error: nope" >&2 && exit 2
+  echo "# okf completion for \${2:-}" && exit 0
 fi
 echo "okf $v" && exit 0
 EOF
@@ -337,6 +350,74 @@ check_contains "warns instead of failing" "could not install the agent skills" "
 check_contains "and names the command to re-run" "$dir/okf skills install" "$out"
 if [[ -x "$dir/okf" ]]; then ok "and the binary is installed anyway"
 else bad "and the binary is installed anyway" "no executable at $dir/okf"; fi
+
+note "[$sh_bin] the installer places the shell completion"
+# The completion script comes out of the INSTALLED binary (#51), so the stub prints it and
+# the test asserts the bytes that landed. Every case gets its own XDG roots, which is what
+# makes "no file was written" an answerable question rather than an absence of evidence.
+#
+# $SHELL is the only detector: the shell running install.sh is `sh` in every one of these
+# runs, and it is `sh` on a real `curl … | sh` too.
+completion_case() { # completion_case <label> <shell> <data|config> <relative file> [extra env...]
+  local label="$1" login_shell="$2" root="$3" relative="$4"; shift 4
+  comp_root="$work/comp-$label-$sh_bin"
+  comp_file="$comp_root/$root/$relative"
+  set +e
+  out="$(env OKF_INSTALL_URL="$base" OKF_INSTALL_DIR="$comp_root/bin" \
+             XDG_DATA_HOME="$comp_root/data" XDG_CONFIG_HOME="$comp_root/config" \
+             SHELL="$login_shell" "$@" "$sh_bin" "$installer" 2>&1)"
+  rc=$?
+  set -e
+}
+
+completion_case zsh /bin/zsh data "zsh/site-functions/_okf"
+check_eq "SHELL=/bin/zsh exits 0" "0" "$rc"
+if [[ -f "$comp_file" ]]; then ok "SHELL=/bin/zsh writes _okf to the site-functions dir"
+else bad "SHELL=/bin/zsh writes _okf to the site-functions dir" "no file at $comp_file"; fi
+check_eq "and the file is what the installed binary printed" \
+  "# okf completion for zsh" "$(cat "$comp_file" 2>/dev/null)"
+check_contains "and zsh gets the fpath line, which it needs and bash does not" \
+  "fpath=(" "$out"
+if compgen -G "$comp_file".install.* >/dev/null; then
+  bad "and leaves no staging file behind" "found $(echo "$comp_file".install.*)"
+else ok "and leaves no staging file behind"; fi
+
+completion_case bash /bin/bash data "bash-completion/completions/okf"
+check_eq "SHELL=/bin/bash exits 0" "0" "$rc"
+if [[ -f "$comp_file" ]]; then ok "SHELL=/bin/bash writes okf to the bash-completion dir"
+else bad "SHELL=/bin/bash writes okf to the bash-completion dir" "no file at $comp_file"; fi
+check_eq "and asked the binary for the bash script, not some other shell's" \
+  "# okf completion for bash" "$(cat "$comp_file" 2>/dev/null)"
+check_not_contains "and no fpath line, which means nothing to bash" "fpath=(" "$out"
+
+completion_case fish /usr/bin/fish config "fish/completions/okf.fish"
+check_eq "SHELL=/usr/bin/fish exits 0" "0" "$rc"
+check_eq "and fish gets its file under XDG_CONFIG_HOME, where fish looks" \
+  "# okf completion for fish" "$(cat "$comp_file" 2>/dev/null)"
+
+completion_case skip /bin/zsh data "zsh/site-functions/_okf" OKF_SKIP_COMPLETIONS=1
+check_eq "OKF_SKIP_COMPLETIONS=1 still exits 0" "0" "$rc"
+if [[ -e "$comp_file" ]]; then bad "OKF_SKIP_COMPLETIONS=1 writes nothing" "found $comp_file"
+else ok "OKF_SKIP_COMPLETIONS=1 writes nothing"; fi
+check_contains "and the run says it skipped them" "OKF_SKIP_COMPLETIONS=1" "$out"
+
+# A shell okf has no script for is not an error and not a warning: the user did not ask for
+# a completion, and a message about a shell they do not use is noise.
+completion_case unknown /bin/ksh data "zsh/site-functions/_okf"
+check_eq "an unknown \$SHELL still exits 0" "0" "$rc"
+if find "$comp_root/data" "$comp_root/config" -type f 2>/dev/null | grep -q .; then
+  bad "an unknown \$SHELL writes no completion" "found $(find "$comp_root/data" "$comp_root/config" -type f 2>/dev/null)"
+else ok "an unknown \$SHELL writes no completion"; fi
+check_not_contains "and says nothing about completions" "completion" "$out"
+
+# The same reading as the skills step: the bytes are installed and verified by now, so a
+# completion that did not land is a warning with the command to fix it.
+completion_case failure /bin/bash data "bash-completion/completions/okf" OKF_STUB_COMPLETION_FAIL=1
+check_eq "a failed completion write still exits 0" "0" "$rc"
+check_contains "warns instead of failing" "could not write the bash completion" "$out"
+check_contains "and names the command to re-run" "completion bash >" "$out"
+if [[ -x "$comp_root/bin/okf" ]]; then ok "and the binary is installed anyway"
+else bad "and the binary is installed anyway" "no executable at $comp_root/bin/okf"; fi
 
 note "[$sh_bin] a trailing slash on the base URL"
 dir="$work/bin-baseslash-$sh_bin"

@@ -108,7 +108,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Fifty-three numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty-four numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -959,6 +959,25 @@ flowchart TB
 - **Source:** [`okf upgrade`](decisions.md#proposed-decisions-okf-upgrade-work-item-23-2026-08-16),
   [self-hosted install](decisions.md#proposed-decisions-decided-2026-08-15-review-9-self-hosted-install-work-item-25-2026-08-15)
 
+### AD-54 — Completions are generated from the dispatch table, and none of them reads a vault
+
+- **Binds:** `CompletionTable`, `CompletionCommand`, `CliApplication.Commands`, every
+  `*Arguments.Flags`, the completion step in both installers
+- **Prevents:** a completion script that is a verb behind and says nothing about it, and a
+  tab key that starts a directory walk.
+- **Rule:** One static table describes the CLI surface — verbs, subcommands, options, and
+  the values worth offering — and the four shell scripts are rendered from it by
+  hand-rolled templates with no dependency (AD-9), pure ASCII and byte-stable, with the
+  golden files in `tests/Okf.Cli.Tests/completions/`. `CliApplication.Commands` is the
+  dispatch *and* the verb list, so there is one list rather than two; the table's verb set
+  must equal it, each verb's options must equal the `Flags` array its parser declares, and
+  each `Flags` array must equal that parser's own `case` labels. Nothing a generated script
+  runs may resolve a vault or read a tree: the only subprocess any of them starts is
+  `okf skills list --names`, which the binary answers out of itself, and paths are the
+  shell's own file completion. Values that would need the filesystem walked — bundle names,
+  concept paths, tags — are deliberately not completed.
+- **Source:** [shell completions](decisions.md#proposed-decisions-shell-completions-work-item-51-2026-08-16)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -1114,8 +1133,9 @@ flowchart TB
 | `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
 | Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50, AD-52 | SKILL-1 … SKILL-8 |
 | `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
+| `okf completion` | `CompletionTable`, `CompletionCommand`; the dispatch table in `CliApplication` and each `*Arguments.Flags` are what it is held to | AD-6, AD-7, AD-9, AD-44, AD-54 | CLI-14, PRD §3 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32, AD-52 | SKILL-7, ACC-5, ACC-6 |
-| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50 | CLI-17, Q10 |
+| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50, AD-54 | CLI-17, Q10 |
 | `okf upgrade` | `OkfUpgrade` (the only network path), `OkfUpgradeManifest`, `OkfUpgradeVersion`, `OkfUpgradePlan`; `UpgradeCommand` + `UpgradeArguments` render | AD-5, AD-6, AD-7, AD-9, AD-19, AD-41, AD-42, AD-53 | CLI-14, CLI-17 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 | Registry and scope | `OkfRegistry`, `OkfScope`; `RegistryCommand`, `RegistryArguments`, `ScopeSettings` render and layer | AD-7, AD-26, AD-30, AD-31, AD-51 | CLI-2, CLI-3, MCP-3 |

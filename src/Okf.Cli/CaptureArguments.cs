@@ -46,6 +46,22 @@ internal sealed class CaptureArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+    [
+        "--help",
+        "-h",
+        "--json",
+        "--by",
+        "--url",
+        "--title",
+        "--source-last-modified",
+        "--form",
+        "--concept",
+        "--captured-at",
+        "--at",
+    ];
+
     /// <summary>Parses <c>okf capture</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>capture</c>.</param>
     /// <returns>The parsed arguments.</returns>

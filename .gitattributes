@@ -4,3 +4,7 @@
 # for Windows' default) would hand the build CRLF and quietly break that. Pinned to LF
 # here rather than trusted to a setting each clone chooses for itself.
 skills/*/SKILL.md text eol=lf
+
+# The generated completion scripts are compared byte for byte against these (issue #51);
+# a CRLF checkout would fail every golden test for a reason that has nothing to do with okf.
+tests/Okf.Cli.Tests/completions/* text eol=lf

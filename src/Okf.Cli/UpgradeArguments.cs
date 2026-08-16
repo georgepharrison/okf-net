@@ -30,6 +30,10 @@ internal sealed class UpgradeArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags =
+        ["--help", "-h", "--check", "--dry-run", "--json", "--format", "--version", "--channel"];
+
     /// <summary>Parses <c>okf upgrade</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>upgrade</c>.</param>
     /// <returns>The parsed arguments.</returns>

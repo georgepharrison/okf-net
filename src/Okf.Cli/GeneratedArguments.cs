@@ -29,6 +29,9 @@ internal sealed class GeneratedArguments
     /// <summary>Whether the command should print its help and stop.</summary>
     public bool ShowHelp { get; private set; }
 
+    /// <summary>Every option <see cref="Parse" /> accepts (see <see cref="InitArguments.Flags" />).</summary>
+    public static readonly string[] Flags = ["--help", "-h", "--dry-run", "--by", "--at"];
+
     /// <summary>Parses <c>okf generated</c>'s arguments.</summary>
     /// <param name="args">The arguments after <c>generated</c>.</param>
     /// <returns>The parsed arguments.</returns>

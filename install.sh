@@ -4,9 +4,9 @@
 #   curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 #
 # Downloads the newest `okf` release, verifies it against the release manifest, installs
-# it to ~/.local/bin/okf, and then runs `okf skills install` to place the agent skills the
-# binary carries. Re-running is safe: it reinstalls the same version over itself rather
-# than accumulating anything.
+# it to ~/.local/bin/okf, runs `okf skills install` to place the agent skills the binary
+# carries, and writes the completion script for the shell $SHELL names. Re-running is safe:
+# it reinstalls the same version over itself rather than accumulating anything.
 #
 # This file is served BY a release as well as living in the repository: the tag pipeline
 # uploads it alongside the binary, so the installer a release hands you is the one that
@@ -22,6 +22,7 @@
 #   OKF_INSTALL_URL   base URL to install from   (default https://get.okf.tychostation.dev)
 #   OKF_INSTALL_DIR   directory to install into  (default $HOME/.local/bin)
 #   OKF_SKIP_SKILLS   set to 1 to install the binary only, no agent skills
+#   OKF_SKIP_COMPLETIONS  set to 1 to skip the shell completion for your $SHELL
 #
 # POSIX sh on purpose — no bashisms. The one thing an installer may not assume is a shell,
 # and `curl | sh` on a Debian box runs dash.
@@ -56,6 +57,7 @@ environment:
   OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
   OKF_INSTALL_DIR   install directory         (default $HOME/.local/bin)
   OKF_SKIP_SKILLS   set to 1 to skip `okf skills install`
+  OKF_SKIP_COMPLETIONS  set to 1 to skip the shell completion for your $SHELL
 EOF
 }
 
@@ -362,6 +364,59 @@ else
     warn "install.sh: could not install the agent skills. okf itself is installed;
     run this when you want them:
         ${dest} skills install"
+  fi
+fi
+
+# Shell completions (#51). The same shape as the skills step: the binary is installed and
+# verified by now, and it prints its own completion script, so this is a file write and not
+# a download.
+#
+# The shell is detected from $SHELL and from nothing else. That is a guess about the login
+# shell rather than a fact about the one running this script — but the alternatives are
+# worse: the shell running a `curl … | sh` pipeline is sh whatever the user's shell is, and
+# asking a shell what it is means launching one, which an installer has no business doing.
+# A shell this does not know gets nothing written and says nothing: a message about a shell
+# somebody does not use is noise, and `okf completion --help` documents the manual path.
+#
+# A failure is a WARNING naming the command to run by hand, never a failed install — the
+# same reading as the skills step. OKF_SKIP_COMPLETIONS=1 opts out.
+if [ "${OKF_SKIP_COMPLETIONS:-0}" = 1 ]; then
+  say "==> completions: skipped (OKF_SKIP_COMPLETIONS=1)"
+else
+  completion_shell="${SHELL:-}"
+  completion_shell="${completion_shell##*/}"
+  completion_file=""
+  case "$completion_shell" in
+    bash) completion_file="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/okf" ;;
+    zsh)  completion_file="${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions/_okf" ;;
+    fish) completion_file="${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/okf.fish" ;;
+  esac
+
+  if [ -n "$completion_file" ]; then
+    say "==> installing the ${completion_shell} completion"
+    completion_dir="${completion_file%/*}"
+    completion_staging="${completion_file}.install.$$"
+
+    # Written to a staging file beside the destination and renamed, so a completion a shell
+    # is reading is never a half-written one.
+    if mkdir -p "$completion_dir" \
+      && "$dest" completion "$completion_shell" >"$completion_staging" \
+      && mv -f "$completion_staging" "$completion_file"; then
+      say "    ${completion_file}"
+
+      # zsh only reads a directory that is on $fpath, and this script cannot see one shell's
+      # $fpath from another shell. So the line is printed as a conditional for the reader to
+      # apply rather than as a claim about their setup.
+      if [ "$completion_shell" = zsh ]; then
+        say "    if completions do not appear, put this in ~/.zshrc before compinit:"
+        say "        fpath=(${completion_dir} \$fpath)"
+      fi
+    else
+      rm -f "$completion_staging"
+      warn "install.sh: could not write the ${completion_shell} completion to ${completion_file}.
+    okf itself is installed; run this when you want it:
+        ${dest} completion ${completion_shell} > ${completion_file}"
+    fi
   fi
 fi
 
