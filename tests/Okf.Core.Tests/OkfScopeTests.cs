@@ -97,9 +97,11 @@ public sealed class OkfScopeTests : IDisposable
 
     /// <summary>
     /// CLI-1 has every command able to say what it looked at, so the sentence is a contract:
-    /// it counts bundles and roots and agrees with itself about the singular. One root is
-    /// also the case where the working set can name a vault, which is what makes a
-    /// registered vault's own <c>okf.json</c> apply.
+    /// it counts bundles and roots, and pluralizes <c>root</c>. It does NOT pluralize
+    /// <c>bundles</c> — "1 bundles" is what the code emits today, and the literal below says
+    /// so rather than describing a nicer sentence nobody wrote. One root is also the case
+    /// where the working set can name a vault, which is what makes a registered vault's own
+    /// <c>okf.json</c> apply.
     /// </summary>
     [Fact]
     public void OneRegisteredRootIsNamedInTheSingularAndBecomesTheVault()
