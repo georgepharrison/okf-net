@@ -117,6 +117,9 @@ internal static class CliApplication
             case "mcp":
                 return McpCommand.Run(args[1..], environment, input ?? TextReader.Null, output, error);
 
+            case "upgrade":
+                return UpgradeCommand.Run(args[1..], environment, output, error);
+
             default:
                 error.WriteLine($"okf: error: unknown command '{args[0]}'.");
                 WriteUsage(error);
@@ -209,6 +212,8 @@ internal static class CliApplication
               okf skills <list|path|install>
                                           The agent skills this binary carries, and where they install
               okf mcp [path]              Run the read-only MCP server over stdio
+              okf upgrade [--check]       Replace this binary with the newest release
+                                          (the one command that uses a network)
               okf help                    Show this help
               okf version [--verbose]     Show the version (--verbose also prints the commit)
 

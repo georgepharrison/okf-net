@@ -26,4 +26,13 @@
     <ProjectReference Include="..\..\src\Okf.Core\Okf.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- fixtures/latest.json is a byte copy of what the artifact host was serving
+         (`curl -fsSL https://get.okf.tychostation.dev/latest.json`), so the manifest
+         reader is tested against the producer's real output rather than against a shape
+         a test author imagined. Copied beside the assembly so the test reads it from a
+         stable location. -->
+    <None Include="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
