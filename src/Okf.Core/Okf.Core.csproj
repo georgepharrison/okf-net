@@ -27,6 +27,22 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The three agent skills ship inside the binary (issue #41), by the same
+         mechanism and for the same AOT reason as the site assets above: a consumer
+         who installed only the binary has no `skills/` directory to point a recipe
+         at, and a second download would put the skills behind a network the rest of
+         the toolset does not need (AD-7).
+
+         A GLOB, not three lines: a skill added to skills/ is embedded by the next
+         build, and OkfSkillsTests asserts the embedded set equals the on-disk set, so
+         the two cannot drift. Only SKILL.md is taken — skills/README.md is repository
+         documentation about the skills, not part of any one of them. -->
+    <EmbeddedResource Include="..\..\skills\*\SKILL.md">
+      <LogicalName>Okf.Core.Skills.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(FullPath)')))).SKILL.md</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The lint helpers (markdown scanning, link resolution, frontmatter line
          bookkeeping) are internal: implementation detail of the rules, not public API.
          Their edge cases are still worth direct unit tests. -->
