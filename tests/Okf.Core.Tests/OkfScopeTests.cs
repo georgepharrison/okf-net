@@ -299,7 +299,7 @@ public sealed class OkfScopeTests : IDisposable
             OkfRegistry.Empty()));
 
         Assert.Contains("--scope all", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("okf register", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("okf register [path]", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
