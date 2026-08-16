@@ -69,11 +69,7 @@ internal static class IndexCommand
 
         if (arguments.Verbose)
         {
-            error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (var bundle in workingSet.Bundles)
-            {
-                error.WriteLine($"okf: bundle {bundle.Root}");
-            }
+            VerboseReport.WorkingSet(error, workingSet);
 
             error.WriteLine(arguments.Check
                 ? "okf: --check: nothing will be written"

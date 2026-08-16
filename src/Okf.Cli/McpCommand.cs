@@ -115,17 +115,8 @@ internal static class McpCommand
             var workingSet = tools.Resolve();
             if (verbose)
             {
-                error.WriteLine($"okf: scope {settings.Scope.ToScopeString()} (from {settings.Layer})");
-                error.WriteLine($"okf: resolved {workingSet.Resolution}");
-                foreach (var note in tools.Notes)
-                {
-                    error.WriteLine($"okf: {note}");
-                }
-
-                foreach (var bundle in workingSet.Bundles)
-                {
-                    error.WriteLine($"okf: bundle {bundle.Root}");
-                }
+                VerboseReport.Scope(error, settings);
+                VerboseReport.WorkingSet(error, workingSet, tools.Notes);
 
                 error.WriteLine("okf: mcp server ready on stdio");
             }

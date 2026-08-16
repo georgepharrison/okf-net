@@ -154,11 +154,7 @@ internal static class LintCommand
         string? projectPath,
         OkfSeverityResolver severities)
     {
-        error.WriteLine($"okf: resolved {workingSet.Resolution}");
-        foreach (var bundle in workingSet.Bundles)
-        {
-            error.WriteLine($"okf: bundle {bundle.Root}");
-        }
+        VerboseReport.WorkingSet(error, workingSet);
 
         error.WriteLine(global is null
             ? "okf: global config: none"

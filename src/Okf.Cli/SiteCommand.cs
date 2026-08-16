@@ -92,11 +92,7 @@ internal static class SiteCommand
 
         if (arguments.Verbose)
         {
-            error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (var bundle in workingSet.Bundles)
-            {
-                error.WriteLine($"okf: bundle {bundle.Root}");
-            }
+            VerboseReport.WorkingSet(error, workingSet);
 
             error.WriteLine(arguments.SingleFile
                 ? $"okf: writing one self-contained file into {outputDirectory}"

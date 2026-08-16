@@ -146,12 +146,8 @@ internal static class SearchCommand
         OkfSearchQuery query,
         OkfSearchOutcome outcome)
     {
-        error.WriteLine($"okf: scope {scope.Scope.ToScopeString()} (from {scope.Layer})");
-        error.WriteLine($"okf: resolved {workingSet.Resolution}");
-        foreach (var bundle in workingSet.Bundles)
-        {
-            error.WriteLine($"okf: bundle {bundle.Root}");
-        }
+        VerboseReport.Scope(error, scope);
+        VerboseReport.WorkingSet(error, workingSet);
 
         error.WriteLine($"okf: query {query}");
         error.WriteLine($"okf: match mode {SearchJson.MatchMode(outcome.MatchMode)}");
