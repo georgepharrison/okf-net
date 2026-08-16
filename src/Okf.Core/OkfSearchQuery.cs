@@ -141,9 +141,6 @@ public sealed class OkfSearchQuery
     /// <summary>The <c>tag:</c> filters, in the order they were written (AND-ed).</summary>
     public IReadOnlyList<string> Tags => this.tags;
 
-    /// <summary>Whether the query would score anything.</summary>
-    public bool HasTerms => this.terms.Count > 0;
-
     /// <summary>
     /// Whether the query asks for nothing at all — no terms and no filters. The CLI treats
     /// this as a usage failure rather than as "every concept" (PRD CLI-14, exit 2).
