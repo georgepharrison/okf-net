@@ -3,7 +3,7 @@ type: Concept
 title: The Custodian Model
 description: A custodian maintains a bundle from beside it, never inside it, and surfaces machine-derived insight for review rather than landing it silently.
 tags: [okf-net, custodian, agents, maintenance, ci]
-generated: { by: claude-fable/5, at: 2026-08-15T23:59:00Z }
+generated: { by: "claude-fable/5", at: 2026-08-16T02:30:22Z }
 sources:
   - id: agent-skills
     resource: /references/agent-skills.md
@@ -69,6 +69,47 @@ tools — which is why `okf index` regenerates indexes rather than the
 custodian hand-editing them, and why [drift is a lint
 rule](../toolset/index-generation-and-drift.md) rather than a matter of
 custodial discipline.
+
+# The bookkeeping a verb writes
+
+The division above is only real where the structured layer actually has a
+command. For a while it did not: the two producer skills told an agent to type
+a `sha256`, a capture timestamp, an ingestion close and a `generated` stamp by
+hand — the structure layer, written by the party the model gives the prose
+layer to. A hash an agent typed proves nothing about the artifact it claims to
+describe, and a small local model is least reliable at exactly this.[^decisions]
+
+Three verbs took it over, and they are CLI-only — the MCP server stays
+read-only, because a write tool is what turns a knowledge base into a surface
+an untrusted host can edit:
+
+| Verb | What code owns |
+| --- | --- |
+| `okf capture add <item> --by <actor>` | Every `files[].sha256`, `capturedAt` in the one instant form okf writes, the entry's id and `flat`/`packet` form taken from the item's own name and shape, and `ingestion: null`. It creates the manifest when there is none. |
+| `okf capture close <id> --concept … --by <actor>` | The `ingestion` object, once every named concept has been checked to exist. |
+| `okf generated stamp <concept> --by <actor>` | The `generated: { by, at }` line, in the one instant form, parsed back before it is kept. |
+
+What the agent still decides is what it was always for: which artifact is worth
+keeping, where it came from, what it means, and which concept it became.
+
+Two properties make these safe to point at the immutability record. First,
+**every edit is a splice, not a re-serialization**: the writer locates the
+region it is changing by byte offset and rewrites only that, so an appended
+entry leaves the rest of `raw/manifest.json` byte-identical — whitespace, key
+order, and the timestamp spellings already on disk included — and the result is
+read back through the manifest reader before it is kept. That is the same
+argument `okf verify` makes for editing a concept's text rather than re-emitting
+it: a diff in which the one changed thing is invisible is not a reviewable
+diff. Second, **they refuse rather than repair**. An ingested capture is
+immutable, so a second `capture add` on it exits 1 and a second `close` does
+too; a manifest that will not read as one is reported and left exactly as found.
+`check-manifest.py` keeps the same rule from the reading side, and neither ever
+rewrites the record to make it parse.
+
+The one interaction worth stating plainly: a fresh `generated.at` makes a
+concept unacknowledged again, because it is now newer than the latest
+verification. That is correct. The content changed, and the person who cleared
+the old text has not seen this one.
 
 # Surfacing, not landing
 
@@ -195,7 +236,7 @@ that means concretely, and only what it means:
 | `pre-commit` hook | `markdownlint-cli2` on staged markdown; `check-manifest.py` when anything under `okf/raw/` is staged. | Nothing. Both report. |
 | CI `dogfood` job | `okf lint okf/`, `okf index --check`, and `okf/custodian/check-manifest.py`. | Nothing. All three report. |
 | CI `custodian-inbox` job | `okf inbox okf/`, on a schedule, publishing the JSON as an artifact. | Nothing. It surfaces and exits 0 whatever it finds. |
-| A session with the skills | Capture, ingestion, enrichment, refresh drafts, indexes, `log.md`. | A person, deliberately. |
+| A session with the skills | Capture, ingestion, enrichment, refresh drafts, indexes, `log.md`. `okf capture add`, `okf capture close` and `okf generated stamp` are the only things that edit the manifest or a `generated` stamp. | A person, deliberately. |
 
 `okf/raw/` exists and holds its first capture, ingested into
 [`references/`](../references/about.md) and closed in the manifest. Two gates
