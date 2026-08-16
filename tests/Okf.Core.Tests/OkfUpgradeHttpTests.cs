@@ -128,7 +128,14 @@ public sealed class OkfUpgradeHttpTests : IDisposable
                 return;
             }
 
-            using var response = context.Response;
+            // `Close()` and nothing else. Every branch below closes this response, and
+            // disposing it a second time (a `using` here) corrupts the listener's state for
+            // whichever request next arrives on the recycled connection: that request is
+            // then served through a disposed response, this thread throws, and the client
+            // reads an empty body. Measured at 30 failures in 200 redirect round-trips with
+            // the second dispose and 0 without it — which is what made
+            // `FollowsARedirectToTheManifest` fail about one full suite run in four.
+            var response = context.Response;
             this.userAgents.Add(context.Request.UserAgent ?? string.Empty);
 
             var path = context.Request.Url!.AbsolutePath;
