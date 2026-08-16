@@ -43,23 +43,14 @@ public class OkfConfigException : Exception
 /// </remarks>
 public sealed class OkfConfig
 {
-    private OkfConfig(string source, bool globalLayer)
+    private OkfConfig(string source)
     {
         Source = source;
-        IsGlobalLayer = globalLayer;
         Severities = new OkfSeverityLayer(source);
     }
 
     /// <summary>The file this configuration came from, used in <c>--verbose</c> output.</summary>
     public string Source { get; }
-
-    /// <summary>
-    /// Whether this file is the global, per-machine layer. Settings that describe the
-    /// machine rather than the work — <c>autoRegister</c> — are accepted there and refused
-    /// in a committed project file, because a repository must not be able to change what
-    /// another person's machine does behind their back.
-    /// </summary>
-    public bool IsGlobalLayer { get; }
 
     /// <summary>The severity settings this file contributes.</summary>
     public OkfSeverityLayer Severities { get; }
@@ -138,7 +129,7 @@ public sealed class OkfConfig
         ArgumentNullException.ThrowIfNull(json);
         ArgumentException.ThrowIfNullOrEmpty(source);
 
-        var config = new OkfConfig(source, globalLayer);
+        var config = new OkfConfig(source);
         if (string.IsNullOrWhiteSpace(json))
         {
             return config;
