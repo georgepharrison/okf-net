@@ -138,7 +138,7 @@ public class OkfSearchTests
     }
 
     [Fact]
-    public void TheScoreIsTheBm25FunctionArchitectureNames()
+    public void TheScoreIsBm25WithTheParametersAndWeightsAd26Fixes()
     {
         using var bundle = new TempBundle();
         bundle.Add("one.md", "---\ntype: Reference\ntitle: Widget\n---\n\nwidget\n")

@@ -3578,3 +3578,38 @@ work item adds.
 list finds the answer next to the gap rather than has to go looking for it. AGENTS.md's
 Commits bullet gets the same one line. Both point at the hook and CI as what actually stops a
 major bump — the config comments are signage, not the guard itself.
+
+### Proposed decisions: two unreferenced public members leave Okf.Core (work item #13, 2026-08-16)
+
+Step D of the mutation-triage polish found two public members of `Okf.Core` with no
+reference anywhere — not in `src/`, not in `tests/`, and named by no doc except the
+triage that found them (`docs/spikes/2026-08-16-mutation-baseline.md`). Both are
+deleted on `13-index-search`. The public API of `Okf.Core` is frozen (architecture.md,
+1.0.0 review), so the removals are recorded here rather than left to a commit body,
+following the `OkfValue.IsTruthy` precedent from work item #30.
+
+- **`OkfSearchQuery.HasTerms`.** The triage classes it as dead outright. "This query
+  asks for nothing" is `IsEmpty`, which is the property PRD CLI-14's exit 2 goes
+  through; a second predicate over the same list is a surface a caller has to choose
+  between for no gain.
+- **`OkfIndexPlan.Count(OkfIndexStatus)`.** The triage classes this one as *unclear* —
+  "delete or keep as a documented query surface" — so it is a call rather than a
+  finding. Deleted. `IndexCommand` already counts by walking `plan.Indexes` and reading
+  each `Status`, because it needs the per-index lines anyway (AD-14 gives created,
+  unchanged, drifted, replaced and orphaned each their own count in one pass), and an
+  aggregate nothing consumes is a status enumeration that can fall behind the enum.
+  `HasDrift` beside it stays: it is the mechanical basis for `OKF0306` and
+  `okf index --check`, this file already records it as a contract ("any, not all"), and
+  tests hold it to that.
+
+**Why this is a patch and not a major.** There is no `Okf.Core` NuGet package: the
+release chain ships AOT binaries and the knowledge/skills archive, so the assembly has
+no consumer outside this repository, and Q10's package plan is unimplemented. A major
+bump is also not available — 2026-08-16's "no major bumps" decision removed `!` types
+and `BREAKING CHANGE:` footers from the project — which is the other reason a removal
+like this belongs in a record a person reads rather than in a version number.
+
+**Open for Ringo.** Confirm or reverse the `Count` deletion. Reversing it costs one
+uncovered mutant and nothing else; confirming it should also settle whether the freeze
+means "no signature changes" or "no removals either", which the 1.0.0 review states as
+the former and this entry reads as the former.
