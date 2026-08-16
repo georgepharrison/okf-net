@@ -7,6 +7,7 @@ namespace Okf.Cli.Tests;
 /// pipeline reads (AD-40, PRD §5) and the summary a person reads, whose counts and
 /// pluralization are the only place the shape on disk becomes visible without opening it.
 /// </summary>
+[Collection(BundleLintCollection.Name)]
 public class SiteAndBundleReportTests
 {
     /// <summary>

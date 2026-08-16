@@ -10,6 +10,7 @@ namespace Okf.Cli.Tests;
 /// <c>okf bundle</c> end to end (work item #5): what ships, what is warned about, what
 /// <c>--verify</c> and <c>--lint</c> say, and the exit codes a release job branches on.
 /// </summary>
+[Collection(BundleLintCollection.Name)]
 public class BundleCommandTests
 {
     /// <summary>A pinned stamp, so nothing here depends on the clock.</summary>
