@@ -515,10 +515,17 @@ publish:
       # Only skills/*/SKILL.md: skills/README.md is this repository's documentation ABOUT
       # the skills, and shipping it would put a file naming repo-relative paths into an
       # archive a consumer unpacks somewhere else.
+      # `--sort=name` orders what tar READS FROM A DIRECTORY and leaves operands in the
+      # order it was handed them, so the member order here is the shell's glob order,
+      # which sorts by LC_COLLATE. Sorted explicitly under LC_ALL=C instead: byte order,
+      # on any runner, whatever its locale.
       echo "==> packaging the agent skills"
+      OKF_SKILL_FILES="$(printf '%s\n' skills/*/SKILL.md | LC_ALL=C sort)"
+      echo "${OKF_SKILL_FILES}"
+      # shellcheck disable=SC2086 -- one path per skill, none with whitespace in it
       tar --sort=name --mtime='1980-01-01 00:00:00Z' --owner=0 --group=0 \
           --numeric-owner --mode='u=rw,go=r' --format=gnu \
-          -cf - skills/*/SKILL.md | gzip -n > "artifacts/${OKF_SKILLS_FILE}"
+          -cf - ${OKF_SKILL_FILES} | gzip -n > "artifacts/${OKF_SKILLS_FILE}"
       tar -tzf "artifacts/${OKF_SKILLS_FILE}"
 
       echo "==> uploading ${OKF_SKILLS_FILE} to the generic package registry"
