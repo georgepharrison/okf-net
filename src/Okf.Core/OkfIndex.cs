@@ -485,7 +485,7 @@ public static class OkfIndexGenerator
 
             // UTF-8 without a BOM, and the `\n` the renderer produced: the bytes must not
             // depend on the machine that wrote them (PRD ACC-7).
-            File.WriteAllText(index.Path, index.Content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.WriteAllText(index.Path, index.Content, FileText.Utf8NoBom);
             written.Add(index);
         }
 

@@ -384,26 +384,18 @@ public sealed class OkfRegistry
     public void Save(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var directory = System.IO.Path.GetDirectoryName(path)
-            ?? throw new OkfConfigException($"'{path}' has no directory to write the registry into.");
+        if (System.IO.Path.GetDirectoryName(path) is null)
+        {
+            throw new OkfConfigException($"'{path}' has no directory to write the registry into.");
+        }
 
-        var temporary = System.IO.Path.Combine(directory, FileName + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp");
         try
         {
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(temporary, ToJson(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, path, overwrite: true);
+            FileText.WriteAtomic(path, ToJson());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new OkfConfigException($"Cannot write registry '{path}': {ex.Message}", ex);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
         }
     }
 

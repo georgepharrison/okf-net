@@ -1,4 +1,3 @@
-using System.Text;
 
 namespace Okf.Core;
 
@@ -152,7 +151,7 @@ public static class OkfStamp
 
         // UTF-8 with no byte-order mark, the same encoding `okf index` writes, so no
         // okf-written file ever grows one.
-        File.WriteAllText(path, stamped, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(path, stamped, FileText.Utf8NoBom);
     }
 
     /// <summary>
@@ -233,7 +232,7 @@ public static class OkfStamp
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         var stamped = StampGeneratedText(File.ReadAllText(path), actor, at);
-        File.WriteAllText(path, stamped, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(path, stamped, FileText.Utf8NoBom);
     }
 
     /// <summary>

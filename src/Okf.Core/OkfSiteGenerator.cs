@@ -74,14 +74,13 @@ public static class OkfSiteGenerator
         ArgumentException.ThrowIfNullOrEmpty(outputDirectory);
 
         var root = Path.GetFullPath(outputDirectory);
-        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var written = new List<string>(plan.Files.Count);
 
         foreach (var file in plan.Files)
         {
             var path = Path.Combine(root, file.Path.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, file.Content, encoding);
+            File.WriteAllText(path, file.Content, FileText.Utf8NoBom);
             written.Add(path);
         }
 
