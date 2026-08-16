@@ -386,6 +386,167 @@ public class OkfStampTests
         Assert.NotEqual(0xEF, File.ReadAllBytes(path)[0]);
     }
 
+    [Fact]
+    public void AConceptWithNoGeneratedKeyGainsOneAtTheEndOfTheFrontmatter()
+    {
+        // Shape one of three: the key is absent, so it is inserted before the closing fence
+        // — the same place `verified` lands, for the same reason.
+        var stamped = OkfStamp.StampGeneratedText(
+            "---\ntype: Concept\ntitle: Widgets\n---\n\nBody.\n",
+            "claude-fable/5",
+            At);
+
+        Assert.Equal(
+            "---\ntype: Concept\ntitle: Widgets\ngenerated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }\n"
+            + "---\n\nBody.\n",
+            stamped);
+    }
+
+    [Fact]
+    public void AnExistingOneLineGeneratedMappingIsReplacedInPlace()
+    {
+        // Shape two: the key exists as §5.2's flow mapping. Only that line moves, and it
+        // keeps its position among the other keys rather than migrating to the end.
+        var source = """
+            ---
+            type: Concept
+            generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }
+            title: Widgets
+            verified:
+              - { by: "human:ringo", at: 2021-01-01T00:00:00Z }
+            ---
+
+            Body.
+
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.StampGeneratedText(source, "claude-fable/5", At);
+
+        Assert.Equal(
+            source.Replace(
+                "generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }",
+                "generated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }",
+                StringComparison.Ordinal),
+            stamped);
+    }
+
+    [Fact]
+    public void ABlockMappingUnderGeneratedFallsBackToTheEmitter()
+    {
+        // Shape three: `generated` written as a block mapping. Replacing it by line surgery
+        // means re-indenting somebody else's frontmatter, so the emitter takes it — the
+        // content survives and the formatting moves, which is the documented trade.
+        var stamped = OkfStamp.StampGeneratedText(
+            "---\ntype: Concept\ngenerated:\n  by: claude-opus/4\n  at: 2020-01-01T00:00:00Z\ntitle: Widgets\n---\n\nBody.\n",
+            "claude-fable/5",
+            At);
+
+        var frontmatter = OkfDocument.Parse(stamped).Frontmatter;
+        var generated = Assert.IsType<OkfMapping>(frontmatter["generated"]);
+
+        Assert.Equal("claude-fable/5", Text(generated, "by"));
+        Assert.Equal("2026-08-15T14:30:00Z", Text(generated, "at"));
+        Assert.DoesNotContain("claude-opus/4", stamped, StringComparison.Ordinal);
+
+        // The rest of the document is still there, which is what "the content survives"
+        // means when the formatting is allowed to move.
+        Assert.Equal("Concept", Text(frontmatter, "type"));
+        Assert.Equal("Widgets", Text(frontmatter, "title"));
+        Assert.Contains("Body.", stamped, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheStampIsParsedBackAndHoldsExactlyWhatWasWritten()
+    {
+        // AD-23's rule applied to `generated`: text surgery that produced something okf
+        // cannot read did not happen. Every shape goes through the same check, so this
+        // walks all three and asks the reader rather than the writer.
+        string[] sources =
+        [
+            "---\ntype: Concept\n---\n\nBody.\n",
+            "---\ntype: Concept\ngenerated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\n---\n\nBody.\n",
+            "---\ntype: Concept\ngenerated:\n  by: claude-opus/4\n  at: 2020-01-01T00:00:00Z\n---\n\nBody.\n",
+        ];
+
+        foreach (var source in sources)
+        {
+            var generated = Assert.IsType<OkfMapping>(
+                OkfDocument.Parse(OkfStamp.StampGeneratedText(source, "process:nightly", At)).Frontmatter["generated"]);
+
+            Assert.Equal("process:nightly", Text(generated, "by"));
+            Assert.Equal("2026-08-15T14:30:00Z", Text(generated, "at"));
+        }
+    }
+
+    [Fact]
+    public void RestampingLeavesEveryOtherLineByteIdentical()
+    {
+        var source = """
+            ---
+            type: Concept
+            title: Widgets
+            okf_producer_note: kept
+            generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }
+            verified:
+              - { by: "human:ringo", at: 2021-01-01T00:00:00Z }
+            ---
+
+            Body with a `[^spec]` footnote.
+
+            """.ReplaceLineEndings("\n");
+
+        var stamped = OkfStamp.StampGeneratedText(source, "claude-fable/5", At);
+
+        var added = stamped.Split('\n').Except(source.Split('\n'), StringComparer.Ordinal).ToArray();
+        var removed = source.Split('\n').Except(stamped.Split('\n'), StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(["generated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }"], added);
+        Assert.Equal(["generated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }"], removed);
+    }
+
+    [Fact]
+    public void RestampingKeepsTheLineEndingsTheFileAlreadyHad()
+    {
+        var stamped = OkfStamp.StampGeneratedText(
+            "---\r\ntype: Concept\r\ngenerated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\r\n---\r\n\r\nBody.\r\n",
+            "claude-fable/5",
+            At);
+
+        Assert.Contains(
+            "\r\ngenerated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }\r\n",
+            stamped,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Z }\n", stamped, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("ringo")]
+    [InlineData("human:")]
+    [InlineData("claude-fable/5\", at: 2020-01-01 }\nowned: yes\nx: \"")]
+    public void AGenerationStampIsRefusedForAnActorThatIsNotASpecForm(string actor)
+    {
+        var source = "---\ntype: Concept\n---\n\nBody.\n";
+
+        Assert.Throws<ArgumentException>(() => OkfStamp.StampGeneratedText(source, actor, At));
+        Assert.Throws<ArgumentException>(() => OkfStamp.StampGenerated(OkfDocument.Parse(source), actor, At));
+    }
+
+    [Fact]
+    public void StampGeneratedFileWritesTheStampBackWithNoByteOrderMark()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("widgets.md", "---\ntype: Concept\ntitle: Widgets\n---\n\nBody.\n");
+        var path = Path.Combine(bundle.Root, "widgets.md");
+
+        OkfStamp.StampGeneratedFile(path, "claude-fable/5", At);
+
+        Assert.Equal(
+            "---\ntype: Concept\ntitle: Widgets\ngenerated: { by: \"claude-fable/5\", at: 2026-08-15T14:30:00Z }\n"
+            + "---\n\nBody.\n",
+            File.ReadAllText(path));
+        Assert.NotEqual(0xEF, File.ReadAllBytes(path)[0]);
+    }
+
     private static string? Text(OkfMapping mapping, string key) =>
         mapping.TryGetValue(key, out var value) && value is OkfScalar scalar ? scalar.Value : null;
 }

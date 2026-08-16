@@ -1,3 +1,4 @@
+using System.Globalization;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -38,6 +39,22 @@ internal static class CliArguments
 
         return args[++index];
     }
+
+    /// <summary>
+    /// Reads a pinned instant. Only the canonical spelling is accepted: the flags that take
+    /// one exist so a test or a CI job can fix a stamp, and accepting a second spelling of
+    /// the one form okf-net writes (AD-24) would put it on disk through that door.
+    /// </summary>
+    /// <param name="value">The argument's value.</param>
+    /// <param name="option">The option's name, for the error message.</param>
+    /// <returns>The instant.</returns>
+    /// <exception cref="OkfConfigException">The value is not the canonical form.</exception>
+    public static DateTimeOffset ParseInstant(string value, string option) =>
+        OkfCanonicalTimestamp.IsCanonical(value)
+            ? DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal)
+            : throw new OkfConfigException(
+                $"'{value}' is not a canonical instant for '{option}'. okf writes RFC 3339 UTC at second "
+                + "precision, e.g. 2026-08-16T14:00:00Z.");
 
     /// <summary>Reads a <c>--format</c> value.</summary>
     /// <param name="format">The value.</param>

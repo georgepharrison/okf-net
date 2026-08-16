@@ -36,7 +36,19 @@ public static class OkfStamp
     /// <param name="actor">The verifying actor.</param>
     /// <param name="at">When the verification happened, in the canonical form (<see cref="OkfCanonicalTimestamp" />).</param>
     /// <returns>The YAML text of the event.</returns>
-    public static string VerifiedEntry(string actor, DateTimeOffset at) =>
+    public static string VerifiedEntry(string actor, DateTimeOffset at) => Entry(actor, at);
+
+    /// <summary>
+    /// Renders a generation stamp as the flow mapping okf-net writes — the same shape a
+    /// verification event takes, because §5.2 gives both keys the same <c>{ by, at }</c>
+    /// value.
+    /// </summary>
+    /// <param name="actor">The generating actor.</param>
+    /// <param name="at">When the content was written, in the canonical form (<see cref="OkfCanonicalTimestamp" />).</param>
+    /// <returns>The YAML text of the stamp.</returns>
+    public static string GeneratedEntry(string actor, DateTimeOffset at) => Entry(actor, at);
+
+    private static string Entry(string actor, DateTimeOffset at) =>
         $"{{ by: \"{actor}\", at: {OkfCanonicalTimestamp.ToCanonical(at)} }}";
 
     /// <summary>
@@ -141,6 +153,177 @@ public static class OkfStamp
         // UTF-8 with no byte-order mark, the same encoding `okf index` writes, so no
         // okf-written file ever grows one.
         File.WriteAllText(path, stamped, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    /// <summary>
+    /// Writes or refreshes a concept's <c>generated</c> stamp in the file's text (§5.2),
+    /// replacing whatever <c>{ by, at }</c> was there. Everything else — key order, the
+    /// body, unknown producer keys, <c>verified</c> — is left byte for byte.
+    /// </summary>
+    /// <remarks>
+    /// A fresh <c>generated.at</c> makes the concept unacknowledged again by AD-21, and
+    /// that is the point: the stamp is the claim that the content was written now, so
+    /// whatever acknowledgment preceded it no longer covers what is there.
+    /// </remarks>
+    /// <param name="text">The concept's full text, frontmatter and body.</param>
+    /// <param name="actor">The generating actor, in one of §7's forms.</param>
+    /// <param name="at">When the content was written.</param>
+    /// <returns>The concept's text with the stamp written.</returns>
+    /// <exception cref="ArgumentException">The actor is not a well-formed §7 actor.</exception>
+    /// <exception cref="OkfDocumentException">The frontmatter does not parse, or the stamp did not read back.</exception>
+    public static string StampGeneratedText(string text, string actor, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        Validate(actor);
+
+        var stamp = OkfCanonicalTimestamp.ToCanonical(at);
+        if (TryStampGenerated(text, GeneratedEntry(actor, at)) is { } inserted
+            && AcceptsGenerated(inserted, actor, stamp))
+        {
+            return inserted;
+        }
+
+        var document = OkfDocument.Parse(text);
+        StampGenerated(document, actor, at);
+        var emitted = document.Serialize();
+        if (!AcceptsGenerated(emitted, actor, stamp))
+        {
+            throw new OkfDocumentException(
+                "Stamping produced frontmatter whose `generated` does not read back as the stamp just written, "
+                + "so nothing was written.");
+        }
+
+        return emitted;
+    }
+
+    /// <summary>
+    /// Sets a parsed document's <c>generated</c> stamp (§5.2). This is the model-level
+    /// operation, for a library consumer holding a document; a caller working from a file
+    /// wants <see cref="StampGeneratedText" />, which keeps the file's formatting.
+    /// </summary>
+    /// <param name="document">The document to stamp.</param>
+    /// <param name="actor">The generating actor, in one of §7's forms.</param>
+    /// <param name="at">When the content was written.</param>
+    /// <exception cref="ArgumentException">The actor is not a well-formed §7 actor.</exception>
+    public static void StampGenerated(OkfDocument document, string actor, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        Validate(actor);
+
+        var stamp = new OkfMapping { Style = OkfCollectionStyle.Flow };
+        stamp.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
+        stamp.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
+
+        // The indexer replaces in place when the key exists and appends when it does not,
+        // so `generated` keeps whatever position the author gave it.
+        document.Frontmatter[GeneratedKey] = stamp;
+    }
+
+    /// <summary>
+    /// Reads a concept, writes its <c>generated</c> stamp, and writes it back — the whole
+    /// filesystem side of <c>okf generated stamp</c>.
+    /// </summary>
+    /// <param name="path">The concept's absolute path.</param>
+    /// <param name="actor">The generating actor.</param>
+    /// <param name="at">When the content was written.</param>
+    /// <exception cref="OkfDocumentException">The frontmatter does not parse.</exception>
+    /// <exception cref="IOException">The file could not be read or written.</exception>
+    public static void StampGeneratedFile(string path, string actor, DateTimeOffset at)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        var stamped = StampGeneratedText(File.ReadAllText(path), actor, at);
+        File.WriteAllText(path, stamped, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    /// <summary>
+    /// Whether a stamped result is one okf can read back: it parses, and its
+    /// <c>generated</c> is a mapping holding exactly the actor and instant just written.
+    /// </summary>
+    private static bool AcceptsGenerated(string text, string actor, string stamp)
+    {
+        try
+        {
+            return OkfDocument.Parse(text).Frontmatter.TryGetValue(GeneratedKey, out var generated)
+                && generated is OkfMapping mapping
+                && mapping.TryGetValue("by", out var by)
+                && by is OkfScalar actorValue
+                && string.Equals(actorValue.Value, actor, StringComparison.Ordinal)
+                && mapping.TryGetValue("at", out var at)
+                && at is OkfScalar instant
+                && string.Equals(instant.Value, stamp, StringComparison.Ordinal);
+        }
+        catch (OkfDocumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Writes the <c>generated</c> stamp into the frontmatter text, or returns
+    /// <see langword="null" /> when the key's shape is one an edit cannot reach. Two shapes
+    /// are reached, and they are the two that occur: no <c>generated</c> key at all, and a
+    /// one-line flow mapping. A block mapping under the key is left to the emitter, because
+    /// replacing it means re-indenting somebody else's frontmatter.
+    /// </summary>
+    private static string? TryStampGenerated(string text, string entry)
+    {
+        // Line endings are preserved exactly as `TryInsert` preserves them, and for the
+        // same reason: a restamp that rewrites every line of a file is not a restamp.
+        var lines = text.Split('\n').ToList();
+
+        if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
+        {
+            return null;
+        }
+
+        var carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
+
+        var fence = -1;
+        for (var i = 1; i < lines.Count; i++)
+        {
+            if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
+            {
+                fence = i;
+                break;
+            }
+        }
+
+        if (fence < 0)
+        {
+            return null;
+        }
+
+        var key = Enumerable.Range(1, fence - 1)
+            .FirstOrDefault(i => lines[i].StartsWith(GeneratedKey + ":", StringComparison.Ordinal), -1);
+
+        if (key < 0)
+        {
+            lines.Insert(fence, $"{GeneratedKey}: {entry}{carriage}");
+            return string.Join('\n', lines);
+        }
+
+        var inline = lines[key][(GeneratedKey.Length + 1)..].Trim();
+
+        // Where the value ends: the next top-level key, or the closing fence.
+        var stop = fence;
+        for (var i = key + 1; i < fence; i++)
+        {
+            if (lines[i].Length > 0 && !char.IsWhiteSpace(lines[i][0]))
+            {
+                stop = i;
+                break;
+            }
+        }
+
+        var region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
+        if (region.Count > 0 || !inline.StartsWith('{') || !inline.EndsWith('}'))
+        {
+            return null;
+        }
+
+        lines[key] = $"{GeneratedKey}: {entry}{carriage}";
+        return string.Join('\n', lines);
     }
 
     private static void Validate(string actor)
