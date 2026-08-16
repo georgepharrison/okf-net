@@ -65,6 +65,59 @@ public class CliSurfaceTests
     public void SemanticVersionDropsBuildMetadata(string? informationalVersion, string expected) =>
         Assert.Equal(expected, CliApplication.SemanticVersion(informationalVersion));
 
+    /// <summary>
+    /// Plain `okf version` prints only the informational version — a tagged build's bare
+    /// `1.0.0` or an untagged build's `0.0.0-dev+abc1234` — and never a second line, so a
+    /// script parsing one line of output keeps working (issue #53).
+    /// </summary>
+    [Fact]
+    public void VersionWithoutVerboseHasNoCommitLine()
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(home.Root, home.Root, "version");
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Single(run.OutputLines);
+    }
+
+    /// <summary>
+    /// `okf version --verbose` (and its `-v` alias) prints a second line naming the commit
+    /// this binary was built from, independent of whether that commit also survived into
+    /// the informational version on the first line (issue #53: a tagged build's first line
+    /// carries no `+&lt;sha&gt;` any more, so the commit needs somewhere else to live).
+    /// </summary>
+    [Theory]
+    [InlineData("--verbose")]
+    [InlineData("-v")]
+    public void VerboseVersionAddsACommitLine(string flag)
+    {
+        using var home = new TempTree();
+        var run = Cli.RunIn(home.Root, home.Root, "version", flag);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(2, run.OutputLines.Length);
+        Assert.Matches(@"^\d+\.\d+\.\d+", run.OutputLines[0]);
+        // Not merely non-empty: a build that lost its commit prints `commit: unknown`
+        // rather than a blank or missing line, so `Contains("commit:")` alone would also
+        // pass on that failure mode.
+        Assert.Matches(@"^commit: \S+$", run.OutputLines[1]);
+    }
+
+    /// <summary>
+    /// The commit metadata is read from a dedicated `AssemblyMetadata` item (issue #53),
+    /// not from the informational version's `+&lt;sha&gt;` suffix — so it survives on a
+    /// tagged build where that suffix is gone. <see cref="CliApplication.DescribeCommit"/>
+    /// is the pure rendering step: a present value passes through, and a missing or empty
+    /// one falls back to <see cref="CliApplication.UnknownCommit"/> rather than printing
+    /// nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("abc1234", "abc1234")]
+    [InlineData(null, CliApplication.UnknownCommit)]
+    [InlineData("", CliApplication.UnknownCommit)]
+    public void DescribeCommitFallsBackWhenUnstamped(string? commit, string expected) =>
+        Assert.Equal(expected, CliApplication.DescribeCommit(commit));
+
     [Fact]
     public void ListRulesCoversEveryShippedRule()
     {

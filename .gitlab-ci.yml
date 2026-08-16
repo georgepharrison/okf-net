@@ -412,26 +412,43 @@ publish:
       apt-get install -y -qq --no-install-recommends clang zlib1g-dev >/dev/null
 
     - |
-      echo "==> publishing NativeAOT linux-x64 stamped ${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
+      # `-p:IncludeSourceRevisionInInformationalVersion=false` (issue #53): a tag
+      # already identifies the commit, so the informational version this job stamps
+      # is the bare tag, not `<tag>+<sha>`. `-p:SourceRevisionId` is still passed —
+      # Directory.Build.props carries it into an `AssemblyMetadata` item regardless
+      # of whether the SDK also folds it into the informational version, and that is
+      # what the self-version assertion below re-verifies via `--verbose`.
+      echo "==> publishing NativeAOT linux-x64 stamped ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
       dotnet publish src/Okf.Cli \
         --configuration Release \
         --runtime linux-x64 \
         --output artifacts/aot \
         -p:Version="${OKF_VERSION}" \
-        -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}"
+        -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}" \
+        -p:IncludeSourceRevisionInInformationalVersion=false
 
     - |
       # Proves the stamp survived the native compile before anything is
       # published under a version number that claims it. Printing it is not the
       # proof: a binary that lost the stamp answers `0.0.0-dev`, which prints
-      # into a green log and gets uploaded as `okf/<tag>/` regardless. The
-      # reported version is compared against the one the package will claim,
-      # and a mismatch fails the job before anything leaves it.
+      # into a green log and gets uploaded as `okf/<tag>/` regardless. Two things
+      # are checked, because either one losing its stamp is a mis-published
+      # binary: `okf version` must be exactly the bare tag (issue #53 — a build
+      # stamped from a tag never carries `+<sha>`, the tag already names the
+      # commit), and `okf version --verbose` must still name the commit on its
+      # second line, so a mis-stamped commit cannot ship even though it no longer
+      # appears in the first line.
       okf_reported="$(./artifacts/aot/okf version)"
-      okf_expected="${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
-      echo "==> the published binary reports: ${okf_reported}"
-      if [ "${okf_reported}" != "${okf_expected}" ]; then
-        echo "    expected ${okf_expected} — refusing to publish a mis-stamped binary" >&2
+      okf_verbose="$(./artifacts/aot/okf version --verbose)"
+      okf_expected_commit="commit: ${CI_COMMIT_SHORT_SHA}"
+      echo "==> the published binary reports:"
+      printf '%s\n' "${okf_verbose}"
+      if [ "${okf_reported}" != "${OKF_VERSION}" ]; then
+        echo "    expected ${OKF_VERSION} — refusing to publish a mis-stamped binary" >&2
+        exit 1
+      fi
+      if ! printf '%s\n' "${okf_verbose}" | grep -qF "${okf_expected_commit}"; then
+        echo "    expected a '${okf_expected_commit}' line — refusing to publish a binary with no commit" >&2
         exit 1
       fi
 
@@ -454,7 +471,7 @@ publish:
       # records size and sha256 of bytes this job produced and nothing more. `file`
       # is the whole static check, and it is worth the two lines — a publish that
       # silently produced an ELF for `-r win-x64` would otherwise reach a tester.
-      echo "==> publishing trim-safe self-contained osx-arm64 and win-x64 stamped ${OKF_VERSION}+${CI_COMMIT_SHORT_SHA}"
+      echo "==> publishing trim-safe self-contained osx-arm64 and win-x64 stamped ${OKF_VERSION}, commit ${CI_COMMIT_SHORT_SHA}"
       for rid in osx-arm64 win-x64; do
         dotnet publish src/Okf.Cli \
           --configuration Release \
@@ -465,7 +482,8 @@ publish:
           -p:PublishSingleFile=true \
           --output "artifacts/${rid}" \
           -p:Version="${OKF_VERSION}" \
-          -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}"
+          -p:SourceRevisionId="${CI_COMMIT_SHORT_SHA}" \
+          -p:IncludeSourceRevisionInInformationalVersion=false
       done
 
       for built in artifacts/osx-arm64/okf artifacts/win-x64/okf.exe; do

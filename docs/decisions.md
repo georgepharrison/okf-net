@@ -2895,3 +2895,66 @@ Three steps follow this merge, in order:
    repository change. `main` is protected, so the `v1.0.0` run itself is unaffected.
 
 The board's `#10` row leaves the deferred table in `docs/architecture.md` with this commit.
+
+### Proposed decisions: bare release versions (work item #53, 2026-08-16)
+
+A fresh install printed `okf 1.0.0+9765a305`. Ringo's report on issue #53 named the
+decision as a small call, made in the issue rather than argued here from scratch: a build
+the `publish` job stamps from a tag — rc or stable — already has an identifier for the
+commit that produced it, the tag itself, one `git show <tag>` or one line of release notes
+away. The `+<sha>` build metadata AD-41 had it carry added nothing a tagged build did not
+already have, and cost every install a version string nobody chose to see:
+`1.0.0+9765a305` reads as a fact about `9765a305`, when the fact that matters is `1.0.0`.
+
+**A tag identifies the build; a sha is for when nothing else does.** An untagged local
+build — `mise run publish-aot`, a plain `dotnet build` — has no tag to point at, so it
+keeps `+<sha>`: dropping it there would make a laptop build and a tagged release
+indistinguishable again, which is exactly what AD-41 was written to prevent. The split is
+therefore not "drop the sha", it is "the tag is authoritative when there is one".
+
+**The mechanism is the SDK's own switch, not new arithmetic.** The .NET SDK's
+`GenerateAssemblyInfo` target appends `+$(SourceRevisionId)` to
+`AssemblyInformationalVersion` unless `IncludeSourceRevisionInInformationalVersion` is set
+`false` — a property that exists for exactly this case, so the `publish` job passes it
+rather than the repository inventing a string-trim step that would have to be re-verified
+by hand every SDK upgrade. `mise run publish-aot` does not pass it, so nothing about local
+builds changes.
+
+**The commit must not disappear just because it left the informational version.** A bug
+report naming only `1.0.0` for a rebuildable tag is one question short of naming the exact
+binary — the whole reason AD-41 carried the sha in the first place. So every build still
+carries the commit, independent of the informational version: `Directory.Build.props` adds
+an `<AssemblyMetadata Include="Commit" Value="$(SourceRevisionId)" />` item, which lands as
+an `AssemblyMetadataAttribute` regardless of whether the SDK also folded
+`SourceRevisionId` into `AssemblyInformationalVersion`, and `okf version --verbose` reads
+it with `Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()` — the same
+AOT-safe shape (no reflection over types) the existing `AssemblyInformationalVersionAttribute`
+lookup already uses. Unstamped, it reads `commit: unknown` rather than an empty line.
+
+**MCP's `serverInfo.version` and the manifest `generator`/`Actor` strings are unchanged.**
+Both already dropped build metadata before this issue (semver §10; AD-35's "semantic
+version without build metadata"), so a tagged build changes nothing there — they read the
+same bare version they always did, only now it is also what `okf version`'s first line
+says.
+
+**The `publish` job's self-version gate changes in both directions, not just relaxes.**
+Before, it compared `okf version` to `<tag>+<short sha>`; loosening that to accept a bare
+version alone would have let a build that silently lost its `SourceRevisionId` — the
+`-p:SourceRevisionId` flag typo'd away, say — still pass, because the version line no
+longer carries the commit to check. The gate now asserts two things: `okf version` equals
+the bare `<tag minus v>` exactly, and `okf version --verbose` contains a `commit: <short
+sha>` line matching `$CI_COMMIT_SHORT_SHA`. Short, not full: it is what `-p:SourceRevisionId`
+was already being passed as, so the gate re-verifies the same value the flag set rather than
+comparing against a different derivation of the commit. A mis-stamped commit therefore still
+cannot ship, even though the symptom moved from the first line to the second.
+
+**Verified empirically**, since `clang` was not available to run `mise run publish-aot`
+end to end: `dotnet publish src/Okf.Cli -c Release -r linux-x64 -p:PublishAot=false
+-p:PublishTrimmed=true -p:Version=9.9.9 -p:SourceRevisionId=abc1234
+-p:IncludeSourceRevisionInInformationalVersion=false` produced a binary answering `okf
+version` with exactly `9.9.9` and `okf version --verbose` with `9.9.9` then `commit:
+abc1234`. The same command without
+`-p:IncludeSourceRevisionInInformationalVersion=false` produced `9.9.9+abc1234` on the
+first line, with the second line unchanged — confirming the commit metadata item survives
+independent of the informational-version switch, which is the property this whole change
+leans on.

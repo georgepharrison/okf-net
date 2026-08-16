@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Reflection;
 using Okf.Core;
 
@@ -64,6 +65,11 @@ internal static class CliApplication
             case "version":
             case "--version":
                 output.WriteLine(VersionDisplay);
+                if (args.Length > 1 && args[1] is "--verbose" or "-v")
+                {
+                    output.WriteLine($"commit: {CommitDisplay}");
+                }
+
                 return ExitSuccess;
 
             case "init":
@@ -111,10 +117,12 @@ internal static class CliApplication
     internal const string UnknownVersion = "0.0.0";
 
     /// <summary>
-    /// What <c>okf version</c> prints: the full informational version, including the
-    /// <c>+&lt;short-sha&gt;</c> build metadata a stamped build carries. A bug report
-    /// quoting this line names the exact commit the binary was built from, which
-    /// `1.0.0-rc.14` alone does not (an rc tag can be rebuilt).
+    /// What <c>okf version</c> prints: the informational version exactly as stamped. A
+    /// build the `publish` job cut from a tag carries the bare version — the tag already
+    /// identifies the commit (issue #53) — while an untagged local build (`mise run
+    /// publish-aot`, a plain `dotnet build`) still carries <c>+&lt;sha&gt;</c>, because
+    /// nothing else says where it came from. Either way, <c>--verbose</c> names the commit
+    /// on a second line, so a bug report is never a question short.
     /// </summary>
     public static string VersionDisplay => Describe(InformationalVersion);
 
@@ -124,13 +132,36 @@ internal static class CliApplication
     /// </summary>
     public static string Version => SemanticVersion(InformationalVersion);
 
+    /// <summary>
+    /// The version reported for <c>commit:</c> when nothing stamped it — no
+    /// <c>-p:SourceRevisionId</c> and no <c>.git</c> for the SDK to read on its own (a
+    /// source archive, most likely).
+    /// </summary>
+    internal const string UnknownCommit = "unknown";
+
+    /// <summary>
+    /// What <c>okf version --verbose</c> prints on its second line: the commit every
+    /// build carries via <c>SourceRevisionId</c> (Directory.Build.props), independent of
+    /// whether it also survived into <see cref="VersionDisplay"/> (issue #53).
+    /// </summary>
+    public static string CommitDisplay => DescribeCommit(Commit);
+
     private static string? InformationalVersion =>
         typeof(CliApplication).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion;
 
+    private static string? Commit =>
+        typeof(CliApplication).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "Commit")
+            ?.Value;
+
     /// <summary>Renders the informational version for display, metadata and all.</summary>
     internal static string Describe(string? informationalVersion) =>
         informationalVersion is { Length: > 0 } value ? value : UnknownVersion;
+
+    /// <summary>Renders the commit metadata for display, or <see cref="UnknownCommit"/>.</summary>
+    internal static string DescribeCommit(string? commit) =>
+        commit is { Length: > 0 } value ? value : UnknownCommit;
 
     /// <summary>Drops the <c>+</c> build metadata from an informational version.</summary>
     internal static string SemanticVersion(string? informationalVersion)
@@ -158,7 +189,7 @@ internal static class CliApplication
                                           The agent skills this binary carries, and where they install
               okf mcp [path]              Run the read-only MCP server over stdio
               okf help                    Show this help
-              okf version                 Show the version
+              okf version [--verbose]     Show the version (--verbose also prints the commit)
 
             Run `okf <command> --help` for a command's options.
             """);
