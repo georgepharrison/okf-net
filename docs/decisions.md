@@ -2857,10 +2857,11 @@ the working clone with `insteadOf`, drop the `@semantic-release/gitlab` plugin, 
 `--dry-run --no-ci` with the release job's exact plugin pins): on `main`, semantic-release
 reports "No previous release found", takes all 206 commits and computes **1.0.0**, with
 sectioned notes of 162 entries — Features 32, Bug Fixes 48, Documentation 65, Refactoring 3,
-CI/CD 14. Those counts are `main` as it stood *before* this work item; the flip's own two
-commits are themselves releasable (`ci` and `docs`, both patch), so the run that actually
-cuts the tag sees 208 commits and 164 entries. The version does not move — with no previous
-release the answer is 1.0.0 whatever the bump — which is the point of measuring it. Then,
+CI/CD 14. Those counts are `main` as it stood *before* this work item, and they are a
+snapshot rather than a prediction: every commit that lands between the measurement and the
+merge is itself releasable, so the run that actually cuts the tag reports a few more of
+both. The version is what does not move — with no previous release the answer is 1.0.0
+whatever the bump adds up to, which is the whole point of measuring it. Then,
 simulating the world one merge after that release *inside the mirror only* —
 a `v1.0.0` tag on `main`, `dev` branched from it, one `fix:` commit — `dev` computes
 **1.0.1-rc.1**. That second run is the one worth having: it is the first evidence that the
