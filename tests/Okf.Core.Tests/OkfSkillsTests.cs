@@ -337,6 +337,11 @@ public class OkfSkillInstallerTests
             [
                 new KeyValuePair<string, string>("HOME", home),
                 new KeyValuePair<string, string>("XDG_DATA_HOME", Path.Combine(tree.Root, "data")),
+
+                // Windows reads this one instead, and an unset one resolves to the real
+                // profile — which is how a test suite writes into the developer's own
+                // %LOCALAPPDATA%. Same directory, so the assertions below hold on both.
+                new KeyValuePair<string, string>("LOCALAPPDATA", Path.Combine(tree.Root, "data")),
             ]);
     }
 }

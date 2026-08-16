@@ -73,6 +73,14 @@ internal static class Cli
         {
             new("HOME", home),
             new("XDG_CONFIG_HOME", Path.Combine(home, ".config")),
+
+            // Windows reads LOCALAPPDATA rather than HOME for the data directory, and an
+            // unset one falls back to the real profile — which would put `okf skills
+            // install` in the developer's own %LOCALAPPDATA%. Pointed at the same place
+            // the XDG fallback lands so one expected path holds on both platforms;
+            // XDG_DATA_HOME is deliberately left unset, so the `~/.local/share` fallback
+            // is what these tests exercise.
+            new("LOCALAPPDATA", Path.Combine(home, ".local", "share")),
         };
 
         if (okfHome is not null)
