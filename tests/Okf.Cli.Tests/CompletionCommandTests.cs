@@ -272,6 +272,30 @@ public class CompletionCommandTests
     }
 
     /// <summary>
+    /// A path with a space in it is one candidate, not two. <c>COMPREPLY=( $(compgen -f) )</c>
+    /// splits on the default IFS, which is what turns `my notes.md` into `my` and
+    /// `notes.md` — and every path-taking verb offers file completion.
+    /// </summary>
+    [SkippableFact]
+    public void BashOffersAPathWithASpaceInItAsOneCandidate()
+    {
+        Skip.IfNot(Tooling.IsOnPath("bash"), "bash is not installed");
+        using var tree = new TempTree();
+        var script = tree.Write("okf.bash", CompletionCommand.Render("bash")!);
+        var vault = tree.CreateDirectory("vault");
+        tree.Write(Path.Combine("vault", "my notes.md"), string.Empty);
+
+        var run = Shell(
+            "bash",
+            "-c",
+            $"cd '{vault}'; source '{script}'; COMP_WORDS=(okf lint ''); COMP_CWORD=2; _okf; " +
+            "printf '%s\n' \"${COMPREPLY[@]}\"");
+
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal(["my notes.md"], run.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>
     /// zsh, loaded the way `eval "$(okf completion zsh)"` loads it: under a real compinit,
     /// with the function defined and registered as okf's completer afterwards. Driving a
     /// completion to its answers needs a terminal, which this suite does not have.

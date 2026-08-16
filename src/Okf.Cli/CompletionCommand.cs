@@ -169,6 +169,10 @@ internal static class CompletionCommand
         Line("}");
         Line("");
         Line("__okf_files() {");
+        Line("    # A path may contain spaces, and the default IFS would split one such name");
+        Line("    # into several candidates. `local IFS` keeps this to the one function and");
+        Line("    # stays inside bash 3.2, which is what macOS still ships.");
+        Line("    local IFS=$'\\n'");
         Line("    COMPREPLY=( $(compgen -f -- \"$1\") )");
         Line("    compopt -o filenames 2>/dev/null");
         Line("}");

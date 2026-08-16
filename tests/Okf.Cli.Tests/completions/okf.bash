@@ -9,6 +9,10 @@ __okf_words() {
 }
 
 __okf_files() {
+    # A path may contain spaces, and the default IFS would split one such name
+    # into several candidates. `local IFS` keeps this to the one function and
+    # stays inside bash 3.2, which is what macOS still ships.
+    local IFS=$'\n'
     COMPREPLY=( $(compgen -f -- "$1") )
     compopt -o filenames 2>/dev/null
 }

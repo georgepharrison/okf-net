@@ -304,7 +304,6 @@ internal static class CompletionTable
                 new("--force", "Overwrite a file whose bytes differ", CompletionValue.None),
                 new("--host", "Where to write", CompletionValue.Host),
                 new("--names", "List names only, one per line", CompletionValue.None),
-                
                 new("--scope", "Install for this user or beside this project", CompletionValue.InstallScope),
             ],
             CompletionValue.Skill)
