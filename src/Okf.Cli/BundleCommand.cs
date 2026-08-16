@@ -256,7 +256,9 @@ internal static class BundleCommand
             Packages a vault's bundles for consume-only distribution. What ships is
             `bundles/<name>/**` — concepts, indexes, log.md, about files, references/ —
             and one `okf-bundle.json` at the root. What never ships: raw/, custodian/,
-            okf.json, the vault README, dotfiles, and editor droppings.
+            okf.json, the vault README, named tool state (.git/, .obsidian/, .DS_Store and
+            their peers), and editor droppings. A dot-prefixed file a producer wrote is
+            content and ships, because `okf lint` judged it.
 
             The archive is deterministic: entries are sorted, timestamps fixed, modes
             normalized. The same vault packaged with the same --generated-at is
