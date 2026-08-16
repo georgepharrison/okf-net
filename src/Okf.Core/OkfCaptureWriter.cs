@@ -421,6 +421,11 @@ public static class OkfCaptureWriter
             return (null, $"no such file or directory: '{full}'.");
         }
 
+        if (IsLink(full, isDirectory))
+        {
+            return (null, Linked(relative));
+        }
+
         var form = isDirectory ? OkfCaptureForm.Packet : OkfCaptureForm.Flat;
         if (addition.Form is { } asserted && asserted != form)
         {
@@ -453,9 +458,9 @@ public static class OkfCaptureWriter
         }
         else
         {
-            foreach (var file in Directory.EnumerateFiles(full, "*", SearchOption.AllDirectories))
+            if (Collect(root, full, paths) is { } linked)
             {
-                paths.Add(Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/'));
+                return (null, Linked(linked));
             }
 
             paths.Sort(StringComparer.Ordinal);
@@ -468,18 +473,59 @@ public static class OkfCaptureWriter
         var files = new List<(string Path, string Sha256)>();
         foreach (var path in paths)
         {
-            var absolute = Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar));
-            if ((File.GetAttributes(absolute) & FileAttributes.ReparsePoint) != 0)
-            {
-                return (null, $"'{path}' is a symbolic link, not a captured artifact. raw/ holds the bytes that were "
-                    + "retrieved, and a link points at bytes that can be repointed.");
-            }
-
-            files.Add((path, OkfCaptureManifest.Sha256Of(absolute)));
+            files.Add((path, OkfCaptureManifest.Sha256Of(
+                Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)))));
         }
 
         return (new CapturedItem(id, form, files), null);
     }
+
+    /// <summary>
+    /// Collects a packet's files, refusing at the first symlink instead of walking through
+    /// it. The walk is written out rather than left to <see cref="SearchOption.AllDirectories" />
+    /// because that one descends a directory link, and a descent that leaves <c>raw/</c>
+    /// records the digest of a file the vault does not hold under a path that says it does.
+    /// The rule is the bundle walk's, tightened: okf never follows a link out of the root,
+    /// and <c>raw/</c> refuses one even when it lands back inside.
+    /// </summary>
+    /// <returns>The raw-relative path of the first link found, or null when there is none.</returns>
+    private static string? Collect(string root, string directory, List<string> paths)
+    {
+        foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+        {
+            var relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
+            if (entry.LinkTarget is not null)
+            {
+                return relative;
+            }
+
+            if (entry is DirectoryInfo child)
+            {
+                if (Collect(root, child.FullName, paths) is { } linked)
+                {
+                    return linked;
+                }
+
+                continue;
+            }
+
+            paths.Add(relative);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a path is a symlink or other reparse point. <c>LinkTarget</c> rather than the
+    /// <see cref="FileAttributes.ReparsePoint" /> bit, because the bit is not set on a
+    /// directory link on every platform and this is a containment check.
+    /// </summary>
+    private static bool IsLink(string path, bool isDirectory) =>
+        (isDirectory ? new DirectoryInfo(path) : (FileSystemInfo)new FileInfo(path)).LinkTarget is not null;
+
+    private static string Linked(string path) =>
+        $"'{path}' is a symbolic link, not a captured artifact. raw/ holds the bytes that were retrieved, and a "
+        + "link points at bytes that can be repointed.";
 
     private static string Spell(OkfCaptureForm form) => form == OkfCaptureForm.Flat ? "flat" : "packet";
 

@@ -344,6 +344,76 @@ public class OkfCaptureWriterTests
     }
 
     [Fact]
+    public void AFlatItemThatIsASymbolicLinkIsRefused()
+    {
+        using var raw = new RawZone();
+        File.WriteAllText(Path.Combine(raw.Vault, "elsewhere.html"), "<html>elsewhere</html>\n");
+        File.CreateSymbolicLink(
+            Path.Combine(raw.Root, "2026-08-16-a-second-page.html"),
+            Path.Combine(raw.Vault, "elsewhere.html"));
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-a-second-page.html"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.ItemRefused, result.Outcome);
+        Assert.Null(result.Text);
+        Assert.Contains("is a symbolic link", result.Problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void APacketThatIsItselfADirectoryLinkIsRefusedRatherThanWalkedThrough()
+    {
+        // The hole a `Directory.Exists` check alone leaves: the link answers yes, and every
+        // file found behind it would be hashed into the record under a `raw/` path.
+        using var raw = new RawZone();
+        Directory.CreateDirectory(Path.Combine(raw.Vault, "elsewhere"));
+        File.WriteAllText(Path.Combine(raw.Vault, "elsewhere", "secret.txt"), "not in raw/\n");
+        Directory.CreateSymbolicLink(
+            Path.Combine(raw.Root, "2026-08-16-okapi-paper"),
+            Path.Combine(raw.Vault, "elsewhere"));
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-okapi-paper"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.ItemRefused, result.Outcome);
+        Assert.Null(result.Text);
+        Assert.Contains("is a symbolic link", result.Problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void APacketHoldingALinkedSubdirectoryIsRefusedRatherThanDescendedInto()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-okapi-paper/original.pdf", "%PDF-1.4 pretend\n");
+        Directory.CreateDirectory(Path.Combine(raw.Vault, "elsewhere"));
+        File.WriteAllText(Path.Combine(raw.Vault, "elsewhere", "secret.txt"), "not in raw/\n");
+        Directory.CreateSymbolicLink(
+            Path.Combine(raw.Root, "2026-08-16-okapi-paper", "linked"),
+            Path.Combine(raw.Vault, "elsewhere"));
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-okapi-paper"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.ItemRefused, result.Outcome);
+        Assert.Null(result.Text);
+        Assert.Contains("2026-08-16-okapi-paper/linked", result.Problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void APacketHoldingALinkedFileIsRefused()
+    {
+        using var raw = new RawZone();
+        raw.Drop("2026-08-16-okapi-paper/original.pdf", "%PDF-1.4 pretend\n");
+        File.WriteAllText(Path.Combine(raw.Vault, "elsewhere.md"), "# elsewhere\n");
+        File.CreateSymbolicLink(
+            Path.Combine(raw.Root, "2026-08-16-okapi-paper", "extracted.md"),
+            Path.Combine(raw.Vault, "elsewhere.md"));
+
+        var result = OkfCaptureWriter.Add(Dogfood, raw.Root, raw.Addition("2026-08-16-okapi-paper"));
+
+        Assert.Equal(OkfCaptureWriteOutcome.ItemRefused, result.Outcome);
+        Assert.Null(result.Text);
+        Assert.Contains("2026-08-16-okapi-paper/extracted.md", result.Problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AMissingItemIsRefused()
     {
         using var raw = new RawZone();
