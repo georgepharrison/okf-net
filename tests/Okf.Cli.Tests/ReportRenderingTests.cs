@@ -190,12 +190,14 @@ public class ReportRenderingTests
     /// <summary>
     /// The registry's text summary counts the entries whose path is gone and points at the
     /// verb that removes them, in the singular or the plural as the count requires — and
-    /// says neither when every path is present.
+    /// says neither when every path is present. Each row pins the tail from the closing
+    /// quote of the registry path onward, so the no-missing row asserts that the sentence
+    /// ends there rather than merely that the output contains a full stop somewhere.
     /// </summary>
     [Theory]
-    [InlineData(0, ".")]
-    [InlineData(1, "1 path missing — `okf registry prune` removes it.")]
-    [InlineData(2, "2 paths missing — `okf registry prune` removes them.")]
+    [InlineData(0, "'.")]
+    [InlineData(1, "'; 1 path missing — `okf registry prune` removes it.")]
+    [InlineData(2, "'; 2 paths missing — `okf registry prune` removes them.")]
     public void RegistrySummaryCountsMissingPaths(int missing, string expected)
     {
         using var tree = new TempTree();
