@@ -884,7 +884,7 @@ row set once it exists.
 | dotnet-stryker | 4.16.0 | Apache-2.0 | Mutation testing; local tool, invisible to the SBOM (AD-43, AD-44) |
 | cyclonedx | 6.2.0 | Apache-2.0 | SBOM generation for the license gate; local tool, so its own license is checked by hand (AD-43) |
 | markdownlint-cli2 | latest (mise-managed) | — | `mise run lint` |
-| semantic-release | 25.0.9 + 4 plugins, pinned exactly in the `release` job | — | Cuts `vX.Y.Z` from `main` and `vX.Y.Z-rc.N` from `dev`, and creates the GitLab Release |
+| semantic-release | 25.0.9 + 3 plugins + the `conventionalcommits` preset, all pinned exactly in the `release` job | — | Cuts `vX.Y.Z` from `main` and `vX.Y.Z-rc.N` from `dev`, and creates the GitLab Release |
 | GitLab (self-hosted) | CE 19.0.1 | — | Repository, CI, Pages, generic package registry |
 | CI images | node:22-slim · mcr.microsoft.com/dotnet/sdk:10.0 · python:3.12-slim | — | Default · `.dotnet` template · `test-install` |
 | Artifact host | nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www` | — | `get.okf.tychostation.dev` (internal only) |

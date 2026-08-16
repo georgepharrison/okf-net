@@ -2857,7 +2857,11 @@ the working clone with `insteadOf`, drop the `@semantic-release/gitlab` plugin, 
 `--dry-run --no-ci` with the release job's exact plugin pins): on `main`, semantic-release
 reports "No previous release found", takes all 206 commits and computes **1.0.0**, with
 sectioned notes of 162 entries — Features 32, Bug Fixes 48, Documentation 65, Refactoring 3,
-CI/CD 14. Then, simulating the world one merge after that release *inside the mirror only* —
+CI/CD 14. Those counts are `main` as it stood *before* this work item; the flip's own two
+commits are themselves releasable (`ci` and `docs`, both patch), so the run that actually
+cuts the tag sees 208 commits and 164 entries. The version does not move — with no previous
+release the answer is 1.0.0 whatever the bump — which is the point of measuring it. Then,
+simulating the world one merge after that release *inside the mirror only* —
 a `v1.0.0` tag on `main`, `dev` branched from it, one `fix:` commit — `dev` computes
 **1.0.1-rc.1**. That second run is the one worth having: it is the first evidence that the
 `rc` channel keeps working *after* a stable release exists, which is precisely the state no
@@ -2870,9 +2874,23 @@ nothing here (the channel is a git-note label and a dist-tag this project does n
 while the tag is `v1.0.1-rc.1` either way), but the log line reads like a misconfiguration
 and is not one.
 
-**What is still outstanding.** `stable` still exists on the remote and is now unreferenced —
-deleting it is the orchestrator's step, after this merges, along with fast-forwarding
-`origin/dev` to `main`. `dev` is unprotected while the `GITLAB_TOKEN` CI variable is
-**protected**, so the `release` job on `dev` would run without a token until one of the two
-changes; that is a GitLab settings decision for Ringo, not a repository change. The board's
-`#10` row leaves the deferred table in `docs/architecture.md` with this commit.
+**What is still outstanding, and one of it is a prerequisite rather than housekeeping.**
+Three steps follow this merge, in order:
+
+1. **Fast-forward `origin/dev` to `main`.** `dev` currently sits at `41d51cf`, behind the
+   `v1.0.0` this merge will cut, and that is not a tidiness problem. A prerelease branch
+   reads its last release from tags on *its own* history and *its own* channel, and the 35
+   pre-flip `rc` tags were published on the old `main` channel. Measured, in the mirror: a
+   `fix:` merged to `dev` while `dev` is still at `41d51cf` makes semantic-release announce
+   "There is no previous release" and compute **`1.0.0-rc.1`** — a tag that already exists
+   on the remote, so the push fails and the `rc` channel is stuck. The same `fix:` on a
+   `dev` that contains `v1.0.0` computes `1.0.1-rc.1`, as intended. Fast-forward before the
+   first MR targets `dev`.
+2. **Delete `stable`.** It still exists on the remote and is now unreferenced by
+   `.releaserc.yml`. Nothing reads it; it is only confusing.
+3. **Decide the token.** `dev` is unprotected while the `GITLAB_TOKEN` CI variable is
+   **protected**, so the `release` job on `dev` would run without a token until either `dev`
+   is protected or the variable is not. That is a GitLab settings decision for Ringo, not a
+   repository change. `main` is protected, so the `v1.0.0` run itself is unaffected.
+
+The board's `#10` row leaves the deferred table in `docs/architecture.md` with this commit.

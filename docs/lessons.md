@@ -78,6 +78,14 @@ future session (human or agent) relearns them. Newest first within sections.
   `v1.0.1-rc.1` as intended, and the channel is a separate field (a git-note
   label and an npm dist-tag) that takes the branch's name unless `channel` is
   set explicitly. The log line reads like a misconfiguration and is not one.
+- **When the prerelease channel moves to a new branch, that branch must
+  contain the stable tag before anything merges into it.** A prerelease branch
+  reads its last release from tags on its own history *and its own channel*, so
+  rc tags cut while a different branch carried the channel do not count. A `dev`
+  left behind the new `v1.0.0` therefore reports "There is no previous release"
+  and computes `1.0.0-rc.1` — a tag that already exists — and the release job
+  fails on the push. Fast-forwarding `dev` onto the stable tag first makes the
+  same commit compute `1.0.1-rc.1`. Both measured in a mirror (work item #10).
 - **A dry run can simulate a future the remote has not reached.** The mirror
   is writable and nobody is watching it, so the state you want to test can be
   *manufactured* there: work item #10 checked that the `rc` channel still

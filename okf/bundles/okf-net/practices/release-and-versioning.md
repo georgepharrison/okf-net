@@ -73,6 +73,16 @@ mirror of the remote, with the second future manufactured in the mirror — a
 fake `v1.0.0` tag and a `dev` branch off it — because that state does not exist
 until the flip has already happened.
 
+The symmetry cuts both ways, and that is the trap the second measurement
+exposed. A prerelease branch reads its last release from tags on its own
+history and its own channel, so the pre-flip `rc` tags — cut while a different
+branch carried the channel — do not count for `dev` either. A `dev` that does
+not yet contain the stable tag reports no previous release and computes
+`1.0.0-rc.1`, which already exists on the remote, and the release job fails
+pushing it. Moving the prerelease channel to a branch therefore means
+fast-forwarding that branch onto the stable tag *before* anything merges into
+it; it is a prerequisite, not tidying up.
+
 # Two pipelines per release
 
 A release is cut by two pipelines, not one, and they do different jobs.
