@@ -239,16 +239,40 @@ public class OkfRegistryTests : IDisposable
 
     /// <summary>
     /// `okf register &lt;project&gt;` stores `&lt;project&gt;/okf`, so `okf unregister
-    /// &lt;project&gt;` — the same word the person typed — has to find it.
+    /// &lt;project&gt;` — the same word the person typed — has to find it. The project here
+    /// is the one whose id was uniquified to <c>alpha-2</c>, so nothing but the path lookup
+    /// can be what matches.
     /// </summary>
-    [Fact]
-    public void UnregisteringAProjectRootRemovesTheVaultItRegistered()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnregisteringAProjectRootRemovesTheVaultItRegistered(bool relative)
     {
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
+        var project = Path.Combine(this.root, "elsewhere", "alpha");
+        var entry = registry.Register(project, Registered).Entry;
 
-        Assert.NotNull(registry.Unregister("alpha", this.root));
-        Assert.Empty(registry.Entries);
+        Assert.Equal("alpha-2", entry.Id);
+        Assert.Equal(Path.Combine(project, "okf"), entry.Path);
+        Assert.Equal("alpha-2", registry.Unregister(relative ? Path.Combine("elsewhere", "alpha") : project, this.root)?.Id);
+        Assert.Equal(["alpha"], registry.Entries.Select(existing => existing.Id));
+    }
+
+    /// <summary>
+    /// A vault path is removable by the path itself, not only by the id — and the id is
+    /// tried first, so a path that happens to spell another entry's id can never take the
+    /// wrong entry out.
+    /// </summary>
+    [Fact]
+    public void UnregisteringByTheStoredVaultPathRemovesThatEntry()
+    {
+        var registry = OkfRegistry.Empty();
+        var alpha = registry.Register(Project("alpha"), Registered).Entry;
+        registry.Register(Path.Combine(this.root, "elsewhere", "alpha"), Registered);
+
+        Assert.Equal("alpha", registry.Unregister(alpha.Path, this.root)?.Id);
+        Assert.Equal(["alpha-2"], registry.Entries.Select(entry => entry.Id));
     }
 
     [Fact]

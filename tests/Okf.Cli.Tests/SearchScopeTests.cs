@@ -206,6 +206,97 @@ public class SearchScopeTests
         Assert.Contains("More than one bundle in scope is named 'notes'", ambiguous, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A registry file that does not parse is an environment failure the caller can read
+    /// and repair, not a crash — and reading it never rewrites it, because a command that
+    /// silently repaired machine-wide state would be one nobody could trust (AD-7).
+    /// </summary>
+    [Theory]
+    [InlineData("registered")]
+    [InlineData("all")]
+    public void AMalformedRegistryIsTheUsageExitCodeAndTheFileIsLeftExactlyAsItWas(string scope)
+    {
+        using var world = new World();
+        var registry = world.Home.Write(
+            Path.Combine(".config", "okf", OkfRegistry.FileName),
+            "{ not json");
+
+        var run = Cli.RunIn(world.Project, world.Home.Root, "search", Query, "--scope", scope);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("okf: error:", run.Error, StringComparison.Ordinal);
+        Assert.Contains(registry, run.Error, StringComparison.Ordinal);
+        Assert.Empty(run.Output);
+        Assert.Equal("{ not json", File.ReadAllText(registry));
+    }
+
+    /// <summary>
+    /// The default scope must not so much as read the registry: a broken registry on one
+    /// machine cannot be allowed to break the query every machine agrees on (PRD CLI-3).
+    /// </summary>
+    [Fact]
+    public void TheProjectScopeNeverReadsTheRegistryAndIsUnaffectedByABrokenOne()
+    {
+        using var world = new World();
+        world.Home.Write(Path.Combine(".config", "okf", OkfRegistry.FileName), "{ not json");
+
+        var run = Cli.RunIn(world.Project, world.Home.Root, "search", Query);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("project-only", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheServerRefusesToStartOnAMalformedRegistryRatherThanCrashing()
+    {
+        using var world = new World();
+        world.Home.Write(Path.Combine(".config", "okf", OkfRegistry.FileName), "{ not json");
+        var environment = Cli.Environment(world.Project, world.Home.Root);
+
+        var run = Mcp.Run(environment, ["--scope", "registered"], Mcp.Initialize());
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("okf: error:", run.Error, StringComparison.Ordinal);
+        Assert.Empty(run.Output);
+    }
+
+    /// <summary>
+    /// The layer `autoRegister` is refused in is named by every command that reads the
+    /// project config, `okf search` included — the refusal is only useful if it arrives as
+    /// a diagnostic rather than a stack trace (PRD CLI-2, CLI-14).
+    /// </summary>
+    [Fact]
+    public void AutoRegisterInTheProjectConfigIsAUsageFailureForSearchToo()
+    {
+        using var world = new World();
+        File.WriteAllText(
+            Path.Combine(world.Project, "okf", "okf.json"),
+            """{ "autoRegister": true }""");
+
+        var run = Cli.RunIn(world.Project, world.Home.Root, "search", Query);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("global setting", run.Error, StringComparison.Ordinal);
+        Assert.Contains("project config", run.Error, StringComparison.Ordinal);
+        Assert.Empty(run.Output);
+    }
+
+    /// <summary>A `search.scope` typo must be a diagnostic, not an unhandled exception.</summary>
+    [Fact]
+    public void AnUnknownConfiguredScopeIsAUsageFailureRatherThanACrash()
+    {
+        using var world = new World();
+        File.WriteAllText(
+            Path.Combine(world.Project, "okf", "okf.json"),
+            """{ "search": { "scope": "everything" } }""");
+
+        var run = Cli.RunIn(world.Project, world.Home.Root, "search", Query);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Contains("`search.scope` must be one of", run.Error, StringComparison.Ordinal);
+        Assert.Empty(run.Output);
+    }
+
     /// <summary>Two vaults and a registry, all inside one temporary home.</summary>
     private sealed class World : IDisposable
     {

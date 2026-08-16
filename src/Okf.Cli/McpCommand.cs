@@ -128,7 +128,8 @@ internal static class McpCommand
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception)
+            when (exception is OkfConfigException or IOException or UnauthorizedAccessException)
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;

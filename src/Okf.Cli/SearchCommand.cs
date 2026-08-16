@@ -45,6 +45,14 @@ internal static class SearchCommand
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
+        catch (OkfConfigException exception)
+        {
+            // Scope resolution reads okf.json and, beyond `--scope project`, the registry:
+            // a malformed one of either is an environment failure the caller can repair
+            // (CLI-14's exit 2), never a stack trace out of the middle of a search.
+            error.WriteLine($"okf: error: {exception.Message}");
+            return CliApplication.ExitUsage;
+        }
         catch (IOException exception)
         {
             error.WriteLine($"okf: error: {exception.Message}");
