@@ -826,6 +826,7 @@ flowchart TB
   discovery, and asserted literally by a test so it cannot grow unreviewed. A symlinked
   directory is still never descended, dot-prefixed or not.
 - **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15)
+
 ### AD-50 — The skills ship inside the binary, and a committed pointer never names a home directory
 
 - **Binds:** `skills/*/SKILL.md`, `OkfSkills`, `OkfSkillInstaller`, `okf skills`, `okf init`,

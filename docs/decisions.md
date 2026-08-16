@@ -2653,6 +2653,7 @@ rule when it argues that `<vault-root>/.okf/` costs the bundler nothing. The con
 survives for the other reason it gives — the walk starts at `bundles/<name>/`, so a
 vault-root directory is never reached whatever it is called — but an index kept *inside*
 a bundle root would now be walked, and #24 has to place it accordingly.
+
 ### Proposed decisions: shipping the skills (work item #41, 2026-08-15)
 
 An outside review found the hole every reviewer here had walked past: the installer
