@@ -286,3 +286,42 @@ that run.
   split reproduces the 73.23 % Stryker itself printed, so **the JSON is
   authoritative** and the console line is a mid-run snapshot. Read the report,
   not the terminal.
+
+## D and E outcomes — trust/inbox/verify/stamp
+
+Work item #13, branch `13-trust-inbox`. Stryker over the package's seven files
+alone: **76.52 % → 85.71 %** (killed 251 → 270; survived + no-coverage 77 → 45).
+`OkfInbox.cs` and `OkfLifecycleInstant.cs` reach 100 %, `OkfStamp.cs` 66.86 % →
+79.75 % and `OkfVerifyIdentity.cs` 72.92 % → 76.09 %.
+
+**D found nothing to delete.** Every public member of the seven files has a
+caller in `src/` or is one of the two model-level entry points
+(`OkfStamp.Verify`, `OkfStamp.StampGenerated`) the class documents as the
+library surface beside the text ones. No doc claims a path that is not there.
+
+**Recorded as unkillable by construction**, so the score conversation should
+exclude them rather than manufacture coverage (AD-44):
+
+| Site | Why no input distinguishes the mutant |
+| --- | --- |
+| `OkfStamp.cs:275, 379` and the `276`/`399` blocks | `text.Split('\n')` never yields an empty list, so `lines.Count == 0` is already dead; the rest of the guard only ever routes a fenceless file to the emitter, which is where the mutant's own output ends up too. |
+| `OkfStamp.cs:282, 388` | `fence` is overwritten whenever a closing fence exists, and when none does both the guard and its mutant end at the emitter's `Unterminated YAML frontmatter block`. |
+| `OkfStamp.cs:292, 300, 398, 408` | `fence` is `-1` or `≥ 1` and `key` is `-1` or `≥ 1`; neither can be `0`, so `< 0` and `<= 0` agree on every reachable value. |
+| `OkfStamp.cs:310, 419` | The closing fence is itself a non-whitespace line, so `i <= fence` assigns `stop` the value it already held. |
+| `OkfStamp.cs:319` (`Length < 0`) | The region is only consulted when the value is a one-line flow mapping, and a valid document has no region in that case. |
+| `OkfStamp.cs:320, 321, 435, 436, 454, 455` | Each mutant makes the surgery attempt a shape it refuses. The result is not YAML, so the parse-back check rejects it and the caller falls to the emitter — the same output the refusal produces. |
+| `OkfStamp.cs:87-89, 191-193` | AD-23's belt: the emitter fallback cannot lose the event it just added, so the "did not read back" refusal has no reachable input. Keep the check. |
+| `OkfStamp.cs:258, 356` | Already recorded above: the caller parsed the document first. |
+| `OkfVerifyIdentity.cs:59` (`GIT_CONFIG_SYSTEM`, `GIT_CONFIG_NOSYSTEM`) | `git config --global --get` does not read the system file, so passing these through changes no answer. They are hermeticity belt for a future non-`--global` read. `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` are each pinned by a test now. |
+| `OkfVerifyIdentity.cs:112` | `CreateNoWindow` has no effect on the POSIX test host. |
+| `OkfVerifyIdentity.cs:137` | Draining stderr only matters for an output large enough to fill the pipe, which `git config` cannot produce. |
+
+**Left for a decision, not a test:** `OkfVerifyIdentity.cs:132, 143, 151-152` —
+`Process.Start` returning null, the five-second timeout kill, and the
+"git is not installed" catch. Reaching any of them needs an injectable process
+seam, which is a public API change the 1.x freeze does not allow, or a git-less
+CI lane. Same class as `OkfEnvironment`'s Windows branch.
+
+**AD-25 needed no new tests.** `OkfLifecycleInstant.cs` was already at 100 %:
+the coarser-precision comparison, the written-date rule and the wider drift
+ordering each have a test whose expected values come from the AD text.
