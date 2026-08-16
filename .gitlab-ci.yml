@@ -113,6 +113,39 @@ build:
   script:
     - dotnet build Okf.sln --configuration Release
 
+# The per-MR proxy for AD-8's build-time AOT gate (AD-44's "mechanical" spirit applied
+# here to decisions.md's multi-platform-releases argument, work item #36). This runner
+# is the plain `mcr.microsoft.com/dotnet/sdk:10.0` image — no clang, no zlib1g-dev — and
+# the tag pipeline's `publish` job installs both before it can invoke ILC for
+# `linux-x64`. A real NativeAOT compile needs that toolchain and does not happen here;
+# it stays the tag pipeline's alone.
+#
+# What runs on a Linux SDK image with nothing extra installed is the IL trim analyzer:
+# `PublishTrimmed` walks the same reachability analysis `PublishAot=true` would hand to
+# ILC, minus the native codegen behind it. #36 leaned on exactly this substitution for
+# osx-arm64 and win-x64, because there is no Mac or Windows runner either, and found it
+# catches what AOT-hostile code would have tripped: `-p:TrimmerSingleWarn=false
+# -p:SuppressTrimAnalysisWarnings=false` expands the per-assembly summary into individual
+# IL2xxx findings, and `-p:TreatWarningsAsErrors=true` turns one into a failed job instead
+# of a note in a green log. Every merge request gets this signal before merge; only a tag
+# gets the real ILC compile that AD-8 requires of the shipped binary.
+#
+# The smoke test after publish is not a substitute for `dogfood` or `test` — it only
+# proves the trimmer left a runnable binary behind, which a clean trim-analysis pass does
+# not by itself guarantee (a member can be trimmed away for reasons the analyzer never
+# raises a warning for).
+trim-check:
+  extends: .dotnet
+  stage: validate
+  script:
+    - >
+      dotnet publish src/Okf.Cli -c Release -r linux-x64 --self-contained
+      -p:PublishAot=false -p:PublishTrimmed=true -p:PublishSingleFile=true
+      -p:TrimmerSingleWarn=false -p:SuppressTrimAnalysisWarnings=false
+      -p:TreatWarningsAsErrors=true -o artifacts/trim-check
+    - artifacts/trim-check/okf version
+    - artifacts/trim-check/okf help
+
 test:
   extends: .dotnet
   stage: validate

@@ -28,6 +28,7 @@ implementation choices in this repo.
 - **Markdown lint.** Linted with `markdownlint-cli2` (config in
   `.markdownlint.yaml`). Dot-folders (e.g. `.claude/`, `.github/`) are
   excluded.
+- **AOT trim safety.** `mise run trim-check` is the per-change AOT proxy — the tag pipeline alone runs the real NativeAOT compile (AD-8).
 - **Dependencies must be Apache-2.0-compatible.** Only permissively licensed
   NuGet packages (MIT, Apache 2.0, BSD). Check the license of the EXACT
   version being added — packages change licenses between majors
