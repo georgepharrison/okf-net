@@ -153,43 +153,56 @@ and `CodeAnalysisTreatWarningsAsErrors=false` while keeping `Nullable` and the
 compiler's own `TreatWarningsAsErrors`. `spikes/` is outside `Okf.sln` on purpose
 (AD-43) and a throwaway that already answered its question is not worth a sweep.
 
-## What is left: three work packages
+## What is left: zero
 
-Disjoint by project. The tree does not build clean until all three land — that is
-expected at the end of A0, and the gated build currently stops at `Okf.Core` with
-13 errors.
+All three work packages landed on `31-analyzers` (work item A1). `dotnet build
+Okf.sln` is clean — 0 errors, 0 warnings — and `dotnet test Okf.sln` is green (876
+Okf.Core.Tests, 449 passed + 1 skipped Okf.Cli.Tests). Every fix below is
+behaviour-preserving; nothing in `Okf.Core`'s frozen public surface changed.
 
-### Package 1 — `Okf.Core` (13)
+### Package 1 — `Okf.Core` (13, now 0)
 
-| rule | count | guidance |
+| rule | site | what happened |
 | --- | --- | --- |
-| CA1859 | 10 | see the CA1859 note below — judgement per site, not a mechanical retype |
-| CA1307 | 2 | `StringComparison.**Ordinal**`, never a culture. `OkfAgentPointer.cs:153` (`string.Replace`) and `OkfBundler.cs:463` (`string.IndexOf(char)`) are both **already** ordinal, so passing `Ordinal` is a no-op that satisfies the rule; passing `InvariantCulture` or `CurrentCulture` would change what they match |
-| CA2000 | 1 | `OkfUpgrade.cs:572` — false positive. `new SocketsHttpHandler` is handed to `new HttpClient(handler, disposeHandler: true)`, which owns and disposes it; the analyzer cannot see ownership transfer through a `bool` ctor argument. Suppress at the site with that reason |
+| CA1307 | `OkfAgentPointer.cs:153` (`string.Replace`) | `StringComparison.Ordinal` added, as planned — a no-op that satisfies the rule |
+| CA1307 | `OkfBundler.cs:463` (`string.IndexOf(char)`) | same |
+| CA2000 | `OkfUpgrade.cs:572` (`new SocketsHttpHandler`) | suppressed at the site as planned (false positive; ownership transfers via `disposeHandler: true`) — **not** a `using`: wrapping the handler in `using var` would dispose it in the method's `finally` right after `HttpClient` is constructed but before the caller ever sends a request, breaking the client. The A1 task brief's shorthand ("real using") would have changed behaviour here; suppression is what "behaviour-preserving" requires |
+| CA1859 | `OkfBundle.cs:145` `Walk` (return) | suppressed — return flows unchanged into the frozen public `MarkdownFiles()`/`ContentFiles()` |
+| CA1859 | `OkfSkills.cs:67` `Load` (return) | suppressed — backs the frozen public `All` property via `Lazy<IReadOnlyList<OkfSkill>>` |
+| CA1859 | `OkfSiteGenerator.cs:91` `MultiPage` (return) | suppressed — return flows unchanged into `OkfSitePlan.Files`, a frozen public constructor parameter/property |
+| CA1859 | `OkfSiteBuilder.cs:416` `Crumbs` (return) | suppressed — return flows unchanged into `OkfSitePage.Crumbs`, a public property (internal setter) |
+| CA1859 | `OkfInbox.cs:443` `DriftedSources` (return) | retyped to `List<OkfDriftedSource>` — private, only `.Count` is read at the call site, no public flow |
+| CA1859 | `OkfAgentPointer.cs:265` `Splice` (`replacement` param) | retyped to `string[]` — private, sole caller passes an array; `.Count` uses in the body became `.Length` |
+| CA1859 | `OkfScope.cs:261` `VaultOf` (`bundles` param) | retyped to `List<OkfBundle>` — private, both callers pass `List<OkfBundle>` |
+| CA1859 | `OkfScope.cs:275` `Sentence` (`bundles` param) | retyped to `List<OkfBundle>`, same reasoning — this was the actual 10th CA1859 site (the triage's line number pointed here, not at `VaultOf`; `VaultOf` was fixed too, as a harmless consistent follow-on, though it was not itself one of the original 13) |
+| CA1859 | `OkfUpgrade.cs:515` `Get` (return) | retyped `Stream` → the private nested `ResponseStream` — sole caller is a lambda converted to the public `Fetch` delegate (covariant return, no cast needed), so there is no public-signature reason to keep the base type |
+| CA1859 | `OkfSiteBuilder.cs:313` `Resolve` (`pages` param) | retyped to `Dictionary<string, OkfSitePage>` — private, sole caller (`byId`) is always a `Dictionary` |
+| CA1859 | `OkfSiteBuilder.cs:418` `Crumbs` (`pages` param) | retyped to `Dictionary<string, OkfSitePage>`, same reasoning — note this is the *parameter* on the same method whose *return type* was suppressed above; the two get different treatment because only the return value crosses into public API |
 
-### Package 2 — `Okf.Cli` (5)
+### Package 2 — `Okf.Cli` (5, now 0)
 
-| rule | count | guidance |
+| rule | site | what happened |
 | --- | --- | --- |
-| CA1859 | 3 | `IndexCommand.cs:117`, `IndexCommand.cs:157`, `McpToolset.cs:773` — same note below |
-| CA1822 | 1 | `McpToolset.cs:253` — `List` does not touch instance state; make it `static` |
-| CA1031 | 1 | `McpServer.cs:170` — verified at the site and **correct as written**. It is the MCP stdio loop's top-level guard, and the existing comment already states why the catch has to be total: the loop's contract is that it survives whatever arrives on stdin, and dying there loses every request queued behind it. Suppress at the site, quoting that comment as the justification; do not narrow the catch |
+| CA1859 | `IndexCommand.cs:117` `WriteWrite` (`indexes` param) | retyped to `List<OkfIndex>` |
+| CA1859 | `IndexCommand.cs:157` `WriteCheck` (`indexes` param) | retyped to `List<OkfIndex>` |
+| CA1859 | `McpToolset.cs:773` `Strings` (return) | retyped to `List<string>` |
+| CA1822 | `McpToolset.cs:253` `List` | made `static`, as planned; its one caller (`McpServer.cs`) had to change from `this.tools.List()` to `McpToolset.List()` — C# does not allow calling a static member through an instance reference (CS0176) |
+| CA1031 | `McpServer.cs:170` | suppressed at the site, quoting the existing comment, as planned — catch left total, not narrowed |
 
 `McpServer.cs:357` and the twelve other `catch (Exception …) when (…)` sites in
-the repo are already filtered and never tripped CA1031. This is the only broad
-catch in shipped code.
+the repo are still filtered and never tripped CA1031.
 
-### Package 3 — the two test projects (38)
+### Package 3 — the two test projects (38, now 0)
 
-Near-empty on style, as intended — 82 of the 120 test findings went away with the
-`[tests/**/*.cs]` block. What remains is the deliberate keep-list, and it is
-worth deciding whether it justifies its own lane before anyone starts:
+| rule | where | what happened |
+| --- | --- | --- |
+| CA2000 | 28 `Okf.Cli.Tests` (`TestSupport.cs` ×4, `UpgradeCommandTests.cs` ×24) | `using`/`using var` added to every `StringWriter`, mechanical, per Ringo's call to keep the rule live rather than suppress it. Several sites needed restructuring — an inline `new StringWriter()` passed as a call argument became a named `using var output/error` declared just above the call, so both writers stay reachable for later `.ToString()` assertions |
+| CA2000 | 3 `Okf.Core.Tests` | `OkfUpgradeHttpTests.cs:192` (`TcpListener`) and two `Reader(file.Content)` in `OkfSiteGeneratorTests.cs` (`:359`, `:429`) all got real `using`/`using var` |
+| CA1063 | `Okf.Core.Tests` (6) | `OkfDiscoveryTests`, `OkfRegistryTests`, `OkfScopeTests` all sealed — one word each, confirmed to clear every finding |
+| CA1816 | `OkfDiscoveryTests.cs:158` (1) | cleared by the same `sealed` |
 
-| rule | count | where | guidance |
-| --- | --- | --- | --- |
-| CA2000 | 31 | 28 `Okf.Cli.Tests`, 3 `Okf.Core.Tests` | **28 of the 31 are `new StringWriter()`**, which holds no OS resource — a `using` on each is mechanical and harmless, but it is 28 edits that catch nothing. The three that carry the rule's actual weight are `OkfUpgradeHttpTests.cs:192` (`new TcpListener`) and two `Reader(file.Content)` in `OkfSiteGeneratorTests.cs`. If the coordinator wants this lane smaller, the honest cut is CA2000 `none` for `StringWriter` only, which the analyzer cannot express — so either all 31 or a per-file suppression in `TestSupport.cs` and `UpgradeCommandTests.cs` |
-| CA1063 | 6 | `Okf.Core.Tests` | `OkfDiscoveryTests`, `OkfRegistryTests`, `OkfScopeTests` implement `IDisposable` for temp-directory cleanup. **`sealed` on the class is the whole fix**, one word each — the demand for a `Dispose(bool)` overload only applies to an unsealed type. Measured, not guessed: sealing two of the three cleared all four of their findings and left only `OkfRegistryTests`. Kept enabled because it is disposal correctness, the keep-list's stated basis; it was not named explicitly in Ringo's call, so flip it off if that reading is wrong |
-| CA1816 | 1 | `OkfDiscoveryTests.cs:158` | the same edit clears it — confirmed in the same measurement. Three words of diff close out all 7 of this row and the one above |
+No new rule appeared once these landed — `dotnet build Okf.sln` went straight to
+0 errors after the above.
 
 ## Two flags for Ringo
 

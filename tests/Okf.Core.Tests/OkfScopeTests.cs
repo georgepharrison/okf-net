@@ -1,7 +1,7 @@
 namespace Okf.Core.Tests;
 
 /// <summary>Scope resolution: which vaults a command looks at (PRD CLI-2, CLI-3).</summary>
-public class OkfScopeTests : IDisposable
+public sealed class OkfScopeTests : IDisposable
 {
     private static readonly DateTimeOffset Registered = new(2026, 8, 16, 9, 30, 0, TimeSpan.Zero);
 

@@ -1,7 +1,7 @@
 namespace Okf.Core.Tests;
 
 /// <summary>The vault registry: entries, ids, and the file (PRD CLI-2, decisions.md §6).</summary>
-public class OkfRegistryTests : IDisposable
+public sealed class OkfRegistryTests : IDisposable
 {
     private static readonly DateTimeOffset Registered = new(2026, 8, 16, 9, 30, 0, TimeSpan.Zero);
 
