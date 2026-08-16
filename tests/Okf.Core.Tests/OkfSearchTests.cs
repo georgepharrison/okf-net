@@ -57,6 +57,40 @@ public class OkfSearchTests
     }
 
     [Fact]
+    public void AQueryRendersCanonicallyWithItsTermsFirst()
+    {
+        // What `okf search --verbose` prints back as the effective query (PRD CLI-4), so
+        // the rendering has to carry every part of it and in one fixed order however the
+        // parts were written.
+        Assert.Equal(
+            "widget pricing type:Playbook tag:Catalog tag:widgets",
+            OkfSearchQuery.Parse("tag:Catalog Widget type:Playbook pricing tag:widgets").ToString());
+        Assert.Equal(string.Empty, OkfSearchQuery.Parse(null).ToString());
+    }
+
+    [Theory]
+    // Where each token starts and how long it is, in the original text — what lets a
+    // snippet mark the matched words without re-finding them.
+    [InlineData("ab cd", "ab@0+2 cd@3+2")]
+    // A run of separators opens no token, at the edges or in the middle.
+    [InlineData("  ab", "ab@2+2")]
+    [InlineData("ab, cd", "ab@0+2 cd@4+2")]
+    [InlineData("ab ", "ab@0+2")]
+    [InlineData("   ", "")]
+    // A token still open when the text runs out is closed at the end of the text.
+    [InlineData("ab", "ab@0+2")]
+    // Offsets are in UTF-16 code units, so an astral separator advances by the two units
+    // it occupies and the token after it is still found where it really is.
+    [InlineData("ab\U0001F680cd", "ab@0+2 cd@4+2")]
+    public void TokenOffsetsAreWhereTheTokensReallyAre(string text, string expected) =>
+        Assert.Equal(
+            expected,
+            string.Join(
+                ' ',
+                OkfTokenizer.TokenizeWithOffsets(text).Select(
+                    token => $"{token.Token}@{token.Start}+{token.Length}")));
+
+    [Fact]
     public void AUrlInAQueryIsNotMistakenForAFilter()
     {
         var query = OkfSearchQuery.Parse("https://example.invalid/spec");
