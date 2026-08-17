@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
-using Okf.Core;
+using Okf.Core.Bundle;
+using Okf.Core.Documents;
+using Okf.Core.Search;
+using Okf.Core.Vault;
 
 namespace Okf.Spike.Vectorization;
 

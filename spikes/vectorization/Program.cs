@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
-using Okf.Core;
+using Okf.Core.Search;
+using Okf.Core.Vault;
 
 namespace Okf.Spike.Vectorization;
 

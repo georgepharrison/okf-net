@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Okf.Core.Search;
 
 namespace Okf.Spike.Vectorization;
 
@@ -38,7 +39,7 @@ internal sealed class FakeEmbedder : IEmbedder
     public float[] Embed(string text)
     {
         var vector = new float[Dimensions];
-        foreach (var token in Okf.Core.OkfTokenizer.Tokenize(text))
+        foreach (var token in OkfTokenizer.Tokenize(text))
         {
             var digest = SHA256.HashData(Encoding.UTF8.GetBytes(token));
             var slot = (int)(BitConverter.ToUInt32(digest, 0) % (uint)Dimensions);
