@@ -717,7 +717,7 @@ flowchart TB
 ### AD-42 — Every hop of the release chain re-verifies the bytes, and the host pulls
 
 - **Binds:** the `publish` job, `latest.json`, `install.sh`, `install.ps1`, and the artifact
-  host's `sync.sh` (which lives on the host, not in this repository)
+  host's `sync.sh` in `tychostation/iac`
 - **Prevents:** a package whose name lies about its contents, and an SSH credential on a
   shared runner that can write to the box serving the install script.
 - **Rule:** *(updated 2026-08-15 after #36, which made the release multi-platform, and
@@ -738,9 +738,11 @@ flowchart TB
   relative `path` (resolved
   against the installer's base URL) and the absolute registry `url`, because the installer
   must not know about GitLab and the host's `sync.sh` needs a URL it can pull with a token.
-  Nothing pushes into the artifact host: by design it holds a read-only registry token and
-  re-verifies each asset on the way in, publishing version directories by rename — a claim
-  about the host, which this repository cannot check. Each installer
+  Nothing pushes into the artifact host: it re-verifies each asset on the way in, publishes
+  shared immutable version directories, and atomically points `stable/` at the newest plain
+  tag and `dev/` at the newest `-rc.N` tag. Root files alias stable for older installers, so
+  a later dev tag cannot advance the default install. This is acceptance-tested in
+  `tychostation/iac#22` and coordinated with issue #64. Each installer
   downloads to a temp directory, compares digests, prints both on a mismatch, and only then
   stages and renames within the install directory — `~/.local/bin/okf` for `install.sh`,
   `%LOCALAPPDATA%\okf\bin\okf.exe` for `install.ps1`, neither needing root or
@@ -941,9 +943,11 @@ flowchart TB
   not asked to check for. Only an `https` base URL is accepted, or `http` to **loopback**;
   redirects are followed by hand, five hops, and one that leaves `https` is refused, because
   a digest fetched down the same cleartext channel as the bytes it describes proves nothing.
-  The manifest is `latest.json` at `<base>/` or `<base>/v<version>/`, read relative to
-  `OKF_INSTALL_URL` — the same variable both installers read, and never the registry `url`
-  the same manifest carries for the host's `sync.sh` (AD-42). A manifest is read from an
+  Moving manifests are `<base>/stable/latest.json` and `<base>/dev/latest.json`; stable is
+  the default and `--channel rc` selects dev. A pin instead reads the shared immutable
+  `<base>/v<version>/latest.json`. All are relative to `OKF_INSTALL_URL` — the same variable
+  both installers read, and never the registry `url` the manifest carries for the host's
+  `sync.sh` (AD-42). A manifest is read from an
   untrusted host, so nothing it says is taken on trust: a `path` that climbs out of the base
   URL is refused rather than fetched, and both reads are bounded — 1 MB for the manifest,
   200 MB for an asset — because the staging file is written into the directory the user's
@@ -1172,7 +1176,6 @@ not fix. Board:
 | [#62](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/62) — bare-CR line splitting | `FileLayout` and `OkfDocument` disagree on whether a bare carriage return is a line ending. The shared rule needs a decision before the two paths can be unified without changing round-trip behavior accidentally. |
 | [#18](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/18) — site UX polish | Client-side search, provenance panel, staleness badges, a `log.md` timeline; none changes an invariant. |
 | Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35), and `okf upgrade` inherits the same gap (AD-53). |
-| A second release channel for `okf upgrade` | The two-channel split (stable from `main`, rc from `dev`) is decided; the host publishes one manifest at its root, so `--channel rc` is parsed, documented as reserved, and reads the same file rather than requesting a URL nothing serves (AD-53). |
 | An on-disk search index | Every search walks the resolved bundles and reads them; four reference bundles is milliseconds. When it stops being, the generated artifact is #24's, and a bundle must stay complete without it. |
 | Phrase queries, negation, field-qualified free text | Each is a new grammar to freeze in the JSON contract (AD-28), and none is needed by the capture skill's search-before-create loop. |
 | Q8's near-duplicate heuristic, Q9's CI-commit signal | `OKF0303` ships a normalized title-or-filename collision and keeps its id when #24 replaces the heuristic. The "human actor on a CI commit" warning has no reliable signal decided, so it has no rule id. |

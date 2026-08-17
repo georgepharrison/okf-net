@@ -54,7 +54,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
         Assert.Equal("1.1.0-rc.1", plan.AvailableVersion);
         Assert.False(plan.IsUpToDate);
-        Assert.Equal($"{_baseUrl}/latest.json", plan.ManifestUri.ToString());
+        Assert.Equal($"{_baseUrl}/stable/latest.json", plan.ManifestUri.ToString());
 
         var result = OkfUpgrade.Apply(plan, userAgent: options.UserAgent);
 
@@ -158,16 +158,16 @@ public sealed class OkfUpgradeHttpTests : IDisposable
             _userAgents.Add(context.Request.UserAgent ?? string.Empty);
 
             var path = context.Request.Url!.AbsolutePath;
-            if (path == "/moved/latest.json")
+            if (path == "/moved/stable/latest.json")
             {
                 response.StatusCode = 302;
-                response.Headers["Location"] = "/latest.json";
+                response.Headers["Location"] = "/stable/latest.json";
                 response.Close();
                 continue;
             }
 
             const string redirectPrefix = "/too-many/";
-            const string manifestSuffix = "/latest.json";
+            const string manifestSuffix = "/stable/latest.json";
             if (path.StartsWith(redirectPrefix, StringComparison.Ordinal)
                 && path.EndsWith(manifestSuffix, StringComparison.Ordinal)
                 && int.TryParse(
@@ -187,7 +187,8 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
             var body = path switch
             {
-                "/latest.json" => Manifest(),
+                "/stable/latest.json" => Manifest(),
+                "/dev/latest.json" => Manifest(),
                 "/v1.1.0-rc.1/okf-linux-x64" => AssetBytes,
                 "/v1.1.0-rc.1/okf-osx-arm64" => AssetBytes,
                 "/v1.1.0-rc.1/okf-win-x64.exe" => AssetBytes,

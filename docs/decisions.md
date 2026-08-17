@@ -3949,3 +3949,40 @@ AOT posture may change. The two DEFER rows are bounded decisions with explicit u
 semantics, not missing cleanup. Everything else already satisfies the spine; the audit is
 therefore a ruling against a container and against pattern-driven churn as much as it is a
 request for one small unification.
+
+### Release channels on the artifact host (work item #64, 2026-08-17)
+
+The distribution URL now says the branch split literally: `stable/latest.json` follows
+plain releases from `main`, while `dev/latest.json` follows `-rc.N` releases from `dev`.
+Root files remain aliases into stable for installers released before this change. Pinned
+releases stay at the shared `v<version>/...` paths, outside either moving channel.
+
+**The host classifies tags; the release manifest does not gain channel state.** Every tag
+pipeline already writes the same immutable `latest.json` inside its own package version,
+and tag pipelines do not carry the branch as a reliable publication input. The IaC sync
+lists releases once, selects the first plain semver tag and first `-rc.N` tag independently,
+then fetches each package exactly as before. Adding a `channel` field or a second release
+asset would duplicate a fact derivable from the tag and make one immutable release claim it
+belongs to a moving pointer. Discovery pages until both forms are found rather than assuming
+the stable tag remains in the first 100 releases; this project already produces RCs often
+enough for that assumption to expire.
+
+**Moving trees are relative symlinks to immutable version directories.** Copying a channel
+one file at a time gives each file an atomic rename but still exposes a mixed tree between
+renames. A relative `stable -> v1.0.0` or `dev -> v1.1.0-rc.N` link is replaced in one
+rename, shares the verified bytes, and cannot dangle because automatic pruning of version
+directories is forbidden. Root `latest.json`, installers and release assets are permanent
+links through `stable`, so advancing dev cannot affect the default path.
+
+**Clients use explicit channels; pins do not.** `install.sh --channel rc`, PowerShell's
+`-Channel rc`, and `okf upgrade --channel rc` read `dev/latest.json`; their defaults read
+`stable/latest.json`. Supplying a channel beside a version remains a usage error because the
+immutable version path leaves the channel nothing to choose. Digest checks, HTTPS redirect
+containment, same-filesystem staging and asset-path containment are unchanged.
+
+The two sides are linked as `ringo/okf-net#64` and `tychostation/iac#22`. Deployment is not
+a source checkout operation: `sync.sh` is copied into the locally built
+`okf-artifacts-sync` image, so the image must be rebuilt and the stack redeployed before the
+new channel contract exists on the host. A forced sync re-fetches and verifies an existing
+version but never swaps it: changing or briefly removing bytes under a one-year-immutable
+`v<version>/` URL would violate the property both channel links depend on.

@@ -99,13 +99,14 @@ curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
 irm https://get.okf.tychostation.dev/install.ps1 | iex
 ```
 
-Either one fetches the newest release's manifest, verifies its binary's
+Either one fetches the stable channel's manifest by default, verifies its binary's
 `sha256` against it, and installs atomically — to `~/.local/bin/okf` on Linux
 and macOS, to `%LOCALAPPDATA%\okf\bin\okf.exe` on Windows, where it also adds
 that directory to your user `PATH`. Neither needs root or Administrator. Pin a
 version, install somewhere else, or look before you leap:
 
 ```sh
+curl -fsSL https://get.okf.tychostation.dev/dev/install.sh | sh -s -- --channel rc
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0
 curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
 curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
@@ -113,6 +114,7 @@ curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
 
 ```powershell
 # `iex` is handed a string, not a command, so arguments need the script-block form.
+& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/dev/install.ps1))) -Channel rc
 & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Version 1.0.0
 & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -InstallDir C:\tools\okf
 & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
@@ -129,11 +131,13 @@ Once okf is installed, it upgrades itself — no second `curl | sh`:
 okf upgrade --check    # what you have vs what is published; exit 1 if newer exists
 okf upgrade            # download, verify the sha256, replace the running binary
 okf upgrade --dry-run  # say what it would do, write nothing
+okf upgrade --channel rc      # follow release candidates from dev
 okf upgrade --version 1.0.0   # pin a release; downgrades too
 ```
 
-It reads the same `latest.json` and the same `OKF_INSTALL_URL` the installers do,
-downloads beside the binary it is replacing, checks the digest against the
+Stable reads `stable/latest.json`; `--channel rc` reads `dev/latest.json`. Both use the
+same `OKF_INSTALL_URL` as the installers, while a version pin reads the shared immutable
+`v<version>/latest.json`. The upgrader downloads beside the binary, checks its digest against the
 manifest, and only then renames the file into place — so `okf` is either the old
 binary or the new one, never a partial download. Nothing outside that one
 directory is read or written, and a mismatch prints both digests and touches

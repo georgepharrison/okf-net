@@ -13,8 +13,9 @@
 # release was built with. See docs/decisions.md.
 #
 # Usage:
-#   install.sh                      install the newest release
-#   install.sh --version 1.0.0-rc.15
+#   install.sh                      install the newest stable release
+#   install.sh --channel rc         install the newest release candidate
+#   install.sh --version 1.0.0
 #   install.sh --dry-run            say what would happen, write nothing
 #   install.sh --help
 #
@@ -42,14 +43,17 @@ done
 OKF_DIR="${OKF_INSTALL_DIR:-$HOME/.local/bin}"
 
 version=""
+channel="stable"
+channel_given=0
 dry_run=0
 
 usage() {
   cat <<'EOF'
-usage: install.sh [--version <version>] [--dry-run]
+usage: install.sh [--version <version> | --channel <stable|rc>] [--dry-run]
 
-  --version <v>   install this release instead of the newest (e.g. 1.0.0-rc.15,
+  --version <v>   install this release instead of the newest (e.g. 1.0.0,
                   with or without a leading `v`)
+  --channel <c>   install from stable/main or rc/dev (default: stable)
   --dry-run       report what would be downloaded and installed; write nothing
   -h, --help      this message
 
@@ -77,11 +81,37 @@ while [ $# -gt 0 ]; do
       version="${version#v}"
       shift
       ;;
+    --channel)
+      [ $# -ge 2 ] || die "--channel needs a value"
+      channel="$2"
+      channel_given=1
+      shift 2
+      ;;
+    --channel=*)
+      channel="${1#--channel=}"
+      channel_given=1
+      shift
+      ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) warn "install.sh: unknown argument: $1"; usage >&2; exit 2 ;;
   esac
 done
+
+case "$channel" in
+  stable|rc) ;;
+  *)
+    warn "install.sh: unknown --channel value: $channel (expected stable or rc)"
+    usage >&2
+    exit 2
+    ;;
+esac
+
+if [ -n "$version" ] && [ "$channel_given" -eq 1 ]; then
+  warn "install.sh: --version pins one release, so --channel has nothing left to choose; give one or the other"
+  usage >&2
+  exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Platform
@@ -253,8 +283,12 @@ if [ -n "$version" ]; then
   manifest_url="${OKF_BASE_URL}/v${version}/latest.json"
   say "==> okf ${version}"
 else
-  manifest_url="${OKF_BASE_URL}/latest.json"
-  say "==> okf (newest release)"
+  case "$channel" in
+    stable) channel_directory=stable ;;
+    rc)     channel_directory=dev ;;
+  esac
+  manifest_url="${OKF_BASE_URL}/${channel_directory}/latest.json"
+  say "==> okf (newest ${channel} release)"
 fi
 
 say "    manifest: ${manifest_url}"

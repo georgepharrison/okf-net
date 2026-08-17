@@ -67,14 +67,16 @@ check_not_contains() { # check_not_contains <label> <needle> <haystack>
 NL=$'\n'
 
 # ---------------------------------------------------------------------------
-# The fixture: a www tree shaped exactly like the one the artifact host serves, with two
-# versions in it so that "newest" and "--version" are distinguishable answers.
+# The fixture: a www tree shaped exactly like the artifact host, with independent stable
+# and dev channels plus shared immutable releases. Stable stays at 1.0.0 while dev advances
+# to an rc, and an older release makes "newest" and "--version" distinguishable answers.
 # ---------------------------------------------------------------------------
 
 www="$work/www"
 mkdir -p "$www"
 
-VERSION_NEW="1.0.0-rc.16"
+VERSION_NEW="1.0.0"
+VERSION_DEV="1.1.0-rc.16"
 VERSION_OLD="1.0.0-rc.15"
 
 # Every asset a release carries, in the manifest's own order. The two binaries the
@@ -84,7 +86,7 @@ VERSION_OLD="1.0.0-rc.15"
 # asset's digest. The Windows binary and install.ps1 are in the fixture too — install.sh
 # will never select them, and having them there proves it does not.
 make_release() { # make_release <version>
-  local v="$1" dir="$www/v$1" name sha_line
+  local v="$1" dir="$www/v$1" name
   mkdir -p "$dir"
 
   # Stand-ins for the real binaries: scripts that answer `okf version`, so the installer's
@@ -191,13 +193,27 @@ EOF
 
 make_release "$VERSION_OLD"
 make_release "$VERSION_NEW"
+make_release "$VERSION_DEV"
 
-# The root is the "latest" channel: copies of the newest version, exactly as sync.sh
-# publishes them on the artifact host.
+# Stable and dev are independent moving trees. The root remains a backwards-compatible
+# stable alias for installers published before the split; current clients read the explicit
+# channel directories. Immutable releases remain shared under /v<version>/.
+channel_release() { # channel_release <channel-dir> <version>
+  local channel="$1" version="$2" f
+  mkdir -p "$www/$channel"
+  for f in latest.json install.sh install.ps1 \
+           okf-linux-x64 okf-osx-arm64 okf-win-x64.exe \
+           okf-net-knowledge.tar.gz okf-skills.tar.gz; do
+    cp "$www/v$version/$f" "$www/$channel/$f"
+  done
+}
+
+channel_release stable "$VERSION_NEW"
+channel_release dev "$VERSION_DEV"
 for f in latest.json install.sh install.ps1 \
          okf-linux-x64 okf-osx-arm64 okf-win-x64.exe \
          okf-net-knowledge.tar.gz okf-skills.tar.gz; do
-  cp "$www/v$VERSION_NEW/$f" "$www/$f"
+  cp "$www/stable/$f" "$www/$f"
 done
 
 # ---------------------------------------------------------------------------
@@ -253,7 +269,8 @@ note "[$sh_bin] happy path"
 dir="$work/bin-happy-$sh_bin"
 run "$sh_bin" "$dir"
 check_eq   "exits 0" "0" "$rc"
-check_contains "reports the resolved version" "$VERSION_NEW" "$out"
+check_contains "reports the resolved stable version" "$VERSION_NEW" "$out"
+check_contains "reads the explicit stable channel" "$base/stable/latest.json" "$out"
 check_contains "verifies the digest" "sha256 verified" "$out"
 check_contains "prints the installed version" "okf $VERSION_NEW+abc1234" "$out"
 if [[ -x "$dir/okf" ]]; then ok "installs an executable at \$OKF_INSTALL_DIR/okf"
@@ -266,6 +283,19 @@ check_eq "the installed binary runs, and is the linux-x64 asset" \
 if compgen -G "$dir/.okf.install.*" >/dev/null; then
   bad "leaves no staging file behind" "found $(echo "$dir"/.okf.install.*)"
 else ok "leaves no staging file behind"; fi
+
+note "[$sh_bin] release-candidate channel"
+dir="$work/bin-rc-$sh_bin"
+run "$sh_bin" "$dir" --channel rc
+check_eq "explicit rc install exits 0" "0" "$rc"
+check_contains "reads the dev channel manifest" "$base/dev/latest.json" "$out"
+check_eq "installs the newest rc instead of stable" \
+  "$VERSION_DEV+abc1234 (okf-linux-x64)" "$("$dir/okf" version)"
+rc_before="$(sha256sum "$dir/okf" | cut -d' ' -f1)"
+run "$sh_bin" "$dir" --channel=rc
+check_eq "rc re-run exits 0" "0" "$rc"
+check_eq "rc re-run leaves the same bytes" "$rc_before" \
+  "$(sha256sum "$dir/okf" | cut -d' ' -f1)"
 
 note "[$sh_bin] the upgrade hint"
 # A person who just installed okf should not have to discover `okf upgrade` by reading the
@@ -439,7 +469,7 @@ rc=$?
 set -e
 check_eq "exits 0 with several trailing slashes" "0" "$rc"
 check_not_contains "trims every trailing slash, not just the last" "$base//" "$out"
-check_contains "and still names the manifest it fetched" "$base/latest.json" "$out"
+check_contains "and still names the manifest it fetched" "$base/stable/latest.json" "$out"
 if [[ -x "$dir/okf" ]]; then ok "still installs"; else bad "still installs" "no executable at $dir/okf"; fi
 
 note "[$sh_bin] https stays https across redirects"
@@ -765,6 +795,12 @@ check_eq "unknown flag exits 2" "2" "$rc"
 check_contains "says which flag" "--wat" "$out"
 run "$sh_bin" "$work/bin-usage2-$sh_bin" --version
 check_contains "--version with no value is rejected" "needs a value" "$out"
+run "$sh_bin" "$work/bin-usage3-$sh_bin" --channel nightly
+check_eq "an unknown channel exits 2" "2" "$rc"
+check_contains "an unknown channel names the accepted values" "stable or rc" "$out"
+run "$sh_bin" "$work/bin-usage4-$sh_bin" --version 1.0.0 --channel stable
+check_eq "a pinned version and a channel exit 2" "2" "$rc"
+check_contains "a pinned version leaves the channel nothing to choose" "give one or the other" "$out"
 
 done
 
