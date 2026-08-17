@@ -59,7 +59,6 @@ public static class OkfUpgradeVersion
         available is { Length: > 0 }
         && (IsDevelopmentBuild(current) || Compare(available, current) > 0);
 
-    /// <summary>Compares the three numeric core components.</summary>
     private static int CompareCore(string leftCore, string rightCore)
     {
         for (int index = 0; index < 3; index++)

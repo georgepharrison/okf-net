@@ -466,7 +466,7 @@ public static class OkfCaptureWriter
     private static (CapturedItem? Item, string? Problem) Describe(string rawDirectory, OkfCaptureAddition addition)
     {
         ItemLocation location = ItemLocation.For(rawDirectory, addition.ItemPath);
-        if (Refusal(location) is { } refusal)
+        if (OutsideRawRefusal(location) is { } refusal)
         {
             return refusal;
         }
@@ -486,7 +486,7 @@ public static class OkfCaptureWriter
         return DescribeCapturedItem(location, shape.Form);
     }
 
-    private static (CapturedItem? Item, string? Problem)? Refusal(ItemLocation location)
+    private static (CapturedItem? Item, string? Problem)? OutsideRawRefusal(ItemLocation location)
     {
         if (location.RelativePath.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(location.RelativePath))
         {
@@ -837,10 +837,13 @@ public static class OkfCaptureWriter
             return;
         }
 
-        if (!TryReadCapturesProperty(name, ref reader, bytes, propertyStart, ref manifest))
+        if (ReadCapturesProperty(name, ref reader, bytes, propertyStart) is { } captures)
         {
-            reader.TrySkip();
+            manifest = captures;
+            return;
         }
+
+        reader.TrySkip();
     }
 
     private static bool MoveToPropertyValue(ref Utf8JsonReader reader) => reader.Read();
@@ -856,20 +859,18 @@ public static class OkfCaptureWriter
         return true;
     }
 
-    private static bool TryReadCapturesProperty(
+    private static LocatedManifest? ReadCapturesProperty(
         string? name,
         ref Utf8JsonReader reader,
         byte[] bytes,
-        int propertyStart,
-        ref LocatedManifest? manifest)
+        int propertyStart)
     {
         if (!string.Equals(name, "captures", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.StartArray)
         {
-            return false;
+            return null;
         }
 
-        manifest = ReadCaptures(ref reader, Indent(bytes, propertyStart), NewlineOf(bytes));
-        return true;
+        return ReadCaptures(ref reader, Indent(bytes, propertyStart), NewlineOf(bytes));
     }
 
     private static LocatedManifest ReadCaptures(ref Utf8JsonReader reader, string capturesIndent, string newline)

@@ -261,14 +261,17 @@ public static class OkfConceptReader
 
     private static OkfConceptResult ParseConcept(ResolvedConceptPath conceptPath, string text, DateOnly today)
     {
+        OkfDocument document;
         try
         {
-            return OkfConceptResult.Ok(new OkfConcept(conceptPath.Bundle, conceptPath.Path, OkfDocument.Parse(text), today));
+            document = OkfDocument.Parse(text);
         }
         catch (OkfDocumentException exception)
         {
             return Unparseable(conceptPath, exception);
         }
+
+        return OkfConceptResult.Ok(new OkfConcept(conceptPath.Bundle, conceptPath.Path, document, today));
     }
 
     private static OkfConceptResult Unparseable(ResolvedConceptPath conceptPath, OkfDocumentException exception) =>

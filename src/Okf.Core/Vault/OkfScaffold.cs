@@ -232,7 +232,8 @@ public static class OkfScaffold
 
         IReadOnlyList<OkfSkillPointer> pointers = SkillPointers(vault);
         ScaffoldStamp stamp = ScaffoldStamp.For(options.Now);
-        List<OkfScaffoldFile> files = ScaffoldFiles(vault, bundleRoot, name, options.Actor, pointers, stamp);
+        ScaffoldLayout layout = new ScaffoldLayout(vault, bundleRoot, name);
+        List<OkfScaffoldFile> files = ScaffoldFiles(layout, options.Actor, pointers, stamp);
         files.Add(WriteRootIndex(bundleRoot));
 
         return new OkfScaffoldResult(vault, bundleRoot, files, pointers);
@@ -257,24 +258,28 @@ public static class OkfScaffold
     }
 
     private static List<OkfScaffoldFile> ScaffoldFiles(
-        string vault,
-        string bundleRoot,
-        string name,
+        ScaffoldLayout layout,
         string actor,
         IReadOnlyList<OkfSkillPointer> pointers,
         ScaffoldStamp stamp) =>
     [
-        Write(Path.Combine(vault, "README.md"), VaultReadme(name)),
-        Write(Path.Combine(vault, OkfDiscovery.ConfigFileName), ProjectConfig(name)),
-        Write(Path.Combine(vault, MarkdownLintFileName), MarkdownLintConfig(vault)),
-        Write(Path.Combine(vault, CustodianDirectoryName, "README.md"), CustodianReadme(name, pointers)),
-        Write(Path.Combine(vault, CustodianDirectoryName, "recipe.json"), CustodianRecipe(name, pointers)),
-        Write(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
+        Write(Path.Combine(layout.Vault, "README.md"), VaultReadme(layout.Name)),
+        Write(Path.Combine(layout.Vault, OkfDiscovery.ConfigFileName), ProjectConfig(layout.Name)),
+        Write(Path.Combine(layout.Vault, MarkdownLintFileName), MarkdownLintConfig(layout.Vault)),
         Write(
-            Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
+            Path.Combine(layout.Vault, CustodianDirectoryName, "README.md"),
+            CustodianReadme(layout.Name, pointers)),
+        Write(
+            Path.Combine(layout.Vault, CustodianDirectoryName, "recipe.json"),
+            CustodianRecipe(layout.Name, pointers)),
+        Write(Path.Combine(layout.Vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
+        Write(
+            Path.Combine(layout.Vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
             OkfCaptureWriter.EmptyManifest),
-        Write(Path.Combine(bundleRoot, AboutThisBundleFileName), AboutThisBundle(name, actor, stamp.Instant)),
-        Write(Path.Combine(bundleRoot, OkfBundle.LogFileName), BundleLog(stamp.Day)),
+        Write(
+            Path.Combine(layout.BundleRoot, AboutThisBundleFileName),
+            AboutThisBundle(layout.Name, actor, stamp.Instant)),
+        Write(Path.Combine(layout.BundleRoot, OkfBundle.LogFileName), BundleLog(stamp.Day)),
     ];
 
     /// <summary>
@@ -979,6 +984,8 @@ public static class OkfScaffold
           `about-this-bundle.md`, written by the tool and left unverified.
 
         """;
+
+    private sealed record ScaffoldLayout(string Vault, string BundleRoot, string Name);
 
     private sealed record ScaffoldStamp(string Instant, string Day)
     {

@@ -129,25 +129,13 @@ public static class OkfSiteBuilder
     {
         foreach (string file in bundle.MarkdownFiles())
         {
-            AddPage(bundle, slug, file, pages, conceptOptions);
+            string relative = bundle.RelativePath(file);
+            OkfConceptResult result = OkfConceptReader.Read(bundle, relative, conceptOptions);
+            if (result.Concept is { } concept)
+            {
+                pages.Add(Page(slug, bundle.Name, relative, concept));
+            }
         }
-    }
-
-    private static void AddPage(
-        OkfBundle bundle,
-        string slug,
-        string file,
-        List<OkfSitePage> pages,
-        OkfConceptOptions conceptOptions)
-    {
-        string relative = bundle.RelativePath(file);
-        OkfConceptResult result = OkfConceptReader.Read(bundle, relative, conceptOptions);
-        if (result.Concept is not { } concept)
-        {
-            return;
-        }
-
-        pages.Add(Page(slug, bundle.Name, relative, concept));
     }
 
     private static OkfSiteBundle BundleSummary(

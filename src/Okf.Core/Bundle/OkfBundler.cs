@@ -231,11 +231,6 @@ public static class OkfBundler
         return VerifyDistribution(preparation.Input!);
     }
 
-    /// <summary>
-    /// The format an output path names, by suffix: <c>.tar.gz</c>/<c>.tgz</c>, <c>.zip</c>,
-    /// or the default when it says nothing.
-    /// </summary>
-    /// <returns>The format the name implies.</returns>
     private static VerificationPreparation PrepareVerification(string full)
     {
         if (ReadDistribution(full) is not { } distribution)
@@ -283,7 +278,12 @@ public static class OkfBundler
         return new OkfDistributionVerification(input.Source, input.Manifest, findings, input.Manifest.Files.Count);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// The format an output path names, by suffix: <c>.tar.gz</c>/<c>.tgz</c>, <c>.zip</c>,
+    /// or the default when it says nothing.
+    /// </summary>
+    /// <param name="outputPath">The output path.</param>
+    /// <returns>The format the name implies.</returns>
     public static OkfDistributionFormat FormatFor(string outputPath)
     {
         ArgumentNullException.ThrowIfNull(outputPath);
@@ -443,12 +443,6 @@ public static class OkfBundler
         return names.Count == 0 ? available : SelectedBundles(names, available);
     }
 
-    /// <summary>
-    /// The links that will dangle for a consumer: those leaving their bundle root and
-    /// landing on something this distribution does not carry. A link into a bundle that
-    /// <em>is</em> packaged still resolves, because the distribution keeps the vault's
-    /// <c>bundles/&lt;name&gt;/</c> layout — which is the main reason it keeps it.
-    /// </summary>
     private static List<OkfBundle> AvailableBundles(OkfWorkingSet workingSet) =>
         workingSet.Bundles.OrderBy(bundle => bundle.Name, StringComparer.Ordinal).ToList();
 
@@ -468,27 +462,31 @@ public static class OkfBundler
         ?? throw new OkfDiscoveryException(
             $"No bundle named '{name}' in the working set. Available: {string.Join(", ", available.Select(candidate => candidate.Name))}.");
 
+    /// <summary>
+    /// The links that will dangle for a consumer: those leaving their bundle root and
+    /// landing on something this distribution does not carry. A link into a bundle that
+    /// <em>is</em> packaged still resolves, because the distribution keeps the vault's
+    /// <c>bundles/&lt;name&gt;/</c> layout — which is the main reason it keeps it.
+    /// </summary>
     private static List<OkfExternalLink> DanglingLinks(List<OkfDistributionEntry> entries, string? vaultRoot)
     {
-        HashSet<string> shipped = new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal);
-        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> dangling = new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>();
+        ExternalLinkScan scan = new ExternalLinkScan(
+            new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal),
+            vaultRoot,
+            new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>());
 
         foreach (OkfDistributionEntry entry in entries.Where(entry => entry.Path.EndsWith(".md", StringComparison.Ordinal)))
         {
-            ScanExternalLinks(entry, shipped, vaultRoot, dangling);
+            ScanExternalLinks(entry, scan);
         }
 
-        return [.. dangling.Values
+        return [.. scan.Dangling.Values
             .OrderBy(link => link.From, StringComparer.Ordinal)
             .ThenBy(link => link.Line)
             .ThenBy(link => link.To, StringComparer.Ordinal)];
     }
 
-    private static void ScanExternalLinks(
-        OkfDistributionEntry entry,
-        HashSet<string> shipped,
-        string? vaultRoot,
-        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> dangling)
+    private static void ScanExternalLinks(OkfDistributionEntry entry, ExternalLinkScan context)
     {
         string directory = Path.GetDirectoryName(entry.SourcePath)!;
         FileLayout layout = FileLayout.Of(File.ReadAllText(entry.SourcePath));
@@ -496,7 +494,7 @@ public static class OkfBundler
 
         foreach (MarkdownLink link in scan.Links)
         {
-            RecordExternalLink(entry, link, directory, shipped, vaultRoot, dangling);
+            RecordExternalLink(entry, link, directory, context);
         }
     }
 
@@ -504,9 +502,7 @@ public static class OkfBundler
         OkfDistributionEntry entry,
         MarkdownLink link,
         string directory,
-        HashSet<string> shipped,
-        string? vaultRoot,
-        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> dangling)
+        ExternalLinkScan context)
     {
         if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out string? resolved) != LinkTarget.Outside
             || resolved is null)
@@ -515,15 +511,16 @@ public static class OkfBundler
         }
 
         string target = Path.TrimEndingDirectorySeparator(resolved);
-        if (IsShipped(shipped, target))
+        if (IsShipped(context.Shipped, target))
         {
             return;
         }
 
-        (string Path, string Target, string? Bundle) key = (entry.Path, link.Target, BundleNameOf(target, vaultRoot));
-        if (!dangling.ContainsKey(key))
+        (string Path, string Target, string? Bundle) key =
+            (entry.Path, link.Target, BundleNameOf(target, context.VaultRoot));
+        if (!context.Dangling.ContainsKey(key))
         {
-            dangling[key] = new OkfExternalLink(key.Path, key.Target, key.Bundle, link.Line);
+            context.Dangling[key] = new OkfExternalLink(key.Path, key.Target, key.Bundle, link.Line);
         }
     }
 
@@ -713,7 +710,6 @@ public static class OkfBundler
         PruneEmptyDirectories(output);
     }
 
-    /// <summary>Removes the directories a cleared distribution left behind, deepest first.</summary>
     private static bool IsEmptyDirectory(string output) => !Directory.EnumerateFileSystemEntries(output).Any();
 
     private static OkfDistributionManifest ReadExistingManifest(string output)
@@ -891,6 +887,11 @@ public static class OkfBundler
 
     private static OkfDistributionVerification Unreadable(string source, string detail) =>
         new(source, null, [new OkfDistributionFinding(OkfDistributionIssue.Unreadable, source, detail)], 0);
+
+    private sealed record ExternalLinkScan(
+        HashSet<string> Shipped,
+        string? VaultRoot,
+        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> Dangling);
 
     private sealed record DistributionContents(
         string? ManifestText,
