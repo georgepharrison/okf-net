@@ -3916,10 +3916,11 @@ changes what the tree does — kept separate from any future logic change, per t
 
 ### Proposed decisions: SOLID, DI and third-party boundaries (work item #15, 2026-08-17)
 
-The audit walked all 90 C# files under `src/Okf.Core` and `src/Okf.Cli`, both project
-files, every shipped `PackageReference`, and the public declarations exposed by Core. Its
-starting rule was AD-6 and AD-9's existing architecture, not a pattern checklist: change
-only a boundary that presently leaks or one concept that presently has two
+The audit and review walked every shipped C# file under `src/Okf.Core` and
+`src/Okf.Cli`, both project files, every shipped `PackageReference`, and every public
+declaration exposed by Core. Its starting rule was AD-6 and AD-9's existing
+architecture, not a pattern checklist: change only a boundary that presently leaks or one
+concept that presently has two
 implementations. The result is 15 KEEP, one CHANGE, and two DEFER rulings.
 
 | Ruling | Candidate | Audit evidence and decision |
