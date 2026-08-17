@@ -64,12 +64,7 @@ internal sealed class VerifyArguments
                     break;
 
                 case "--by":
-                    if (parsed.By is not null)
-                    {
-                        throw new OkfConfigException("Option '--by' may be given once; a stamp names one actor.");
-                    }
-
-                    parsed.By = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.TakeBy(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--config":
@@ -77,16 +72,31 @@ internal sealed class VerifyArguments
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    parsed._paths.Add(argument);
+                    parsed.TakePath(argument);
                     break;
             }
         }
 
         return parsed;
+    }
+
+    private void TakeBy(string value)
+    {
+        if (By is not null)
+        {
+            throw new OkfConfigException("Option '--by' may be given once; a stamp names one actor.");
+        }
+
+        By = value;
+    }
+
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        _paths.Add(argument);
     }
 }

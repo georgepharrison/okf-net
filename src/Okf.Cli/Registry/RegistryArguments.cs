@@ -73,43 +73,52 @@ internal sealed class RegistryArguments
                     break;
 
                 case "--format" or "--format=json" or "--format=text":
-                    string format = argument.Length > "--format".Length
-                        ? argument["--format=".Length..]
-                        : CliArguments.Next(args, ref index, "--format");
-                    parsed.Json = CliArguments.ParseFormat(format);
+                    parsed.Json = CliArguments.ParseFormat(FormatValue(argument, args, ref index));
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (subcommands && !actionSeen)
-                    {
-                        parsed.Action = argument switch
-                        {
-                            "list" => RegistryAction.List,
-                            "prune" => RegistryAction.Prune,
-                            _ => throw new OkfConfigException(
-                                $"Unknown `okf registry` subcommand '{argument}'; expected 'list' or 'prune'."),
-                        };
-                        actionSeen = true;
-                    }
-                    else if (parsed.Target is null && !subcommands)
-                    {
-                        parsed.Target = argument;
-                    }
-                    else
-                    {
-                        throw new OkfConfigException(
-                            $"`okf {verb}` takes at most one argument; got '{parsed.Target ?? argument}' and '{argument}'.");
-                    }
-
+                    parsed.TakeOperand(argument, verb, subcommands, ref actionSeen);
                     break;
             }
         }
 
         return parsed;
     }
+
+    private static string FormatValue(string argument, string[] args, ref int index) =>
+        argument.Length > "--format".Length
+            ? argument["--format=".Length..]
+            : CliArguments.Next(args, ref index, "--format");
+
+    private void TakeOperand(string argument, string verb, bool subcommands, ref bool actionSeen)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (subcommands && !actionSeen)
+        {
+            Action = ParseAction(argument);
+            actionSeen = true;
+            return;
+        }
+
+        if (Target is null && !subcommands)
+        {
+            Target = argument;
+            return;
+        }
+
+        throw new OkfConfigException(
+            $"`okf {verb}` takes at most one argument; got '{Target ?? argument}' and '{argument}'.");
+    }
+
+    private static RegistryAction ParseAction(string argument) => argument switch
+    {
+        "list" => RegistryAction.List,
+        "prune" => RegistryAction.Prune,
+        _ => throw new OkfConfigException(
+            $"Unknown `okf registry` subcommand '{argument}'; expected 'list' or 'prune'."),
+    };
 }

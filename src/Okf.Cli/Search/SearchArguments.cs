@@ -75,25 +75,15 @@ internal sealed class SearchArguments
                     break;
 
                 case "--format":
-                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Json = CliArguments.ParseFormat(format);
+                    parsed.Json = CliArguments.ParseFormat(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--limit":
-                    string limit = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Limit = int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out int count)
-                        && count > 0
-                        ? count
-                        : throw new OkfConfigException($"--limit expects a positive whole number; got '{limit}'.");
+                    parsed.TakeLimit(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--scope":
-                    string scope = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Scope = OkfScopeKindExtensions.TryParse(scope, out OkfScopeKind kind)
-                        ? kind
-                        : throw new OkfConfigException(
-                            $"Unknown --scope value '{scope}'; expected one of " +
-                            string.Join(", ", OkfScopeKindExtensions.Names) + ".");
+                    parsed.TakeScope(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--type":
@@ -105,33 +95,54 @@ internal sealed class SearchArguments
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Query is null)
-                    {
-                        parsed.Query = argument;
-                    }
-                    else if (parsed.Path is null)
-                    {
-                        parsed.Path = argument;
-                    }
-                    else
-                    {
-                        // A multi-word query has to be quoted, because the second bare
-                        // argument is the path (PRD §3's `okf search <query> [path]`).
-                        throw new OkfConfigException(
-                            $"`okf search` takes one query and at most one path; got '{parsed.Query}', " +
-                            $"'{parsed.Path}', and '{argument}'. Quote a multi-word query.");
-                    }
-
+                    parsed.TakeOperand(argument);
                     break;
             }
         }
 
         return parsed;
+    }
+
+    private void TakeLimit(string value)
+    {
+        Limit = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int count) && count > 0
+            ? count
+            : throw new OkfConfigException($"--limit expects a positive whole number; got '{value}'.");
+    }
+
+    private void TakeScope(string value)
+    {
+        Scope = OkfScopeKindExtensions.TryParse(value, out OkfScopeKind kind)
+            ? kind
+            : throw new OkfConfigException(
+                $"Unknown --scope value '{value}'; expected one of " +
+                string.Join(", ", OkfScopeKindExtensions.Names) + ".");
+    }
+
+    private void TakeOperand(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Query is null)
+        {
+            Query = argument;
+            return;
+        }
+
+        if (Path is null)
+        {
+            Path = argument;
+            return;
+        }
+
+        // A multi-word query has to be quoted, because the second bare
+        // argument is the path (PRD §3's `okf search <query> [path]`).
+        throw new OkfConfigException(
+            $"`okf search` takes one query and at most one path; got '{Query}', " +
+            $"'{Path}', and '{argument}'. Quote a multi-word query.");
     }
 
     /// <summary>

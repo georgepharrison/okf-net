@@ -73,42 +73,58 @@ internal sealed class InitArguments
                     break;
 
                 case "--name":
-                    if (parsed.Name is not null)
-                    {
-                        throw new OkfConfigException("Option '--name' was given more than once.");
-                    }
-
-                    parsed.Name = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.TakeName(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Path is not null)
-                    {
-                        throw new OkfConfigException(
-                            $"`okf init` takes at most one path; got '{parsed.Path}' and '{argument}'.");
-                    }
-
-                    parsed.Path = argument;
+                    parsed.TakePath(argument);
                     break;
             }
         }
 
-        // The personal vault's location comes from OKF_HOME or ~/okf and from nowhere
-        // else (decisions.md §6). Accepting a path beside --personal would mean one of
-        // the two silently lost, and which one lost would be the kind of thing a user
-        // discovers by finding a vault somewhere they did not put it.
-        if (parsed.Personal && parsed.Path is not null)
+        parsed.RefusePersonalPath();
+        return parsed;
+    }
+
+    private void TakeName(string value)
+    {
+        if (Name is not null)
+        {
+            throw new OkfConfigException("Option '--name' was given more than once.");
+        }
+
+        Name = value;
+    }
+
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Path is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf init` takes at most one path; got '{Path}' and '{argument}'.");
+        }
+
+        Path = argument;
+    }
+
+    /// <summary>
+    /// The personal vault's location comes from OKF_HOME or ~/okf and from nowhere
+    /// else (decisions.md §6). Accepting a path beside --personal would mean one of
+    /// the two silently lost, and which one lost would be the kind of thing a user
+    /// discovers by finding a vault somewhere they did not put it.
+    /// </summary>
+    private void RefusePersonalPath()
+    {
+        if (Personal && Path is not null)
         {
             throw new OkfConfigException(
                 $"`--personal` targets the personal vault (OKF_HOME, else ~/okf); it cannot be combined " +
-                $"with the path '{parsed.Path}'.");
+                $"with the path '{Path}'.");
         }
-
-        return parsed;
     }
 }

@@ -57,42 +57,55 @@ internal sealed class GeneratedArguments
                     break;
 
                 case "--by":
-                    if (parsed.By is not null)
-                    {
-                        throw new OkfConfigException("Option '--by' may be given once; a stamp names one actor.");
-                    }
-
-                    parsed.By = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.TakeBy(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--at":
-                    if (parsed.At is not null)
-                    {
-                        throw new OkfConfigException("Option '--at' may be given once; a stamp names one instant.");
-                    }
-
-                    parsed.At = CliArguments.ParseInstant(inlineValue ?? CliArguments.Next(args, ref index, name), name);
+                    parsed.TakeAt(inlineValue ?? CliArguments.Next(args, ref index, name), name);
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Verb is null)
-                    {
-                        parsed.Verb = argument;
-                    }
-                    else
-                    {
-                        parsed._paths.Add(argument);
-                    }
-
+                    parsed.TakeOperand(argument);
                     break;
             }
         }
 
         return parsed;
+    }
+
+    private void TakeBy(string value)
+    {
+        if (By is not null)
+        {
+            throw new OkfConfigException("Option '--by' may be given once; a stamp names one actor.");
+        }
+
+        By = value;
+    }
+
+    private void TakeAt(string value, string option)
+    {
+        if (At is not null)
+        {
+            throw new OkfConfigException("Option '--at' may be given once; a stamp names one instant.");
+        }
+
+        At = CliArguments.ParseInstant(value, option);
+    }
+
+    private void TakeOperand(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Verb is null)
+        {
+            Verb = argument;
+            return;
+        }
+
+        _paths.Add(argument);
     }
 }

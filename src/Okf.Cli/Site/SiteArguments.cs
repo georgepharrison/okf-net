@@ -54,15 +54,7 @@ internal sealed class SiteArguments
                     break;
 
                 case "--out" or "-o":
-                    string output = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    if (parsed.Out is not null)
-                    {
-                        throw new OkfConfigException($"Option '{name}' was given twice.");
-                    }
-
-                    parsed.Out = output.Length > 0
-                        ? output
-                        : throw new OkfConfigException($"Option '{name}' requires a directory.");
+                    parsed.TakeOut(name, inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--name":
@@ -82,34 +74,56 @@ internal sealed class SiteArguments
                     break;
 
                 case "--format":
-                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Json = CliArguments.ParseFormat(format);
+                    parsed.Json = CliArguments.ParseFormat(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Path is not null)
-                    {
-                        throw new OkfConfigException(
-                            $"`okf site` takes at most one path; got '{parsed.Path}' and '{argument}'.");
-                    }
-
-                    parsed.Path = argument;
+                    parsed.TakePath(argument);
                     break;
             }
         }
 
-        // Checked here rather than in the command, so a missing --out is a usage failure
-        // reported the same way as a malformed one — before any bundle is read.
-        if (!parsed.ShowHelp && parsed.Out is null)
+        parsed.RequireOut();
+        return parsed;
+    }
+
+    private void TakeOut(string option, string value)
+    {
+        if (Out is not null)
+        {
+            throw new OkfConfigException($"Option '{option}' was given twice.");
+        }
+
+        Out = value.Length > 0
+            ? value
+            : throw new OkfConfigException($"Option '{option}' requires a directory.");
+    }
+
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Path is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf site` takes at most one path; got '{Path}' and '{argument}'.");
+        }
+
+        Path = argument;
+    }
+
+    /// <summary>
+    /// Checked here rather than in the command, so a missing --out is a usage failure
+    /// reported the same way as a malformed one — before any bundle is read.
+    /// </summary>
+    private void RequireOut()
+    {
+        if (!ShowHelp && Out is null)
         {
             throw new OkfConfigException("`okf site` requires an output directory: --out <dir>.");
         }
-
-        return parsed;
     }
 }

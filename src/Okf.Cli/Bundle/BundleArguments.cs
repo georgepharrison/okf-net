@@ -108,18 +108,7 @@ internal sealed class BundleArguments
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Path is not null)
-                    {
-                        throw new OkfConfigException(
-                            $"`okf bundle` takes at most one path; got '{parsed.Path}' and '{argument}'.");
-                    }
-
-                    parsed.Path = argument;
+                    parsed.TakePath(argument);
                     break;
             }
         }
@@ -157,6 +146,22 @@ internal sealed class BundleArguments
             ? value
             : throw new OkfConfigException($"Option '{option}' was given twice ('{existing}' and '{value}').");
 
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Path is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf bundle` takes at most one path; got '{Path}' and '{argument}'.");
+        }
+
+        Path = argument;
+    }
+
     private void Validate()
     {
         if (ShowHelp)
@@ -166,41 +171,7 @@ internal sealed class BundleArguments
 
         if (Verify is not null)
         {
-            // Verification reads a finished distribution; every packaging option would be
-            // describing a run that is not happening.
-            List<string> conflicting = new List<string>();
-            if (Output is not null)
-            {
-                conflicting.Add("--out");
-            }
-
-            if (Format is not null)
-            {
-                conflicting.Add("--format");
-            }
-
-            if (_bundles.Count > 0)
-            {
-                conflicting.Add("--bundle");
-            }
-
-            if (Lint)
-            {
-                conflicting.Add("--lint");
-            }
-
-            if (Path is not null)
-            {
-                conflicting.Add($"a path ('{Path}')");
-            }
-
-            if (conflicting.Count > 0)
-            {
-                throw new OkfConfigException(
-                    $"`--verify` checks a finished distribution and packages nothing, so it cannot be combined with " +
-                    $"{string.Join(" or ", conflicting)}.");
-            }
-
+            RefuseVerifyConflicts();
             return;
         }
 
@@ -208,6 +179,40 @@ internal sealed class BundleArguments
         {
             throw new OkfConfigException(
                 "`okf bundle` needs `--out <file-or-directory>` (or `--verify <archive-or-directory>`).");
+        }
+    }
+
+    /// <summary>
+    /// Verification reads a finished distribution; every packaging option would be
+    /// describing a run that is not happening.
+    /// </summary>
+    private void RefuseVerifyConflicts()
+    {
+        List<string> conflicting = VerifyConflicts();
+        if (conflicting.Count > 0)
+        {
+            throw new OkfConfigException(
+                $"`--verify` checks a finished distribution and packages nothing, so it cannot be combined with " +
+                $"{string.Join(" or ", conflicting)}.");
+        }
+    }
+
+    private List<string> VerifyConflicts()
+    {
+        List<string> conflicting = new List<string>();
+        AddConflict(conflicting, Output is not null, "--out");
+        AddConflict(conflicting, Format is not null, "--format");
+        AddConflict(conflicting, _bundles.Count > 0, "--bundle");
+        AddConflict(conflicting, Lint, "--lint");
+        AddConflict(conflicting, Path is not null, $"a path ('{Path}')");
+        return conflicting;
+    }
+
+    private static void AddConflict(List<string> conflicting, bool present, string option)
+    {
+        if (present)
+        {
+            conflicting.Add(option);
         }
     }
 }
