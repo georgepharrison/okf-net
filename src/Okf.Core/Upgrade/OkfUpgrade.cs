@@ -99,27 +99,10 @@ public static class OkfUpgrade
         Uri baseUri = BaseUri(options.BaseUrl);
         Uri manifestUri = ManifestUri(baseUri, options.Version);
         OkfUpgradeManifest manifest = ReadManifest(manifestUri, fetch ?? HttpFetch(options.UserAgent));
+        VerifyPinnedVersion(options.Version, manifest, manifestUri);
 
-        // The installer's check, for the installer's reason: a host that answers every path
-        // with the newest release would otherwise silently ignore a pinned version.
-        if (options.Version is { Length: > 0 } pinned
-            && !string.Equals(manifest.Version, pinned, StringComparison.Ordinal))
-        {
-            throw new OkfUpgradeException(
-                $"asked for {pinned} but {manifestUri} describes {manifest.Version}.");
-        }
-
-        string assetName = AssetName();
-        OkfUpgradeAsset asset = manifest.Find(assetName)
-            ?? throw new OkfUpgradeException(
-                $"release {manifest.Version} lists no {assetName} asset with a path and a sha256.");
-
-        string target = options.ExecutablePath is { Length: > 0 } path
-            ? Path.GetFullPath(path)
-            : Environment.ProcessPath
-                ?? throw new OkfUpgradeException(
-                    "could not determine which file is running, so there is nothing to replace.");
-
+        OkfUpgradeAsset asset = SelectedAsset(manifest);
+        string target = TargetPath(options.ExecutablePath);
         return new OkfUpgradePlan(
             options.CurrentVersion,
             manifest.Version,
@@ -128,6 +111,33 @@ public static class OkfUpgrade
             AssetUri(baseUri, asset),
             target);
     }
+
+    private static void VerifyPinnedVersion(string? requestedVersion, OkfUpgradeManifest manifest, Uri manifestUri)
+    {
+        // The installer's check, for the installer's reason: a host that answers every path
+        // with the newest release would otherwise silently ignore a pinned version.
+        if (requestedVersion is { Length: > 0 } pinned
+            && !string.Equals(manifest.Version, pinned, StringComparison.Ordinal))
+        {
+            throw new OkfUpgradeException(
+                $"asked for {pinned} but {manifestUri} describes {manifest.Version}.");
+        }
+    }
+
+    private static OkfUpgradeAsset SelectedAsset(OkfUpgradeManifest manifest)
+    {
+        string assetName = AssetName();
+        return manifest.Find(assetName)
+            ?? throw new OkfUpgradeException(
+                $"release {manifest.Version} lists no {assetName} asset with a path and a sha256.");
+    }
+
+    private static string TargetPath(string? executablePath) =>
+        executablePath is { Length: > 0 } path
+            ? Path.GetFullPath(path)
+            : Environment.ProcessPath
+                ?? throw new OkfUpgradeException(
+                    "could not determine which file is running, so there is nothing to replace.");
 
     /// <summary>
     /// Downloads the planned asset, verifies it against the manifest's digest, and renames
@@ -147,65 +157,12 @@ public static class OkfUpgrade
         ArgumentNullException.ThrowIfNull(plan);
 
         string target = plan.TargetPath;
-        string? directory = Path.GetDirectoryName(target);
-        if (directory is not { Length: > 0 })
-        {
-            throw new OkfUpgradeException($"'{target}' has no directory to stage a download in.");
-        }
+        string staging = StagingPath(target);
+        Fetch download = fetch ?? HttpFetch(userAgent);
 
-        // A binary that replaces itself must be sure that "itself" is what it is replacing.
-        // Launched through the muxer — `dotnet okf.dll`, which is how a framework-dependent
-        // build runs — `Environment.ProcessPath` is `dotnet`, and renaming a verified okf
-        // over it would break the machine's .NET rather than upgrade okf. Confirmed
-        // empirically, and it caught exactly that during this work item.
-        string name = Path.GetFileName(target);
-        if (!string.Equals(name, "okf", StringComparison.Ordinal)
-            && !string.Equals(name, "okf.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new OkfUpgradeException(
-                $"the running executable is '{name}', not 'okf' — refusing to replace it.\n" +
-                "    This is what `dotnet okf.dll` looks like: the process is the .NET host, not\n" +
-                "    a published okf. Upgrade an installed binary, or reinstall with install.sh.");
-        }
-
-        string staging = Path.Combine(directory, $".okf.upgrade.{Guid.NewGuid():N}");
         try
         {
-            Download(plan.AssetUri, staging, fetch ?? HttpFetch(userAgent));
-
-            // Verified BEFORE anything is renamed, and both digests are printed on a
-            // mismatch: the two hashes are what tells a truncated download apart from the
-            // wrong file (install.sh says the same, for the same reason).
-            string digest = OkfCaptureManifest.Sha256Of(staging);
-            if (!string.Equals(digest, plan.Asset.Sha256, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new OkfUpgradeException(
-                    $"sha256 mismatch for {plan.Asset.Name}\n" +
-                    $"    manifest:   {plan.Asset.Sha256}\n" +
-                    $"    downloaded: {digest}\n" +
-                    $"    Refusing to install. {target} was not touched.");
-            }
-
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(
-                    staging,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
-                    | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-            }
-
-            string? retired = null;
-            foreach (OkfUpgradeStep step in PlanSwap(target, staging, OperatingSystem.IsWindows()))
-            {
-                Move(step);
-                if (step.Kind == OkfUpgradeStepKind.Retire)
-                {
-                    retired = step.Destination;
-                }
-            }
-
-            return new OkfUpgradeResult(target, plan.AvailableVersion, retired);
+            return Install(plan, target, staging, download);
         }
         catch (Exception exception) when (exception is not OkfUpgradeException)
         {
@@ -219,6 +176,85 @@ public static class OkfUpgrade
             // found it.
             TryDelete(staging);
         }
+    }
+
+    private static string StagingPath(string target)
+    {
+        string directory = StagingDirectory(target);
+        RequirePublishedBinary(target);
+        return Path.Combine(directory, $".okf.upgrade.{Guid.NewGuid():N}");
+    }
+
+    private static OkfUpgradeResult Install(OkfUpgradePlan plan, string target, string staging, Fetch download)
+    {
+        Download(plan.AssetUri, staging, download);
+        VerifyDownload(plan, staging, target);
+        MakeExecutable(staging);
+        string? retired = ExecuteSwap(target, staging);
+        return new OkfUpgradeResult(target, plan.AvailableVersion, retired);
+    }
+
+    private static string StagingDirectory(string target)
+    {
+        string? directory = Path.GetDirectoryName(target);
+        return directory is { Length: > 0 }
+            ? directory
+            : throw new OkfUpgradeException($"'{target}' has no directory to stage a download in.");
+    }
+
+    private static void RequirePublishedBinary(string target)
+    {
+        string name = Path.GetFileName(target);
+        if (!string.Equals(name, "okf", StringComparison.Ordinal)
+            && !string.Equals(name, "okf.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new OkfUpgradeException(
+                $"the running executable is '{name}', not 'okf' — refusing to replace it.\n" +
+                "    This is what `dotnet okf.dll` looks like: the process is the .NET host, not\n" +
+                "    a published okf. Upgrade an installed binary, or reinstall with install.sh.");
+        }
+    }
+
+    private static void VerifyDownload(OkfUpgradePlan plan, string staging, string target)
+    {
+        string digest = OkfCaptureManifest.Sha256Of(staging);
+        if (!string.Equals(digest, plan.Asset.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new OkfUpgradeException(
+                $"sha256 mismatch for {plan.Asset.Name}\n" +
+                $"    manifest:   {plan.Asset.Sha256}\n" +
+                $"    downloaded: {digest}\n" +
+                $"    Refusing to install. {target} was not touched.");
+        }
+    }
+
+    private static void MakeExecutable(string staging)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        File.SetUnixFileMode(
+            staging,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+            | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+    }
+
+    private static string? ExecuteSwap(string target, string staging)
+    {
+        string? retired = null;
+        foreach (OkfUpgradeStep step in PlanSwap(target, staging, OperatingSystem.IsWindows()))
+        {
+            Move(step);
+            if (step.Kind == OkfUpgradeStepKind.Retire)
+            {
+                retired = step.Destination;
+            }
+        }
+
+        return retired;
     }
 
     /// <summary>
@@ -300,39 +336,48 @@ public static class OkfUpgrade
     {
         if (platform == OSPlatform.Linux)
         {
-            return architecture == Architecture.X64
-                ? LinuxAsset
-                : throw new OkfUpgradeException(
-                    $"okf ships a linux-x86_64 binary for Linux; this machine is {Name(architecture)}.\n" +
-                    "    There is no such build yet. Build from source instead:\n" +
-                    "    https://gitlab.tychostation.dev/ringo/okf-net");
+            return LinuxAssetName(architecture);
         }
 
         if (platform == OSPlatform.OSX)
         {
-            return architecture == Architecture.Arm64
-                ? MacAsset
-                : throw new OkfUpgradeException(
-                    "okf has no Intel-Mac build. The macOS build that ships is Apple Silicon\n" +
-                    "    (osx-arm64), and Rosetta translates the wrong way. Adding osx-x64 is one\n" +
-                    "    more line in the publish job — ask for it at\n" +
-                    "    https://gitlab.tychostation.dev/ringo/okf-net/-/issues/36");
+            return MacAssetName(architecture);
         }
 
         if (platform == OSPlatform.Windows)
         {
-            return architecture == Architecture.X64
-                ? WindowsAsset
-                : throw new OkfUpgradeException(
-                    $"okf ships a win-x64 binary for Windows; this machine is {Name(architecture)}.\n" +
-                    "    There is no such build yet. Build from source instead:\n" +
-                    "    https://gitlab.tychostation.dev/ringo/okf-net");
+            return WindowsAssetName(architecture);
         }
 
         throw new OkfUpgradeException(
             $"okf ships Linux x86_64, macOS arm64 and Windows x64 binaries; this is {platform}.\n" +
             "    Build from source instead: https://gitlab.tychostation.dev/ringo/okf-net");
     }
+
+    private static string LinuxAssetName(Architecture architecture) =>
+        architecture == Architecture.X64
+            ? LinuxAsset
+            : throw new OkfUpgradeException(
+                $"okf ships a linux-x86_64 binary for Linux; this machine is {Name(architecture)}.\n" +
+                "    There is no such build yet. Build from source instead:\n" +
+                "    https://gitlab.tychostation.dev/ringo/okf-net");
+
+    private static string MacAssetName(Architecture architecture) =>
+        architecture == Architecture.Arm64
+            ? MacAsset
+            : throw new OkfUpgradeException(
+                "okf has no Intel-Mac build. The macOS build that ships is Apple Silicon\n" +
+                "    (osx-arm64), and Rosetta translates the wrong way. Adding osx-x64 is one\n" +
+                "    more line in the publish job — ask for it at\n" +
+                "    https://gitlab.tychostation.dev/ringo/okf-net/-/issues/36");
+
+    private static string WindowsAssetName(Architecture architecture) =>
+        architecture == Architecture.X64
+            ? WindowsAsset
+            : throw new OkfUpgradeException(
+                $"okf ships a win-x64 binary for Windows; this machine is {Name(architecture)}.\n" +
+                "    There is no such build yet. Build from source instead:\n" +
+                "    https://gitlab.tychostation.dev/ringo/okf-net");
 
     /// <summary>
     /// Normalizes and checks the base URL every other URL is built from.
@@ -350,23 +395,8 @@ public static class OkfUpgrade
     {
         ArgumentException.ThrowIfNullOrEmpty(baseUrl);
 
-        string trimmed = baseUrl.TrimEnd('/');
-        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
-        {
-            throw new OkfUpgradeException($"'{baseUrl}' is not a URL.");
-        }
-
-        if (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
-        {
-            return uri;
-        }
-
-        // Cleartext is permitted to loopback and nowhere else. The acceptance suites serve
-        // a fixture release over plain http on localhost, and refusing that would mean the
-        // download path could only ever be tested against the real host. Over any other
-        // hop, a digest fetched down the same cleartext channel as the bytes it describes
-        // proves nothing at all: whoever answered wrote both.
-        if (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && uri.IsLoopback)
+        Uri uri = ParsedBaseUri(baseUrl);
+        if (IsSecureBaseUri(uri) || IsLoopbackHttp(uri))
         {
             return uri;
         }
@@ -375,6 +405,27 @@ public static class OkfUpgrade
             $"refusing to upgrade over {uri.Scheme}: use an https URL (got {baseUrl}).\n" +
             $"    A digest fetched over the same cleartext channel as the binary it describes\n" +
             $"    proves nothing. Plain http is allowed to loopback only.");
+    }
+
+    private static Uri ParsedBaseUri(string baseUrl)
+    {
+        string trimmed = baseUrl.TrimEnd('/');
+        return Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri)
+            ? uri
+            : throw new OkfUpgradeException($"'{baseUrl}' is not a URL.");
+    }
+
+    private static bool IsSecureBaseUri(Uri uri) =>
+        string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal);
+
+    private static bool IsLoopbackHttp(Uri uri)
+    {
+        // Cleartext is permitted to loopback and nowhere else. The acceptance suites serve
+        // a fixture release over plain http on localhost, and refusing that would mean the
+        // download path could only ever be tested against the real host. Over any other
+        // hop, a digest fetched down the same cleartext channel as the bytes it describes
+        // proves nothing at all: whoever answered wrote both.
+        return string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && uri.IsLoopback;
     }
 
     /// <summary>The manifest URL for a release.</summary>
@@ -521,44 +572,71 @@ public static class OkfUpgrade
 
         for (int hop = 0; hop <= MaximumRedirects; hop++)
         {
-            using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, current);
-            request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
-
-            HttpResponseMessage response;
-            try
-            {
-                response = SharedClient.Value.Send(request, HttpCompletionOption.ResponseHeadersRead);
-            }
-            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
-            {
-                throw new OkfUpgradeException(
-                    $"could not fetch {current}: {exception.Message}\n" +
-                    "    If this cannot resolve, note that get.okf.tychostation.dev resolves only\n" +
-                    "    inside Ringo's network today — see ringo/okf-net#26.",
-                    exception);
-            }
-
+            using HttpRequestMessage request = Request(current, userAgent);
+            HttpResponseMessage response = Send(request, current);
             if (IsRedirect(response.StatusCode))
             {
-                Uri? next = response.Headers.Location;
-                response.Dispose();
-                current = ResolveRedirect(current, next, httpsOnly);
+                current = httpsOnly
+                    ? FollowHttpsRedirect(response, current)
+                    : FollowHttpRedirect(response, current);
                 continue;
             }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                int status = (int)response.StatusCode;
-                response.Dispose();
-                throw new OkfUpgradeException($"could not fetch {current}: HTTP {status}.");
-            }
-
-            // The response owns the stream; disposing it disposes the response with it.
-            return new ResponseStream(response);
+            return SuccessfulResponse(current, response);
         }
 
         throw new OkfUpgradeException(
             $"gave up after {MaximumRedirects} redirects starting at {uri}.");
+    }
+
+    private static HttpRequestMessage Request(Uri uri, string userAgent)
+    {
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
+        return request;
+    }
+
+    private static HttpResponseMessage Send(HttpRequestMessage request, Uri current)
+    {
+        try
+        {
+            return SharedClient.Value.Send(request, HttpCompletionOption.ResponseHeadersRead);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            throw new OkfUpgradeException(
+                $"could not fetch {current}: {exception.Message}\n" +
+                "    If this cannot resolve, note that get.okf.tychostation.dev resolves only\n" +
+                "    inside Ringo's network today — see ringo/okf-net#26.",
+                exception);
+        }
+    }
+
+    private static Uri FollowHttpsRedirect(HttpResponseMessage response, Uri current)
+    {
+        Uri? next = response.Headers.Location;
+        response.Dispose();
+        return ResolveRedirect(current, next, httpsOnly: true);
+    }
+
+    private static Uri FollowHttpRedirect(HttpResponseMessage response, Uri current)
+    {
+        Uri? next = response.Headers.Location;
+        response.Dispose();
+        return ResolveRedirect(current, next, httpsOnly: false);
+    }
+
+    private static ResponseStream SuccessfulResponse(Uri current, HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            int status = (int)response.StatusCode;
+            response.Dispose();
+            throw new OkfUpgradeException($"could not fetch {current}: HTTP {status}.");
+        }
+
+        // The response owns the stream; disposing it disposes the response with it.
+        return new ResponseStream(response);
     }
 
     private static bool IsRedirect(HttpStatusCode status) => status is
@@ -608,12 +686,18 @@ public static class OkfUpgrade
 
     private static void Download(Uri assetUri, string staging, Fetch fetch)
     {
-        FileStream file;
+        using FileStream file = OpenStagingFile(staging);
+        using Stream source = fetch(assetUri);
+        CopyBounded(source, file, assetUri);
+    }
+
+    private static FileStream OpenStagingFile(string staging)
+    {
         try
         {
             // CreateNew, so a name collision is an error rather than a silent overwrite,
             // and the very first write is also the check that this directory is writable.
-            file = new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            return new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -623,12 +707,6 @@ public static class OkfUpgrade
                 "    there. Reinstall into a directory you own instead:\n" +
                 "        curl -fsSL https://get.okf.tychostation.dev/install.sh | sh",
                 exception);
-        }
-
-        using (file)
-        {
-            using Stream source = fetch(assetUri);
-            CopyBounded(source, file, assetUri);
         }
     }
 
@@ -666,14 +744,21 @@ public static class OkfUpgrade
     /// </summary>
     private static string ReadBounded(Stream source, Uri manifestUri)
     {
+        using MemoryStream text = ReadManifestBytes(source, manifestUri);
+        return ReadManifestText(text);
+    }
+
+    private static MemoryStream ReadManifestBytes(Stream source, Uri manifestUri)
+    {
         byte[] buffer = new byte[8192];
-        using MemoryStream text = new MemoryStream();
+        MemoryStream text = new MemoryStream();
 
         int read;
         while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
         {
             if (text.Length + read > MaximumManifestBytes)
             {
+                text.Dispose();
                 throw new OkfUpgradeException(
                     $"{manifestUri} is bigger than {MaximumManifestBytes / 1024} KB, so it was not\n" +
                     "    read. A release manifest is a few kilobytes of JSON.");
@@ -682,6 +767,11 @@ public static class OkfUpgrade
             text.Write(buffer, 0, read);
         }
 
+        return text;
+    }
+
+    private static string ReadManifestText(MemoryStream text)
+    {
         // Through a StreamReader rather than Encoding.UTF8.GetString, so a manifest written
         // with a byte-order mark still parses: JsonDocument refuses a leading U+FEFF.
         text.Position = 0;
