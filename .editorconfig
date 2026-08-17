@@ -55,14 +55,15 @@ csharp_style_namespace_declarations = file_scoped:warning
 # Braces on every block: no single-statement `if` without them.
 csharp_prefer_braces = true:warning
 
-# `var` is used freely today (~3700 sites). Ringo's standing preference is the
-# opposite — explicit types plus target-typed `new` (issue #31, 2026-08-15) — but
-# flipping it is a tree-wide rewrite, which is the second half of #31 and not
-# this change. Until then the preference matches the code so IDE0007/IDE0008 do
-# not report every file.
-csharp_style_var_for_built_in_types = true:suggestion
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = true:suggestion
+# Ringo's ruling (2026-08-15, docs/spikes/2026-08-16-analyzers.md "Two flags for
+# Ringo"): explicit types plus target-typed `new`, `var` only for anonymous
+# types. This is the second half of #31 landing: IDE0008 ("use explicit type")
+# is now a build error in src/. `[tests/**/*.cs]` below reverts the three keys
+# to `true:silent` — the ruling text says nothing about test code, so tests keep
+# `var` rather than inherit a rewrite the ruling never asked for there.
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_when_type_is_apparent = false:error
+csharp_style_var_elsewhere = false:error
 
 csharp_style_expression_bodied_methods = when_on_single_line:suggestion
 csharp_style_expression_bodied_constructors = when_on_single_line:suggestion
@@ -91,7 +92,11 @@ csharp_prefer_simple_using_statement = true:suggestion
 csharp_prefer_static_local_function = true:suggestion
 csharp_using_directive_placement = outside_namespace:suggestion
 
-dotnet_style_qualification_for_field = false:suggestion
+# Promoted from `suggestion` alongside the `_camelCase` rule above: `this.` was
+# load-bearing disambiguation while private fields and their constructor
+# parameters shared a spelling; the underscore prefix does that job now, so a
+# surviving `this.field` is dead qualification IDE0003 removes on every build.
+dotnet_style_qualification_for_field = false:error
 dotnet_style_qualification_for_property = false:suggestion
 dotnet_style_qualification_for_method = false:suggestion
 dotnet_style_qualification_for_event = false:suggestion
@@ -142,10 +147,18 @@ csharp_preserve_single_line_blocks = true
 # Rules are matched in the order they appear, first match wins, so the narrow
 # groups (interfaces, type parameters, constants) come before the broad ones.
 #
-# Private fields are camelCase with NO underscore, because that is what all 44 of
-# them are today and `this.` already disambiguates at the constructor. Ringo's
-# standing preference is `_camelCase` (issue #31, 2026-08-15); flipping this line
-# and running the fixer is the whole change when he calls it.
+# Private instance fields are `_camelCase`. Ringo's ruling (2026-08-15,
+# docs/spikes/2026-08-16-analyzers.md "Two flags for Ringo"): "_camelCase",
+# "non-negotiable" — this is that line flipped and the fixer run. `this.` no
+# longer disambiguates anything the prefix doesn't already say, so
+# `dotnet_style_qualification_for_field` below is promoted alongside it (IDE0003
+# strips the now-redundant `this.` on every rename).
+#
+# Private `static` fields (readonly or not) are a narrower, more specific group
+# than `private_fields` below and are matched first: the ruling text is silent
+# on statics, so they default to PascalCase, which is what all 37 `private
+# static readonly` fields in the repo (24 in `src/`, 13 in `tests/`) already
+# are — an unfired rule needing no exemption, not a decision.
 #
 # There is deliberately no rule requiring an `Async` suffix: the codebase has no
 # `await` in it at all, so the rule would only ever fire on code nobody has
@@ -153,6 +166,8 @@ csharp_preserve_single_line_blocks = true
 
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 dotnet_naming_style.camel_case.capitalization = camel_case
+dotnet_naming_style.camel_case_underscore.capitalization = camel_case
+dotnet_naming_style.camel_case_underscore.required_prefix = _
 dotnet_naming_style.i_prefixed.capitalization = pascal_case
 dotnet_naming_style.i_prefixed.required_prefix = I
 dotnet_naming_style.t_prefixed.capitalization = pascal_case
@@ -173,6 +188,9 @@ dotnet_naming_symbols.visible_fields.applicable_kinds = field
 dotnet_naming_symbols.visible_fields.applicable_accessibilities = public, internal, protected, protected_internal, private_protected
 dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
 dotnet_naming_symbols.locals_and_parameters.applicable_kinds = local, parameter
 dotnet_naming_symbols.locals_and_parameters.applicable_accessibilities = *
 
@@ -200,9 +218,13 @@ dotnet_naming_rule.visible_fields_are_pascal_case.symbols = visible_fields
 dotnet_naming_rule.visible_fields_are_pascal_case.style = pascal_case
 dotnet_naming_rule.visible_fields_are_pascal_case.severity = warning
 
+dotnet_naming_rule.private_static_fields_are_pascal_case.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_are_pascal_case.style = pascal_case
+dotnet_naming_rule.private_static_fields_are_pascal_case.severity = warning
+
 dotnet_naming_rule.private_fields_are_camel_case.symbols = private_fields
-dotnet_naming_rule.private_fields_are_camel_case.style = camel_case
-dotnet_naming_rule.private_fields_are_camel_case.severity = warning
+dotnet_naming_rule.private_fields_are_camel_case.style = camel_case_underscore
+dotnet_naming_rule.private_fields_are_camel_case.severity = error
 
 dotnet_naming_rule.locals_and_parameters_are_camel_case.symbols = locals_and_parameters
 dotnet_naming_rule.locals_and_parameters_are_camel_case.style = camel_case
@@ -238,6 +260,13 @@ dotnet_diagnostic.IDE0130.severity = error  # #59 (2026-08-16) did the vertical 
 # diagnostic, nullable included.
 
 [tests/**/*.cs]
+# `var` is exempt from Ringo's 2026-08-15 ruling — the ruling text names the
+# rewrite, not a scope, and test bodies are full of `new` calls whose type is
+# already in the line (`var sut = new OkfBundle(...)`); silent rather than none
+# so the IDE still offers it as a preference.
+csharp_style_var_for_built_in_types = true:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = true:silent
 dotnet_diagnostic.CA1707.severity = none  # test names are sentences: `TryResolve_refuses_a_backslash_traversal` says what broke when it goes red
 dotnet_diagnostic.CA1303.severity = none  # test code is not localized
 dotnet_diagnostic.CA1305.severity = none  # a test may format however it likes; nothing it prints is shipped

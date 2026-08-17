@@ -68,11 +68,11 @@ public static class OkfSkills
     private static IReadOnlyList<OkfSkill> Load()
 #pragma warning restore CA1859
     {
-        var assembly = typeof(OkfSkills).Assembly;
-        var suffix = $".{SkillFileName}";
+        Assembly assembly = typeof(OkfSkills).Assembly;
+        string suffix = $".{SkillFileName}";
 
-        var skills = new List<OkfSkill>();
-        foreach (var resource in assembly.GetManifestResourceNames())
+        List<OkfSkill> skills = new List<OkfSkill>();
+        foreach (string resource in assembly.GetManifestResourceNames())
         {
             if (!resource.StartsWith(ResourcePrefix, StringComparison.Ordinal)
                 || !resource.EndsWith(suffix, StringComparison.Ordinal))
@@ -80,8 +80,8 @@ public static class OkfSkills
                 continue;
             }
 
-            var name = resource[ResourcePrefix.Length..^suffix.Length];
-            var content = Read(assembly, resource);
+            string name = resource[ResourcePrefix.Length..^suffix.Length];
+            string content = Read(assembly, resource);
             skills.Add(new OkfSkill(name, DescriptionOf(name, content), content));
         }
 
@@ -91,12 +91,12 @@ public static class OkfSkills
 
     private static string Read(Assembly assembly, string resource)
     {
-        using var stream = assembly.GetManifestResourceStream(resource)
+        using Stream stream = assembly.GetManifestResourceStream(resource)
             ?? throw new InvalidOperationException(
                 $"The embedded skill '{resource}' is missing from {assembly.GetName().Name}. " +
                 "Skills are globbed into Okf.Core.csproj from skills/*/SKILL.md.");
 
-        using var reader = new StreamReader(stream, Encoding.UTF8);
+        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
 
@@ -107,7 +107,7 @@ public static class OkfSkills
     /// </summary>
     private static string DescriptionOf(string name, string content)
     {
-        var frontmatter = OkfDocument.Parse(content).Frontmatter;
+        OkfMapping frontmatter = OkfDocument.Parse(content).Frontmatter;
         if (frontmatter["description"] is not OkfScalar description)
         {
             throw new InvalidOperationException(

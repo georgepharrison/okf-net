@@ -10,14 +10,14 @@ namespace Okf.Core.Tests.Site;
 /// </summary>
 internal sealed class MetadataFixture : IDisposable
 {
-    private readonly TempBundle bundle;
+    private readonly TempBundle _bundle;
 
     /// <summary>Builds the fixture bundle.</summary>
     public MetadataFixture()
     {
-        this.bundle = new TempBundle("meta");
+        _bundle = new TempBundle("meta");
 
-        this.bundle
+        _bundle
             .Add("index.md", """
                 # Concept
 
@@ -78,7 +78,7 @@ internal sealed class MetadataFixture : IDisposable
 
     /// <summary>The working set a command would resolve for the fixture.</summary>
     public OkfWorkingSet WorkingSet =>
-        new([this.bundle.Bundle], null, $"bundle '{this.bundle.Root}' (fixture)");
+        new([_bundle.Bundle], null, $"bundle '{_bundle.Root}' (fixture)");
 
     /// <summary>Renders the site.</summary>
     /// <returns>The plan.</returns>
@@ -88,7 +88,7 @@ internal sealed class MetadataFixture : IDisposable
             new OkfSiteOptions { Today = SiteFixture.Today, Name = "Meta" });
 
     /// <inheritdoc />
-    public void Dispose() => this.bundle.Dispose();
+    public void Dispose() => _bundle.Dispose();
 }
 
 /// <summary>

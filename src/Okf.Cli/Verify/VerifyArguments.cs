@@ -5,14 +5,14 @@ namespace Okf.Cli.Verify;
 /// <summary>The parsed form of <c>okf verify</c>'s command line.</summary>
 internal sealed class VerifyArguments
 {
-    private readonly List<string> paths = [];
+    private readonly List<string> _paths = [];
 
     private VerifyArguments()
     {
     }
 
     /// <summary>The concept paths to stamp, in the order given.</summary>
-    public IReadOnlyList<string> Paths => this.paths;
+    public IReadOnlyList<string> Paths => _paths;
 
     /// <summary>
     /// The <c>--by</c> override: the actor to stamp instead of the resolved human
@@ -42,12 +42,12 @@ internal sealed class VerifyArguments
     public static VerifyArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new VerifyArguments();
+        VerifyArguments parsed = new VerifyArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -82,7 +82,7 @@ internal sealed class VerifyArguments
                         throw new OkfConfigException($"Unknown option '{argument}'.");
                     }
 
-                    parsed.paths.Add(argument);
+                    parsed._paths.Add(argument);
                     break;
             }
         }

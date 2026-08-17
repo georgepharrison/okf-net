@@ -40,12 +40,12 @@ internal sealed class SiteArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static SiteArguments Parse(string[] args)
     {
-        var parsed = new SiteArguments();
+        SiteArguments parsed = new SiteArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -54,7 +54,7 @@ internal sealed class SiteArguments
                     break;
 
                 case "--out" or "-o":
-                    var output = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    string output = inlineValue ?? CliArguments.Next(args, ref index, name);
                     if (parsed.Out is not null)
                     {
                         throw new OkfConfigException($"Option '{name}' was given twice.");
@@ -82,7 +82,7 @@ internal sealed class SiteArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Json = CliArguments.ParseFormat(format);
                     break;
 

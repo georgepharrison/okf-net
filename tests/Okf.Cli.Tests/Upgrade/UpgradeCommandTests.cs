@@ -378,9 +378,9 @@ public sealed class UpgradeCommandTests
     /// <summary>A release host in memory. No socket, no port, no artifact host.</summary>
     private sealed class FakeHost
     {
-        private readonly string version;
+        private readonly string _version;
 
-        public FakeHost(string version) => this.version = version;
+        public FakeHost(string version) => _version = version;
 
         /// <summary>Bytes to serve instead of the ones the manifest describes.</summary>
         public string? ServeInstead { get; init; }
@@ -417,13 +417,13 @@ public sealed class UpgradeCommandTests
             var digest = Digest(NewBytes);
             return $$"""
                 {
-                  "version": "{{this.version}}",
-                  "tag": "v{{this.version}}",
+                  "version": "{{_version}}",
+                  "tag": "v{{_version}}",
                   "generatedAt": "2026-08-16T04:27:30Z",
                   "assets": {
-                    "okf-linux-x64":   { "path": "v{{this.version}}/okf-linux-x64",   "sha256": "{{digest}}" },
-                    "okf-osx-arm64":   { "path": "v{{this.version}}/okf-osx-arm64",   "sha256": "{{digest}}" },
-                    "okf-win-x64.exe": { "path": "v{{this.version}}/okf-win-x64.exe", "sha256": "{{digest}}" }
+                    "okf-linux-x64":   { "path": "v{{_version}}/okf-linux-x64",   "sha256": "{{digest}}" },
+                    "okf-osx-arm64":   { "path": "v{{_version}}/okf-osx-arm64",   "sha256": "{{digest}}" },
+                    "okf-win-x64.exe": { "path": "v{{_version}}/okf-win-x64.exe", "sha256": "{{digest}}" }
                   }
                 }
                 """;

@@ -58,8 +58,8 @@ public static class OkfSiteGenerator
         ArgumentNullException.ThrowIfNull(workingSet);
         options ??= new OkfSiteOptions();
 
-        var model = OkfSiteBuilder.Build(workingSet, options);
-        var files = model.SingleFile ? SingleFile(model) : MultiPage(model);
+        OkfSiteModel model = OkfSiteBuilder.Build(workingSet, options);
+        IReadOnlyList<OkfSiteFile> files = model.SingleFile ? SingleFile(model) : MultiPage(model);
         return new OkfSitePlan(model, files);
     }
 
@@ -73,12 +73,12 @@ public static class OkfSiteGenerator
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrEmpty(outputDirectory);
 
-        var root = Path.GetFullPath(outputDirectory);
-        var written = new List<string>(plan.Files.Count);
+        string root = Path.GetFullPath(outputDirectory);
+        List<string> written = new List<string>(plan.Files.Count);
 
-        foreach (var file in plan.Files)
+        foreach (OkfSiteFile file in plan.Files)
         {
-            var path = Path.Combine(root, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            string path = Path.Combine(root, file.Path.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, file.Content, FileText.Utf8NoBom);
             written.Add(path);
@@ -91,7 +91,7 @@ public static class OkfSiteGenerator
     private static IReadOnlyList<OkfSiteFile> MultiPage(OkfSiteModel model)
 #pragma warning restore CA1859
     {
-        var files = new List<OkfSiteFile>
+        List<OkfSiteFile> files = new List<OkfSiteFile>
         {
             new(OkfSiteAssets.StyleSheetPath, OkfSiteAssets.StyleSheet),
             new(OkfSiteAssets.ScriptPath, OkfSiteAssets.Script),
@@ -139,10 +139,10 @@ public static class OkfSiteGenerator
                 OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Graph") + OkfSiteHtml.Graph(model),
                 withData: true)));
 
-        foreach (var page in model.Pages)
+        foreach (OkfSitePage page in model.Pages)
         {
-            var root = OkfSiteHtml.Root(page.Href);
-            var body = OkfSiteHtml.Article(
+            string root = OkfSiteHtml.Root(page.Href);
+            string body = OkfSiteHtml.Article(
                 page,
                 model,
                 other => OkfSiteBuilder.RelativeHref(page.Href, other.Href),
@@ -167,10 +167,10 @@ public static class OkfSiteGenerator
         string body,
         bool withData)
     {
-        var root = OkfSiteHtml.Root(href);
-        var head = $"<link rel=\"stylesheet\" href=\"{root}{OkfSiteAssets.StyleSheetPath}\" />\n";
+        string root = OkfSiteHtml.Root(href);
+        string head = $"<link rel=\"stylesheet\" href=\"{root}{OkfSiteAssets.StyleSheetPath}\" />\n";
 
-        var scripts = new StringBuilder();
+        StringBuilder scripts = new StringBuilder();
         if (withData)
         {
             scripts.Append("<script src=\"").Append(root).Append(OkfSiteAssets.DataPath)
@@ -180,7 +180,7 @@ public static class OkfSiteGenerator
         scripts.Append("<script src=\"").Append(root).Append(OkfSiteAssets.ScriptPath)
             .Append("\" defer=\"defer\"></script>\n");
 
-        var content = new StringBuilder()
+        string content = new StringBuilder()
             .Append(OkfSiteHtml.TopBar(model, root, current))
             .Append("<main class=\"shell\">\n")
             .Append(body)
@@ -193,20 +193,20 @@ public static class OkfSiteGenerator
 
     private static IReadOnlyList<OkfSiteFile> SingleFile(OkfSiteModel model)
     {
-        var tagBase = OkfSiteHtml.TagBase(model, string.Empty);
-        var articles = new List<KeyValuePair<string, string>>();
-        foreach (var page in model.Pages)
+        string tagBase = OkfSiteHtml.TagBase(model, string.Empty);
+        List<KeyValuePair<string, string>> articles = new List<KeyValuePair<string, string>>();
+        foreach (OkfSitePage page in model.Pages)
         {
             articles.Add(new KeyValuePair<string, string>(
                 page.Id,
                 OkfSiteHtml.Article(page, model, other => "#c=" + Uri.EscapeDataString(other.Id), "#", tagBase)));
         }
 
-        var head = "<style>" + OkfSiteHtml.Cdata(OkfSiteAssets.StyleSheet) + "</style>\n";
+        string head = "<style>" + OkfSiteHtml.Cdata(OkfSiteAssets.StyleSheet) + "</style>\n";
 
         // The same four destinations the multi-page site has as files, as fragment routes:
         // nothing (home), `#v=dashboard`, `#v=graph`, `#c=<id>`.
-        var body = new StringBuilder()
+        string body = new StringBuilder()
             .Append(OkfSiteHtml.TopBar(model, string.Empty, null))
             .Append("<main class=\"shell\">\n")
             .Append("<div class=\"view active\" data-view=\"home\">\n")
@@ -225,7 +225,7 @@ public static class OkfSiteGenerator
             .Append("</main>\n")
             .ToString();
 
-        var tail = new StringBuilder()
+        string tail = new StringBuilder()
             .Append("<script type=\"application/json\" id=\"okf-articles\">")
             .Append(OkfSiteHtml.Articles(articles))
             .Append("</script>\n")

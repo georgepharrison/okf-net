@@ -70,8 +70,8 @@ internal static class InboxCommand
     {
         // PRD CLI-1: the same working set `okf lint` and `okf search` resolve, so the three
         // never disagree about which bundles they are looking at.
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
-        var result = OkfInboxScanner.Scan(
+        OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        OkfInboxResult result = OkfInboxScanner.Scan(
             workingSet.Bundles,
             new OkfInboxOptions { Today = DateOnly.FromDateTime(DateTime.Now) });
 
@@ -101,9 +101,9 @@ internal static class InboxCommand
 
     private static void WriteText(OkfInboxResult result, string baseDirectory, TextWriter output)
     {
-        foreach (var reason in OkfInboxReasonExtensions.All)
+        foreach (OkfInboxReason reason in OkfInboxReasonExtensions.All)
         {
-            var items = result.For(reason).ToList();
+            List<OkfInboxItem> items = result.For(reason).ToList();
             if (items.Count == 0)
             {
                 continue;
@@ -111,9 +111,9 @@ internal static class InboxCommand
 
             output.WriteLine(
                 $"{reason.ToHeading()} ({items.Count.ToString(CultureInfo.InvariantCulture)})");
-            foreach (var item in items)
+            foreach (OkfInboxItem item in items)
             {
-                var type = item.Concept.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
+                string type = item.Concept.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
                 output.WriteLine(
                     $"  {DiagnosticWriter.Display(item.Concept.AbsolutePath, baseDirectory)}  " +
                     $"{item.Concept.Title}{type}");
@@ -123,7 +123,7 @@ internal static class InboxCommand
             output.WriteLine();
         }
 
-        var summary =
+        string summary =
             $"Checked {DiagnosticWriter.Plural(result.ConceptCount, "concept")} in " +
             $"{DiagnosticWriter.Plural(result.Bundles.Count, "bundle")}: ";
 
@@ -155,15 +155,15 @@ internal static class InboxCommand
 
     private static string Acknowledgment(OkfInboxItem item)
     {
-        var generated = item.GeneratedAt is null
+        string generated = item.GeneratedAt is null
             ? "no generated stamp"
             : $"generated {item.GeneratedBy ?? "an unrecorded actor"} {item.GeneratedAt} ({Ago(item.AgeDays)})";
 
-        var acknowledgment = item.VerifiedAt is null
+        string acknowledgment = item.VerifiedAt is null
             ? "never verified"
             : $"last verified {item.VerifiedBy ?? "an unrecorded actor"} {item.VerifiedAt}";
 
-        var draft = string.Equals(item.Status, OkfInboxScanner.DraftStatus, StringComparison.OrdinalIgnoreCase)
+        string draft = string.Equals(item.Status, OkfInboxScanner.DraftStatus, StringComparison.OrdinalIgnoreCase)
             ? "status: draft; "
             : string.Empty;
 
@@ -172,7 +172,7 @@ internal static class InboxCommand
 
     private static string Drift(OkfInboxItem item)
     {
-        var sources = string.Join(
+        string sources = string.Join(
             ", ",
             item.DriftedSources.Select(source => $"{source.Display} ({source.LastModified})"));
         return $"generated {item.GeneratedAt}; moved since: {sources}";

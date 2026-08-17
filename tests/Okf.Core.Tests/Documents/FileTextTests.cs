@@ -10,13 +10,13 @@ namespace Okf.Core.Tests.Documents;
 /// </summary>
 public sealed class FileTextTests : IDisposable
 {
-    private readonly string root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
 
     /// <summary>A BOM is EF BB BF, and no okf-written file starts with one.</summary>
     [Fact]
     public void WritesTheTextsOwnBytesWithNoByteOrderMark()
     {
-        var path = Path.Combine(this.root, "concept.md");
+        var path = Path.Combine(_root, "concept.md");
 
         FileText.WriteAtomic(path, "# tîtle\n");
 
@@ -34,20 +34,20 @@ public sealed class FileTextTests : IDisposable
     [Fact]
     public void ReplacesTheFileAndLeavesNothingBesideIt()
     {
-        var path = Path.Combine(this.root, "manifest.json");
+        var path = Path.Combine(_root, "manifest.json");
         FileText.WriteAtomic(path, "{ \"captures\": [1, 2, 3] }");
 
         FileText.WriteAtomic(path, "{}");
 
         Assert.Equal("{}", File.ReadAllText(path));
-        Assert.Equal([path], Directory.GetFileSystemEntries(this.root));
+        Assert.Equal([path], Directory.GetFileSystemEntries(_root));
     }
 
     /// <summary>A caller writing into a directory that is not there yet gets it created.</summary>
     [Fact]
     public void CreatesTheDirectoryItWritesInto()
     {
-        var path = Path.Combine(this.root, "nested", "deeper", "index.md");
+        var path = Path.Combine(_root, "nested", "deeper", "index.md");
 
         FileText.WriteAtomic(path, "x");
 
@@ -59,7 +59,7 @@ public sealed class FileTextTests : IDisposable
     {
         try
         {
-            Directory.Delete(this.root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {

@@ -432,12 +432,12 @@ public class VerifyCommandTests
     /// </summary>
     private sealed class Vault : IDisposable
     {
-        private readonly TempTree tree = new();
-        private readonly List<KeyValuePair<string, string>> variables;
+        private readonly TempTree _tree = new();
+        private readonly List<KeyValuePair<string, string>> _variables;
 
         public Vault(string? actor, string? gitGlobalEmail = null, string? gitLocalEmail = null)
         {
-            this.tree.CreateDirectory("okf/bundles/b");
+            _tree.CreateDirectory("okf/bundles/b");
             Write(
                 "bundles/b/widgets.md",
                 """
@@ -464,8 +464,8 @@ public class VerifyCommandTests
                 Write("okf.json", $$"""{ "verify": { "actor": "{{actor}}" } }""");
             }
 
-            var home = this.tree.CreateDirectory("home");
-            this.variables =
+            var home = _tree.CreateDirectory("home");
+            _variables =
             [
                 new KeyValuePair<string, string>("HOME", home),
                 new KeyValuePair<string, string>("XDG_CONFIG_HOME", System.IO.Path.Combine(home, ".config")),
@@ -474,10 +474,10 @@ public class VerifyCommandTests
 
             // No GIT_CONFIG_GLOBAL at all would let the operator's ~/.gitconfig decide a
             // test's outcome; an empty file is the hermetic "git has nothing to say".
-            var gitConfig = this.tree.Write(
+            var gitConfig = _tree.Write(
                 "home/gitconfig",
                 gitGlobalEmail is null ? "[user]\n\tname = Nobody\n" : $"[user]\n\temail = {gitGlobalEmail}\n");
-            this.variables.Add(new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", gitConfig));
+            _variables.Add(new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", gitConfig));
 
             if (gitLocalEmail is not null)
             {
@@ -486,26 +486,26 @@ public class VerifyCommandTests
             }
         }
 
-        public string Path(string relativePath) => System.IO.Path.Combine(this.tree.Root, "okf", relativePath);
+        public string Path(string relativePath) => System.IO.Path.Combine(_tree.Root, "okf", relativePath);
 
         public string Read(string relativePath) => File.ReadAllText(Path(relativePath));
 
         public string Write(string relativePath, string content) =>
-            this.tree.Write(System.IO.Path.Combine("okf", relativePath), content);
+            _tree.Write(System.IO.Path.Combine("okf", relativePath), content);
 
         public CliRun Run(params string[] args) =>
-            CliHarness.Run(new OkfEnvironment(System.IO.Path.Combine(this.tree.Root, "okf"), this.variables), args);
+            CliHarness.Run(new OkfEnvironment(System.IO.Path.Combine(_tree.Root, "okf"), _variables), args);
 
         public CliRun Verify(string relativePath, params string[] options) =>
             Run(["verify", Path(relativePath), .. options]);
 
-        public void Dispose() => this.tree.Dispose();
+        public void Dispose() => _tree.Dispose();
 
         private void Git(params string[] args)
         {
             var startInfo = new System.Diagnostics.ProcessStartInfo("git")
             {
-                WorkingDirectory = System.IO.Path.Combine(this.tree.Root, "okf"),
+                WorkingDirectory = System.IO.Path.Combine(_tree.Root, "okf"),
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -516,7 +516,7 @@ public class VerifyCommandTests
                 startInfo.ArgumentList.Add(argument);
             }
 
-            foreach (var variable in this.variables)
+            foreach (var variable in _variables)
             {
                 startInfo.Environment[variable.Key] = variable.Value;
             }

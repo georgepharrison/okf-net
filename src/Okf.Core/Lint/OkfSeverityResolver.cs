@@ -47,7 +47,7 @@ public sealed class OkfSeverityResolver
     /// <summary>The layer name reported for a rule no configuration layer touched.</summary>
     public const string DefaultsLayerName = "built-in defaults";
 
-    private readonly List<OkfSeverityLayer> layers;
+    private readonly List<OkfSeverityLayer> _layers;
 
     /// <summary>Initializes a resolver.</summary>
     /// <param name="layers">
@@ -58,16 +58,16 @@ public sealed class OkfSeverityResolver
     public OkfSeverityResolver(IEnumerable<OkfSeverityLayer> layers)
     {
         ArgumentNullException.ThrowIfNull(layers);
-        this.layers = [.. layers];
+        _layers = [.. layers];
 
-        var unknown = this.layers
+        List<(OkfSeverityLayer Layer, string Id)> unknown = _layers
             .SelectMany(layer => layer.Severities.Keys.Select(id => (Layer: layer, Id: id)))
             .Where(entry => !OkfRules.IsKnown(entry.Id))
             .ToList();
 
         if (unknown.Count > 0)
         {
-            var detail = string.Join(
+            string detail = string.Join(
                 "; ",
                 unknown.Select(entry => $"'{entry.Id}' (from {entry.Layer.Name})"));
             throw new OkfConfigException(
@@ -81,12 +81,12 @@ public sealed class OkfSeverityResolver
 
     /// <summary>Whether warnings are promoted to errors, after all layers are applied.</summary>
     public bool TreatAllWarningsAsErrors =>
-        this.layers.LastOrDefault(layer => layer.TreatAllWarningsAsErrors is not null)?.TreatAllWarningsAsErrors
+        _layers.LastOrDefault(layer => layer.TreatAllWarningsAsErrors is not null)?.TreatAllWarningsAsErrors
         ?? false;
 
     /// <summary>The layer that set <see cref="TreatAllWarningsAsErrors" />.</summary>
     public string TreatAllWarningsAsErrorsSource =>
-        this.layers.LastOrDefault(layer => layer.TreatAllWarningsAsErrors is not null)?.Name ?? DefaultsLayerName;
+        _layers.LastOrDefault(layer => layer.TreatAllWarningsAsErrors is not null)?.Name ?? DefaultsLayerName;
 
     /// <summary>Resolves the effective severity of a rule.</summary>
     /// <param name="ruleId">The <c>OKF####</c> identifier.</param>
@@ -100,13 +100,13 @@ public sealed class OkfSeverityResolver
     /// <exception cref="ArgumentException">No such rule is shipped.</exception>
     public (OkfSeverity Severity, string Source) ResolveWithSource(string ruleId)
     {
-        var rule = OkfRules.Get(ruleId);
-        var severity = rule.DefaultSeverity;
-        var source = DefaultsLayerName;
+        OkfRule rule = OkfRules.Get(ruleId);
+        OkfSeverity severity = rule.DefaultSeverity;
+        string source = DefaultsLayerName;
 
-        foreach (var layer in this.layers)
+        foreach (OkfSeverityLayer layer in _layers)
         {
-            if (layer.Severities.TryGetValue(ruleId, out var configured))
+            if (layer.Severities.TryGetValue(ruleId, out OkfSeverity configured))
             {
                 severity = configured;
                 source = layer.Name;

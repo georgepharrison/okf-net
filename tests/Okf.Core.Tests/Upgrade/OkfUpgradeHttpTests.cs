@@ -20,18 +20,18 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 {
     private const string AssetBytes = "#!/bin/sh\necho okf 1.1.0-rc.1\n";
 
-    private readonly HttpListener listener = new();
-    private readonly string baseUrl;
-    private readonly List<string> userAgents = [];
-    private readonly Task server;
+    private readonly HttpListener _listener = new();
+    private readonly string _baseUrl;
+    private readonly List<string> _userAgents = [];
+    private readonly Task _server;
 
     public OkfUpgradeHttpTests()
     {
         var port = FreePort();
-        this.baseUrl = $"http://127.0.0.1:{port}";
-        this.listener.Prefixes.Add($"{this.baseUrl}/");
-        this.listener.Start();
-        this.server = Task.Run(Serve);
+        _baseUrl = $"http://127.0.0.1:{port}";
+        _listener.Prefixes.Add($"{_baseUrl}/");
+        _listener.Start();
+        _server = Task.Run(Serve);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
         var options = new OkfUpgradeOptions
         {
-            BaseUrl = this.baseUrl,
+            BaseUrl = _baseUrl,
             CurrentVersion = "1.0.0",
             ExecutablePath = target,
             UserAgent = "okf/1.0.0",
@@ -53,7 +53,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
         Assert.Equal("1.1.0-rc.1", plan.AvailableVersion);
         Assert.False(plan.IsUpToDate);
-        Assert.Equal($"{this.baseUrl}/latest.json", plan.ManifestUri.ToString());
+        Assert.Equal($"{_baseUrl}/latest.json", plan.ManifestUri.ToString());
 
         var result = OkfUpgrade.Apply(plan, userAgent: options.UserAgent);
 
@@ -61,8 +61,8 @@ public sealed class OkfUpgradeHttpTests : IDisposable
         Assert.Equal(AssetBytes, File.ReadAllText(target));
 
         // The host is told which okf is asking, on every request it answered.
-        Assert.NotEmpty(this.userAgents);
-        Assert.All(this.userAgents, agent => Assert.Equal("okf/1.0.0", agent));
+        Assert.NotEmpty(_userAgents);
+        Assert.All(_userAgents, agent => Assert.Equal("okf/1.0.0", agent));
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
         var plan = OkfUpgrade.Resolve(new OkfUpgradeOptions
         {
-            BaseUrl = $"{this.baseUrl}/moved",
+            BaseUrl = $"{_baseUrl}/moved",
             CurrentVersion = "1.0.0",
             ExecutablePath = target,
         });
@@ -97,7 +97,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
 
         var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Resolve(new OkfUpgradeOptions
         {
-            BaseUrl = this.baseUrl,
+            BaseUrl = _baseUrl,
             Version = "9.9.9",
             CurrentVersion = "1.0.0",
             ExecutablePath = target,
@@ -110,18 +110,18 @@ public sealed class OkfUpgradeHttpTests : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        this.listener.Close();
-        this.server.Wait(TimeSpan.FromSeconds(5));
+        _listener.Close();
+        _server.Wait(TimeSpan.FromSeconds(5));
     }
 
     private void Serve()
     {
-        while (this.listener.IsListening)
+        while (_listener.IsListening)
         {
             HttpListenerContext context;
             try
             {
-                context = this.listener.GetContext();
+                context = _listener.GetContext();
             }
             catch (Exception exception) when (exception is HttpListenerException or ObjectDisposedException)
             {
@@ -136,7 +136,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
             // the second dispose and 0 without it — which is what made
             // `FollowsARedirectToTheManifest` fail about one full suite run in four.
             var response = context.Response;
-            this.userAgents.Add(context.Request.UserAgent ?? string.Empty);
+            _userAgents.Add(context.Request.UserAgent ?? string.Empty);
 
             var path = context.Request.Url!.AbsolutePath;
             if (path == "/moved/latest.json")

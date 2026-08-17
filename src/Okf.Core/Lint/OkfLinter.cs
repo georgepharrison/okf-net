@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace Okf.Core.Lint;
 
@@ -99,11 +100,11 @@ public sealed class OkfLintResult
 /// </summary>
 public sealed class OkfLinter
 {
-    private readonly OkfLintOptions options;
+    private readonly OkfLintOptions _options;
 
     /// <summary>Initializes a linter.</summary>
     /// <param name="options">The severity configuration and inputs the rules need.</param>
-    public OkfLinter(OkfLintOptions? options = null) => this.options = options ?? new OkfLintOptions();
+    public OkfLinter(OkfLintOptions? options = null) => _options = options ?? new OkfLintOptions();
 
     /// <summary>Lints a set of bundles.</summary>
     /// <param name="bundles">The bundles to walk.</param>
@@ -113,11 +114,11 @@ public sealed class OkfLinter
     {
         ArgumentNullException.ThrowIfNull(bundles);
 
-        var list = bundles.ToList();
-        var diagnostics = new List<OkfDiagnostic>();
-        var files = 0;
+        List<OkfBundle> list = bundles.ToList();
+        List<OkfDiagnostic> diagnostics = new List<OkfDiagnostic>();
+        int files = 0;
 
-        foreach (var bundle in list)
+        foreach (OkfBundle bundle in list)
         {
             files += LintBundle(bundle, diagnostics);
         }
@@ -125,7 +126,7 @@ public sealed class OkfLinter
         CheckVault(diagnostics);
 
         diagnostics.Sort();
-        return new OkfLintResult(diagnostics, list, files, this.options.Severities);
+        return new OkfLintResult(diagnostics, list, files, _options.Severities);
     }
 
     /// <summary>Lints a single bundle.</summary>
@@ -136,9 +137,9 @@ public sealed class OkfLinter
 
     private int LintBundle(OkfBundle bundle, List<OkfDiagnostic> diagnostics)
     {
-        var files = bundle.MarkdownFiles();
-        var titles = new Dictionary<string, string>(StringComparer.Ordinal);
-        var stems = new Dictionary<string, string>(StringComparer.Ordinal);
+        IReadOnlyList<string> files = bundle.MarkdownFiles();
+        Dictionary<string, string> titles = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, string> stems = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // What the index-drift rule needs out of this walk, kept so it reuses the walk
         // instead of repeating it: every `index.md`'s text, to compare against, and every
@@ -147,14 +148,14 @@ public sealed class OkfLinter
         // YAML parse. Only index texts are kept — the generator never asks for a concept's
         // text once its frontmatter is to hand — so the walk does not accumulate the whole
         // bundle in memory to answer one rule.
-        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
-        var frontmatters = new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
+        Dictionary<string, string> texts = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, OkfMapping> frontmatters = new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
 
-        foreach (var file in files)
+        foreach (string file in files)
         {
-            var text = File.ReadAllText(file);
-            var layout = FileLayout.Of(text);
-            var name = Path.GetFileName(file);
+            string text = File.ReadAllText(file);
+            FileLayout layout = FileLayout.Of(text);
+            string name = Path.GetFileName(file);
 
             if (string.Equals(name, OkfBundle.IndexFileName, StringComparison.Ordinal))
             {
@@ -199,13 +200,13 @@ public sealed class OkfLinter
         Dictionary<string, OkfMapping> frontmatters,
         List<OkfDiagnostic> diagnostics)
     {
-        if (this.options.Severities.Resolve(OkfRules.GeneratedIndexDrift) == OkfSeverity.Hidden)
+        if (_options.Severities.Resolve(OkfRules.GeneratedIndexDrift) == OkfSeverity.Hidden)
         {
             // Nothing would be reported, so nothing is rendered.
             return;
         }
 
-        var plan = OkfIndexGenerator.Plan(
+        OkfIndexPlan plan = OkfIndexGenerator.Plan(
             bundle,
             new OkfIndexOptions
             {
@@ -214,12 +215,12 @@ public sealed class OkfLinter
                 ReadFrontmatter = path => frontmatters.GetValueOrDefault(path),
             });
 
-        foreach (var index in plan.Drift)
+        foreach (OkfIndex index in plan.Drift)
         {
             // Only indexes okf-net wrote can drift: a foreign bundle's hand-styled index
             // carries no marker and is left alone, which is what keeps PRD ACC-1 passing
             // on Google's reference bundles.
-            var message = index.Status == OkfIndexStatus.Orphaned
+            string message = index.Status == OkfIndexStatus.Orphaned
                 ? "This generated index.md describes a directory with nothing left to index; delete it or add concepts (§8)."
                 : "This generated index.md no longer matches the directory; run `okf index` to regenerate it (§8).";
 
@@ -249,8 +250,8 @@ public sealed class OkfLinter
     /// </remarks>
     private void CheckVault(List<OkfDiagnostic> diagnostics)
     {
-        if (this.options.VaultRoot is not { Length: > 0 } vault
-            || this.options.Severities.Resolve(OkfRules.RawItemMutated) == OkfSeverity.Hidden)
+        if (_options.VaultRoot is not { Length: > 0 } vault
+            || _options.Severities.Resolve(OkfRules.RawItemMutated) == OkfSeverity.Hidden)
         {
             // No vault, or nothing would be reported — so nothing is read and nothing is
             // hashed. Hashing every ingested artifact is the most expensive thing a lint
@@ -258,17 +259,17 @@ public sealed class OkfLinter
             return;
         }
 
-        var manifest = OkfCaptureManifest.TryLoad(vault, out var text);
+        OkfCaptureManifest? manifest = OkfCaptureManifest.TryLoad(vault, out string? text);
         if (manifest is null || text is null)
         {
             return;
         }
 
-        var rawDirectory = Path.Combine(vault, OkfCaptureManifest.RawDirectoryName);
+        string rawDirectory = Path.Combine(vault, OkfCaptureManifest.RawDirectoryName);
 
-        foreach (var entry in manifest.Captures.Where(capture => capture.IsIngested))
+        foreach (OkfCaptureEntry entry in manifest.Captures.Where(capture => capture.IsIngested))
         {
-            foreach (var file in entry.Files)
+            foreach (OkfCaptureFile file in entry.Files)
             {
                 CheckRawFile(manifest, text, rawDirectory, entry, file, diagnostics);
             }
@@ -283,7 +284,7 @@ public sealed class OkfLinter
         OkfCaptureFile file,
         List<OkfDiagnostic> diagnostics)
     {
-        if (!TryResolveRawPath(rawDirectory, file.Path, out var absolute))
+        if (!TryResolveRawPath(rawDirectory, file.Path, out string? absolute))
         {
             // A recorded path that escapes raw/ is a malformed record, which is
             // check-manifest.py's finding to report; reading the file it names is exactly
@@ -342,8 +343,8 @@ public sealed class OkfLinter
             return false;
         }
 
-        var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(rawDirectory, recorded)));
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
+        string candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(rawDirectory, recorded)));
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
 
         if (!candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
@@ -361,8 +362,8 @@ public sealed class OkfLinter
     /// </summary>
     private static int? LineOf(string manifestText, string needle)
     {
-        var lines = manifestText.Split('\n');
-        for (var i = 0; i < lines.Length; i++)
+        string[] lines = manifestText.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
         {
             if (lines[i].Contains(needle, StringComparison.Ordinal))
             {
@@ -374,10 +375,10 @@ public sealed class OkfLinter
     }
 
     private OkfDiagnostic VaultDiagnostic(string message, string path, int? line) =>
-        new(OkfRules.RawItemMutated, this.options.Severities.Resolve(OkfRules.RawItemMutated), message, path, line);
+        new(OkfRules.RawItemMutated, _options.Severities.Resolve(OkfRules.RawItemMutated), message, path, line);
 
     private static string? NestedText(OkfMapping mapping, string key, string child) =>
-        mapping.TryGetValue(key, out var value) && value is OkfMapping nested
+        mapping.TryGetValue(key, out OkfValue? value) && value is OkfMapping nested
             ? FrontmatterValues.Scalar(nested, child)
             : null;
 
@@ -393,15 +394,15 @@ public sealed class OkfLinter
             "yyyy-MM-dd",
             CultureInfo.InvariantCulture,
             DateTimeStyles.None,
-            out var date)
+            out DateOnly date)
             ? date
             : null;
     }
 
     private static string Normalize(string text)
     {
-        var normalized = new System.Text.StringBuilder(text.Length);
-        foreach (var character in text)
+        StringBuilder normalized = new System.Text.StringBuilder(text.Length);
+        foreach (char character in text)
         {
             if (char.IsLetterOrDigit(character))
             {
@@ -413,13 +414,13 @@ public sealed class OkfLinter
     }
 
     private static IEnumerable<OkfMapping> Sources(OkfMapping frontmatter) =>
-        frontmatter.TryGetValue("sources", out var value) && value is OkfSequence sequence
+        frontmatter.TryGetValue("sources", out OkfValue? value) && value is OkfSequence sequence
             ? sequence.OfType<OkfMapping>()
             : [];
 
     private static IEnumerable<string> Tags(OkfMapping frontmatter)
     {
-        if (!frontmatter.TryGetValue("tags", out var value))
+        if (!frontmatter.TryGetValue("tags", out OkfValue? value))
         {
             return [];
         }
@@ -433,13 +434,13 @@ public sealed class OkfLinter
     }
 
     private OkfDiagnostic Diagnostic(string ruleId, string message, string path, int? line, OkfBundle bundle) =>
-        new(ruleId, this.options.Severities.Resolve(ruleId), message, path, line, bundle.Root);
+        new(ruleId, _options.Severities.Resolve(ruleId), message, path, line, bundle.Root);
 
     private void CheckIndexFile(OkfBundle bundle, string path, FileLayout layout, List<OkfDiagnostic> diagnostics)
     {
         // §8: index files carry no frontmatter, with one exception — a bundle-root
         // index.md MAY declare `okf_version` (§12).
-        var isRoot = string.Equals(
+        bool isRoot = string.Equals(
             Path.GetDirectoryName(path),
             bundle.Root,
             StringComparison.Ordinal);
@@ -472,7 +473,7 @@ public sealed class OkfLinter
             }
             else if (frontmatter is not null)
             {
-                foreach (var entry in frontmatter)
+                foreach (KeyValuePair<OkfValue, OkfValue> entry in frontmatter)
                 {
                     if (entry.Key is OkfScalar key && !string.Equals(key.Value, "okf_version", StringComparison.Ordinal))
                     {
@@ -487,7 +488,7 @@ public sealed class OkfLinter
             }
         }
 
-        var scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
+        MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
         if (scan.HasContent && scan.Headings.Count == 0)
         {
             diagnostics.Add(Diagnostic(
@@ -498,7 +499,7 @@ public sealed class OkfLinter
                 bundle));
         }
 
-        foreach (var bullet in scan.Bullets)
+        foreach (MarkdownBullet bullet in scan.Bullets)
         {
             if (!LintText.IsIndexEntry(bullet.Text))
             {
@@ -533,14 +534,14 @@ public sealed class OkfLinter
             }
         }
 
-        var scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
+        MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
         DateOnly? previous = null;
 
         // §9: `##` headings are ISO YYYY-MM-DD dates, newest first. A `#` title above
         // them is conventional, and entry prose is unconstrained.
-        foreach (var heading in scan.Headings.Where(heading => heading.Level == 2))
+        foreach (MarkdownHeading heading in scan.Headings.Where(heading => heading.Level == 2))
         {
-            var date = Date(heading.Text);
+            DateOnly? date = Date(heading.Text);
             if (date is null)
             {
                 diagnostics.Add(Diagnostic(
@@ -605,7 +606,7 @@ public sealed class OkfLinter
             return;
         }
 
-        var frontmatter = document.Frontmatter;
+        OkfMapping frontmatter = document.Frontmatter;
 
         try
         {
@@ -621,7 +622,7 @@ public sealed class OkfLinter
                 bundle));
         }
 
-        var scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
+        MarkdownScan scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
 
         CheckHygiene(bundle, path, layout, frontmatter, titles, stems, diagnostics);
         CheckProvenance(bundle, path, layout, frontmatter, scan, diagnostics);
@@ -648,7 +649,7 @@ public sealed class OkfLinter
                 bundle));
         }
 
-        var tags = Tags(frontmatter).ToList();
+        List<string> tags = Tags(frontmatter).ToList();
         if (tags.Count == 0)
         {
             diagnostics.Add(Diagnostic(
@@ -658,9 +659,9 @@ public sealed class OkfLinter
                 1,
                 bundle));
         }
-        else if (this.options.TagRegistry is { } registry)
+        else if (_options.TagRegistry is { } registry)
         {
-            foreach (var tag in tags.Where(tag => !registry.Contains(tag, StringComparer.Ordinal)))
+            foreach (string tag in tags.Where(tag => !registry.Contains(tag, StringComparer.Ordinal)))
             {
                 diagnostics.Add(Diagnostic(
                     OkfRules.UnregisteredTag,
@@ -685,10 +686,10 @@ public sealed class OkfLinter
             return;
         }
 
-        var reportedAgainst = (string?)null;
+        string? reportedAgainst = (string?)null;
         if (FrontmatterValues.Scalar(frontmatter, "title") is { } title && Normalize(title) is { Length: > 0 } normalizedTitle)
         {
-            if (titles.TryGetValue(normalizedTitle, out var first))
+            if (titles.TryGetValue(normalizedTitle, out string? first))
             {
                 reportedAgainst = first;
                 diagnostics.Add(Diagnostic(
@@ -704,13 +705,13 @@ public sealed class OkfLinter
             }
         }
 
-        var stem = Normalize(Path.GetFileNameWithoutExtension(path));
+        string stem = Normalize(Path.GetFileNameWithoutExtension(path));
         if (stem.Length == 0)
         {
             return;
         }
 
-        if (stems.TryGetValue(stem, out var firstByStem))
+        if (stems.TryGetValue(stem, out string? firstByStem))
         {
             if (!string.Equals(firstByStem, reportedAgainst, StringComparison.Ordinal))
             {
@@ -736,9 +737,9 @@ public sealed class OkfLinter
         MarkdownScan scan,
         List<OkfDiagnostic> diagnostics)
     {
-        var sourcesLine = layout.FrontmatterKeyLine("sources") ?? 1;
-        var sourceIds = new List<string>();
-        foreach (var source in Sources(frontmatter))
+        int sourcesLine = layout.FrontmatterKeyLine("sources") ?? 1;
+        List<string> sourceIds = new List<string>();
+        foreach (OkfMapping source in Sources(frontmatter))
         {
             if (FrontmatterValues.Scalar(source, "id") is { } id)
             {
@@ -746,18 +747,18 @@ public sealed class OkfLinter
             }
         }
 
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
 
         // Only a footnote *reference* counts as a citation. A `[^id]: …` definition line is
         // the source's own entry in the notes, not a claim attributed to it, so a
         // definition with no reference above it is exactly the shape of a source that was
         // listed and then never used (the first dogfood bundle shipped one, and only
         // markdownlint's MD053 caught it — decisions.md, lint review flags).
-        var referenced = new HashSet<string>(
+        HashSet<string> referenced = new HashSet<string>(
             scan.Footnotes.Where(footnote => !footnote.IsDefinition).Select(footnote => footnote.Label),
             StringComparer.Ordinal);
 
-        foreach (var footnote in scan.Footnotes)
+        foreach (MarkdownFootnote footnote in scan.Footnotes)
         {
             if (!seen.Add(footnote.Label))
             {
@@ -779,11 +780,11 @@ public sealed class OkfLinter
             }
         }
 
-        var defined = new HashSet<string>(
+        HashSet<string> defined = new HashSet<string>(
             scan.Footnotes.Where(footnote => footnote.IsDefinition).Select(footnote => footnote.Label),
             StringComparer.Ordinal);
 
-        foreach (var id in sourceIds.Where(id => !referenced.Contains(id)))
+        foreach (string id in sourceIds.Where(id => !referenced.Contains(id)))
         {
             // The two shapes read very differently to the author. "Never cited by a
             // `[^id]` footnote" is false on its face when a `[^id]:` line is sitting in
@@ -804,18 +805,18 @@ public sealed class OkfLinter
 
         // PRD CORE-8: the compensating control for cited-live sources — the source moved
         // after the concept was written, so the concept may no longer reflect it.
-        var generatedAt = Date(NestedText(frontmatter, "generated", "at"));
+        DateOnly? generatedAt = Date(NestedText(frontmatter, "generated", "at"));
         if (generatedAt is null)
         {
             return;
         }
 
-        foreach (var source in Sources(frontmatter))
+        foreach (OkfMapping source in Sources(frontmatter))
         {
-            var modified = Date(FrontmatterValues.Scalar(source, "last_modified"));
+            DateOnly? modified = Date(FrontmatterValues.Scalar(source, "last_modified"));
             if (modified > generatedAt)
             {
-                var name = FrontmatterValues.Scalar(source, "id") ?? FrontmatterValues.Scalar(source, "resource") ?? "source";
+                string name = FrontmatterValues.Scalar(source, "id") ?? FrontmatterValues.Scalar(source, "resource") ?? "source";
                 diagnostics.Add(Diagnostic(
                     OkfRules.SourceDrift,
                     $"Source `{name}` was last modified {modified:yyyy-MM-dd}, after this concept was generated on {generatedAt:yyyy-MM-dd}.",
@@ -840,13 +841,13 @@ public sealed class OkfLinter
         OkfMapping frontmatter,
         List<OkfDiagnostic> diagnostics)
     {
-        var directory = Path.GetDirectoryName(path)!;
-        var position = 0;
+        string directory = Path.GetDirectoryName(path)!;
+        int position = 0;
 
-        foreach (var source in Sources(frontmatter))
+        foreach (OkfMapping source in Sources(frontmatter))
         {
             position++;
-            var name = FrontmatterValues.Scalar(source, "id") is { } id
+            string name = FrontmatterValues.Scalar(source, "id") is { } id
                 ? $"`{id}`"
                 : $"#{position.ToString(CultureInfo.InvariantCulture)}";
 
@@ -882,10 +883,10 @@ public sealed class OkfLinter
         OkfMapping frontmatter,
         List<OkfDiagnostic> diagnostics)
     {
-        var generatedBy = NestedText(frontmatter, "generated", "by");
+        string? generatedBy = NestedText(frontmatter, "generated", "by");
         if (generatedBy is not null)
         {
-            foreach (var verification in OkfDocument.NormalizeVerified(frontmatter))
+            foreach (OkfMapping verification in OkfDocument.NormalizeVerified(frontmatter))
             {
                 if (string.Equals(FrontmatterValues.Scalar(verification, "by"), generatedBy, StringComparison.Ordinal))
                 {
@@ -900,7 +901,7 @@ public sealed class OkfLinter
             }
         }
 
-        if (OkfDocument.IsStale(frontmatter, this.options.Today))
+        if (OkfDocument.IsStale(frontmatter, _options.Today))
         {
             diagnostics.Add(Diagnostic(
                 OkfRules.StaleConcept,
@@ -913,11 +914,11 @@ public sealed class OkfLinter
 
     private void CheckLinks(OkfBundle bundle, string path, MarkdownScan scan, List<OkfDiagnostic> diagnostics)
     {
-        var directory = Path.GetDirectoryName(path)!;
+        string directory = Path.GetDirectoryName(path)!;
 
-        foreach (var link in scan.Links)
+        foreach (MarkdownLink link in scan.Links)
         {
-            var target = LintText.Resolve(link.Target, bundle.Root, directory, out var resolved);
+            LinkTarget target = LintText.Resolve(link.Target, bundle.Root, directory, out string? resolved);
 
             if (target == LinkTarget.Outside)
             {

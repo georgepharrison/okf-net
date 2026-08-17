@@ -120,7 +120,7 @@ public sealed class OkfCaptureManifest
         ArgumentException.ThrowIfNullOrEmpty(vaultRoot);
 
         text = null;
-        var path = PathFor(vaultRoot);
+        string path = PathFor(vaultRoot);
         if (!File.Exists(path))
         {
             return null;
@@ -151,16 +151,16 @@ public sealed class OkfCaptureManifest
 
         using (document)
         {
-            var root = document.RootElement;
+            JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("captures", out var captures)
+                || !root.TryGetProperty("captures", out JsonElement captures)
                 || captures.ValueKind != JsonValueKind.Array)
             {
                 return null;
             }
 
-            var entries = new List<OkfCaptureEntry>();
-            foreach (var capture in captures.EnumerateArray())
+            List<OkfCaptureEntry> entries = new List<OkfCaptureEntry>();
+            foreach (JsonElement capture in captures.EnumerateArray())
             {
                 if (capture.ValueKind == JsonValueKind.Object)
                 {
@@ -179,7 +179,7 @@ public sealed class OkfCaptureManifest
     public static string Sha256Of(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        using var stream = File.OpenRead(path);
+        using FileStream stream = File.OpenRead(path);
         return Sha256Of(stream);
     }
 
@@ -207,22 +207,22 @@ public sealed class OkfCaptureManifest
 
     private static OkfCaptureEntry ReadEntry(JsonElement capture)
     {
-        var id = StrictJson.String(capture, "id") ?? string.Empty;
+        string id = StrictJson.String(capture, "id") ?? string.Empty;
 
         // `ingestion` closes the entry only when it is an object. Absent, null, or any
         // other shape leaves the capture open — an entry the linter has no verdict on.
-        var isIngested = capture.TryGetProperty("ingestion", out var ingestion)
+        bool isIngested = capture.TryGetProperty("ingestion", out JsonElement ingestion)
             && ingestion.ValueKind == JsonValueKind.Object;
 
-        var files = new List<OkfCaptureFile>();
-        if (capture.TryGetProperty("files", out var recorded) && recorded.ValueKind == JsonValueKind.Array)
+        List<OkfCaptureFile> files = new List<OkfCaptureFile>();
+        if (capture.TryGetProperty("files", out JsonElement recorded) && recorded.ValueKind == JsonValueKind.Array)
         {
-            foreach (var file in recorded.EnumerateArray())
+            foreach (JsonElement file in recorded.EnumerateArray())
             {
                 if (file.ValueKind != JsonValueKind.Object
-                    || !file.TryGetProperty("path", out var filePath)
+                    || !file.TryGetProperty("path", out JsonElement filePath)
                     || filePath.ValueKind != JsonValueKind.String
-                    || !file.TryGetProperty("sha256", out var sha)
+                    || !file.TryGetProperty("sha256", out JsonElement sha)
                     || sha.ValueKind != JsonValueKind.String)
                 {
                     continue;

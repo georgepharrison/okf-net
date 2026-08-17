@@ -6,8 +6,8 @@ namespace Okf.Cli.Search;
 /// <summary>The parsed form of <c>okf search</c>'s command line.</summary>
 internal sealed class SearchArguments
 {
-    private readonly List<string> types = [];
-    private readonly List<string> tags = [];
+    private readonly List<string> _types = [];
+    private readonly List<string> _tags = [];
 
     private SearchArguments()
     {
@@ -23,10 +23,10 @@ internal sealed class SearchArguments
     public int Limit { get; private set; } = 10;
 
     /// <summary>The <c>--type</c> filters, equivalent to inline <c>type:</c> filters.</summary>
-    public IReadOnlyList<string> Types => this.types;
+    public IReadOnlyList<string> Types => _types;
 
     /// <summary>The <c>--tag</c> filters, equivalent to inline <c>tag:</c> filters.</summary>
-    public IReadOnlyList<string> Tags => this.tags;
+    public IReadOnlyList<string> Tags => _tags;
 
     /// <summary>
     /// The <c>--scope</c> flag, or <see langword="null" /> when configuration decides
@@ -53,12 +53,12 @@ internal sealed class SearchArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static SearchArguments Parse(string[] args)
     {
-        var parsed = new SearchArguments();
+        SearchArguments parsed = new SearchArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -75,21 +75,21 @@ internal sealed class SearchArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Json = CliArguments.ParseFormat(format);
                     break;
 
                 case "--limit":
-                    var limit = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Limit = int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+                    string limit = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.Limit = int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out int count)
                         && count > 0
                         ? count
                         : throw new OkfConfigException($"--limit expects a positive whole number; got '{limit}'.");
                     break;
 
                 case "--scope":
-                    var scope = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Scope = OkfScopeKindExtensions.TryParse(scope, out var kind)
+                    string scope = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.Scope = OkfScopeKindExtensions.TryParse(scope, out OkfScopeKind kind)
                         ? kind
                         : throw new OkfConfigException(
                             $"Unknown --scope value '{scope}'; expected one of " +
@@ -97,11 +97,11 @@ internal sealed class SearchArguments
                     break;
 
                 case "--type":
-                    parsed.types.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
+                    parsed._types.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--tag":
-                    parsed.tags.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
+                    parsed._tags.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 default:
@@ -142,13 +142,13 @@ internal sealed class SearchArguments
     /// <returns>The parsed query.</returns>
     public OkfSearchQuery ToQuery()
     {
-        var query = OkfSearchQuery.Parse(Query);
-        foreach (var type in this.types)
+        OkfSearchQuery query = OkfSearchQuery.Parse(Query);
+        foreach (string type in _types)
         {
             query.AddTypeFilter(type);
         }
 
-        foreach (var tag in this.tags)
+        foreach (string tag in _tags)
         {
             query.AddTagFilter(tag);
         }

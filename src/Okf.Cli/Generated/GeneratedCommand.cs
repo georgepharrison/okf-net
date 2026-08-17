@@ -104,10 +104,10 @@ internal static class GeneratedCommand
         // Every named concept is read and checked before the first byte is written: a
         // three-concept run that refuses the third would otherwise leave two claiming a
         // freshness the run did not finish establishing.
-        var files = new List<string>();
-        foreach (var path in arguments.Paths)
+        List<string> files = new List<string>();
+        foreach (string path in arguments.Paths)
         {
-            var full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
+            string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
             if (!File.Exists(full))
             {
                 return Usage(error, $"no such concept: '{full}'.");
@@ -143,12 +143,12 @@ internal static class GeneratedCommand
             files.Add(full);
         }
 
-        var at = arguments.At ?? DateTimeOffset.UtcNow;
-        var stamp = OkfCanonicalTimestamp.ToCanonical(at);
+        DateTimeOffset at = arguments.At ?? DateTimeOffset.UtcNow;
+        string stamp = OkfCanonicalTimestamp.ToCanonical(at);
 
-        foreach (var file in files)
+        foreach (string file in files)
         {
-            var display = DiagnosticWriter.Display(file, environment.CurrentDirectory);
+            string display = DiagnosticWriter.Display(file, environment.CurrentDirectory);
             if (arguments.DryRun)
             {
                 output.WriteLine($"{display}: would write generated: {OkfStamp.GeneratedEntry(actor, at)}");

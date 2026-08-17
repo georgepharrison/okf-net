@@ -86,10 +86,10 @@ internal static class VerifyCommand
             error.WriteLine($"okf: stamping as {actor.Actor} (from {actor.Source})");
         }
 
-        var files = new List<string>();
-        foreach (var path in arguments.Paths)
+        List<string> files = new List<string>();
+        foreach (string path in arguments.Paths)
         {
-            var full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
+            string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
             if (!File.Exists(full))
             {
                 error.WriteLine($"okf: error: no such concept: '{full}'.");
@@ -102,8 +102,8 @@ internal static class VerifyCommand
         // Every check runs against every named file before the first byte is written: a
         // three-concept run that refuses the third leaves the first two unstamped, because
         // a half-applied acknowledgment is worse than none.
-        var documents = new List<string>();
-        foreach (var file in files)
+        List<string> documents = new List<string>();
+        foreach (string file in files)
         {
             string text;
             OkfDocument document;
@@ -152,12 +152,12 @@ internal static class VerifyCommand
             documents.Add(file);
         }
 
-        var at = DateTimeOffset.UtcNow;
-        var stamp = OkfCanonicalTimestamp.ToCanonical(at);
+        DateTimeOffset at = DateTimeOffset.UtcNow;
+        string stamp = OkfCanonicalTimestamp.ToCanonical(at);
 
-        foreach (var path in documents)
+        foreach (string path in documents)
         {
-            var display = DiagnosticWriter.Display(path, environment.CurrentDirectory);
+            string display = DiagnosticWriter.Display(path, environment.CurrentDirectory);
             if (arguments.DryRun)
             {
                 output.WriteLine($"{display}: would append verified: - {OkfStamp.VerifiedEntry(actor.Actor!, at)}");
@@ -192,7 +192,7 @@ internal static class VerifyCommand
         OkfEnvironment environment,
         TextWriter error)
     {
-        var resolution = Resolve(arguments, environment);
+        OkfActorResolution resolution = Resolve(arguments, environment);
 
         if (!resolution.IsResolved)
         {
@@ -219,8 +219,8 @@ internal static class VerifyCommand
             return OkfActorResolution.Resolved(by, "--by");
         }
 
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
-        var project = LoadProjectConfig(arguments, environment);
+        OkfConfig? global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
+        OkfConfig? project = LoadProjectConfig(arguments, environment);
         return OkfVerifyIdentity.Resolve(
             project,
             global,
@@ -237,7 +237,7 @@ internal static class VerifyCommand
     {
         if (arguments.ConfigPath is { } explicitConfig)
         {
-            var path = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, explicitConfig));
+            string path = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, explicitConfig));
             return File.Exists(path)
                 ? OkfConfig.Load(path)
                 : throw new OkfConfigException($"No such config file: '{path}'.");
@@ -258,9 +258,9 @@ internal static class VerifyCommand
     /// <summary>The generating actor, when it is the one about to verify; otherwise null.</summary>
     private static string? SelfVerification(OkfDocument document, string actor)
     {
-        if (document.Frontmatter.TryGetValue(OkfStamp.GeneratedKey, out var generated)
+        if (document.Frontmatter.TryGetValue(OkfStamp.GeneratedKey, out OkfValue? generated)
             && generated is OkfMapping mapping
-            && mapping.TryGetValue("by", out var by)
+            && mapping.TryGetValue("by", out OkfValue? by)
             && by is OkfScalar scalar
             && string.Equals(scalar.Value, actor, StringComparison.Ordinal))
         {

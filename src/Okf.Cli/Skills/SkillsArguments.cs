@@ -70,9 +70,9 @@ internal sealed class SkillsArguments
     public static SkillsArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new SkillsArguments();
+        SkillsArguments parsed = new SkillsArguments();
 
-        var start = 0;
+        int start = 0;
         if (args.Length > 0 && !args[0].StartsWith('-'))
         {
             parsed.Action = args[0] switch
@@ -86,10 +86,10 @@ internal sealed class SkillsArguments
             start = 1;
         }
 
-        for (var index = start; index < args.Length; index++)
+        for (int index = start; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {

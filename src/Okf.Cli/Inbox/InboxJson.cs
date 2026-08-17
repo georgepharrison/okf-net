@@ -25,9 +25,9 @@ internal static class InboxJson
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
-            foreach (var item in result.Items)
+            foreach (OkfInboxItem item in result.Items)
             {
-                var concept = item.Concept;
+                OkfConcept concept = item.Concept;
                 writer.WriteStartObject();
                 writer.WriteString("id", concept.Id);
                 writer.WriteString("path", concept.Path);
@@ -39,7 +39,7 @@ internal static class InboxJson
                 JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
 
                 writer.WriteStartArray("reasons");
-                foreach (var reason in item.Reasons)
+                foreach (OkfInboxReason reason in item.Reasons)
                 {
                     writer.WriteStringValue(reason.ToWireString());
                 }
@@ -58,7 +58,7 @@ internal static class InboxJson
                 JsonOutput.WriteNumberOrNull(writer, "staleDays", item.StaleDays);
 
                 writer.WriteStartArray("driftedSources");
-                foreach (var source in item.DriftedSources)
+                foreach (OkfDriftedSource source in item.DriftedSources)
                 {
                     writer.WriteStartObject();
                     JsonOutput.WriteStringOrNull(writer, "id", source.Id);

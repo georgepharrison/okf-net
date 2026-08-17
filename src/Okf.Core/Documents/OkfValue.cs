@@ -137,7 +137,7 @@ public sealed class OkfScalar : OkfValue
     // non-empty-`type` conformance check (§11).
     private static bool IsZeroNumber(string text)
     {
-        var t = text.Replace("_", string.Empty, StringComparison.Ordinal);
+        string t = text.Replace("_", string.Empty, StringComparison.Ordinal);
         if (t.Length == 0)
         {
             return false;
@@ -146,7 +146,7 @@ public sealed class OkfScalar : OkfValue
         // PyYAML's YAML 1.1 int resolver spells octal as a bare leading zero (there
         // is no `0o` form) and takes only a lowercase `0x`/`0b` prefix, so `0o0`,
         // `0X0` and `0B0` are ordinary *strings*, not the number zero.
-        var digits = t[0] is '+' or '-' ? t[1..] : t;
+        string digits = t[0] is '+' or '-' ? t[1..] : t;
         if (digits.Length > 2 && digits[0] == '0' && digits[1] is 'x' or 'b')
         {
             return digits[2..].All(c => c == '0');
@@ -155,10 +155,10 @@ public sealed class OkfScalar : OkfValue
         // PyYAML's YAML 1.1 float resolver requires a `.` in the mantissa and an
         // explicitly signed exponent, so `0e0` and `0e+0` are strings while
         // `.0e+0` is the number zero. .NET's parser is laxer than that.
-        var exponent = digits.IndexOfAny(['e', 'E']);
+        int exponent = digits.IndexOfAny(['e', 'E']);
         if (exponent >= 0)
         {
-            var point = digits.IndexOf('.', StringComparison.Ordinal);
+            int point = digits.IndexOf('.', StringComparison.Ordinal);
             if (point < 0 || point > exponent
                 || exponent + 1 >= digits.Length || digits[exponent + 1] is not ('+' or '-'))
             {
@@ -166,34 +166,34 @@ public sealed class OkfScalar : OkfValue
             }
         }
 
-        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d == 0;
+        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) && d == 0;
     }
 }
 
 /// <summary>An ordered YAML sequence.</summary>
 public sealed class OkfSequence : OkfValue, IEnumerable<OkfValue>
 {
-    private readonly List<OkfValue> items = [];
+    private readonly List<OkfValue> _items = [];
 
     /// <summary>The sequence's presentation style.</summary>
     public OkfCollectionStyle Style { get; set; }
 
     /// <summary>The sequence's items, in order.</summary>
-    public IList<OkfValue> Items => this.items;
+    public IList<OkfValue> Items => _items;
 
     /// <summary>The number of items in the sequence.</summary>
-    public int Count => this.items.Count;
+    public int Count => _items.Count;
 
     /// <inheritdoc />
-    internal override bool IsTruthy => this.items.Count > 0;
+    internal override bool IsTruthy => _items.Count > 0;
 
     /// <summary>Gets or sets the item at <paramref name="index" />.</summary>
     /// <param name="index">The zero-based index.</param>
     /// <returns>The item at that index.</returns>
     public OkfValue this[int index]
     {
-        get => this.items[index];
-        set => this.items[index] = value;
+        get => _items[index];
+        set => _items[index] = value;
     }
 
     /// <summary>Appends a value.</summary>
@@ -201,7 +201,7 @@ public sealed class OkfSequence : OkfValue, IEnumerable<OkfValue>
     public void Add(OkfValue value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        this.items.Add(value);
+        _items.Add(value);
     }
 
     /// <summary>Appends a scalar with the given text.</summary>
@@ -209,7 +209,7 @@ public sealed class OkfSequence : OkfValue, IEnumerable<OkfValue>
     public void Add(string value) => Add(Scalar(value));
 
     /// <inheritdoc />
-    public IEnumerator<OkfValue> GetEnumerator() => this.items.GetEnumerator();
+    public IEnumerator<OkfValue> GetEnumerator() => _items.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
@@ -220,19 +220,19 @@ public sealed class OkfSequence : OkfValue, IEnumerable<OkfValue>
 /// </summary>
 public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, OkfValue>>
 {
-    private readonly List<KeyValuePair<OkfValue, OkfValue>> entries = [];
+    private readonly List<KeyValuePair<OkfValue, OkfValue>> _entries = [];
 
     /// <summary>The mapping's presentation style.</summary>
     public OkfCollectionStyle Style { get; set; }
 
     /// <summary>The mapping's entries, in insertion order.</summary>
-    public IReadOnlyList<KeyValuePair<OkfValue, OkfValue>> Entries => this.entries;
+    public IReadOnlyList<KeyValuePair<OkfValue, OkfValue>> Entries => _entries;
 
     /// <summary>The number of entries in the mapping.</summary>
-    public int Count => this.entries.Count;
+    public int Count => _entries.Count;
 
     /// <inheritdoc />
-    internal override bool IsTruthy => this.entries.Count > 0;
+    internal override bool IsTruthy => _entries.Count > 0;
 
     /// <summary>
     /// Gets or sets the value for a scalar key. Reading an absent key yields
@@ -242,18 +242,18 @@ public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, Ok
     /// <returns>The value, or <see langword="null" /> when the key is absent.</returns>
     public OkfValue? this[string key]
     {
-        get => TryGetValue(key, out var value) ? value : null;
+        get => TryGetValue(key, out OkfValue? value) ? value : null;
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            var index = LastIndexOf(key);
+            int index = LastIndexOf(key);
             if (index < 0)
             {
                 Add(key, value);
             }
             else
             {
-                this.entries[index] = new KeyValuePair<OkfValue, OkfValue>(this.entries[index].Key, value);
+                _entries[index] = new KeyValuePair<OkfValue, OkfValue>(_entries[index].Key, value);
             }
         }
     }
@@ -265,7 +265,7 @@ public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, Ok
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
-        this.entries.Add(new KeyValuePair<OkfValue, OkfValue>(key, value));
+        _entries.Add(new KeyValuePair<OkfValue, OkfValue>(key, value));
     }
 
     /// <summary>Appends an entry with a scalar key.</summary>
@@ -289,14 +289,14 @@ public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, Ok
     /// <returns><see langword="true" /> when the key is present.</returns>
     public bool TryGetValue(string key, [NotNullWhen(true)] out OkfValue? value)
     {
-        var index = LastIndexOf(key);
+        int index = LastIndexOf(key);
         if (index < 0)
         {
             value = null;
             return false;
         }
 
-        value = this.entries[index].Value;
+        value = _entries[index].Value;
         return true;
     }
 
@@ -304,18 +304,18 @@ public sealed class OkfMapping : OkfValue, IEnumerable<KeyValuePair<OkfValue, Ok
     /// <param name="key">The scalar key's text.</param>
     /// <returns><see langword="true" /> when at least one entry was removed.</returns>
     public bool Remove(string key) =>
-        this.entries.RemoveAll(e => e.Key is OkfScalar s && string.Equals(s.Value, key, StringComparison.Ordinal)) > 0;
+        _entries.RemoveAll(e => e.Key is OkfScalar s && string.Equals(s.Value, key, StringComparison.Ordinal)) > 0;
 
     /// <inheritdoc />
-    public IEnumerator<KeyValuePair<OkfValue, OkfValue>> GetEnumerator() => this.entries.GetEnumerator();
+    public IEnumerator<KeyValuePair<OkfValue, OkfValue>> GetEnumerator() => _entries.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     private int LastIndexOf(string key)
     {
-        for (var i = this.entries.Count - 1; i >= 0; i--)
+        for (int i = _entries.Count - 1; i >= 0; i--)
         {
-            if (this.entries[i].Key is OkfScalar scalar && string.Equals(scalar.Value, key, StringComparison.Ordinal))
+            if (_entries[i].Key is OkfScalar scalar && string.Equals(scalar.Value, key, StringComparison.Ordinal))
             {
                 return i;
             }

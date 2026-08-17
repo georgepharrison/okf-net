@@ -170,7 +170,7 @@ public static class OkfConceptReader
         ArgumentNullException.ThrowIfNull(bundle);
         options ??= new OkfConceptOptions();
 
-        var relative = Normalize(id);
+        string? relative = Normalize(id);
         if (relative is null)
         {
             return OkfConceptResult.Fail(
@@ -179,14 +179,14 @@ public static class OkfConceptReader
                 "without a leading '/' and without '..' segments.");
         }
 
-        if (!bundle.TryResolve(relative, out var path))
+        if (!bundle.TryResolve(relative, out string? path))
         {
             return OkfConceptResult.Fail(
                 OkfConceptStatus.Outside,
                 $"'{relative}' resolves outside bundle '{bundle.Name}'. okf serves only paths inside a bundle root.");
         }
 
-        var text = options.ReadText?.Invoke(path);
+        string? text = options.ReadText?.Invoke(path);
         if (text is null)
         {
             if (!File.Exists(path))
@@ -201,7 +201,7 @@ public static class OkfConceptReader
 
         try
         {
-            var document = OkfDocument.Parse(text);
+            OkfDocument document = OkfDocument.Parse(text);
             return OkfConceptResult.Ok(new OkfConcept(bundle, path, document, options.Today));
         }
         catch (OkfDocumentException exception)
@@ -231,7 +231,7 @@ public static class OkfConceptReader
     /// </remarks>
     public static string? Normalize(string? id)
     {
-        var trimmed = id?.Trim();
+        string? trimmed = id?.Trim();
         if (string.IsNullOrEmpty(trimmed)
             || trimmed.Contains('\\', StringComparison.Ordinal)
             || trimmed.Contains('\0', StringComparison.Ordinal))
@@ -244,8 +244,8 @@ public static class OkfConceptReader
             return null;
         }
 
-        var segments = new List<string>();
-        foreach (var segment in trimmed.Split('/'))
+        List<string> segments = new List<string>();
+        foreach (string segment in trimmed.Split('/'))
         {
             if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
             {
@@ -265,7 +265,7 @@ public static class OkfConceptReader
             return null;
         }
 
-        var relative = string.Join('/', segments);
+        string relative = string.Join('/', segments);
         return relative.EndsWith(".md", StringComparison.Ordinal) ? relative : relative + ".md";
     }
 }

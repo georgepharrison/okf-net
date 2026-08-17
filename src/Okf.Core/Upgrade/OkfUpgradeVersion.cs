@@ -25,12 +25,12 @@ public static class OkfUpgradeVersion
     /// <returns>Negative, zero or positive as <paramref name="left" /> precedes, equals or follows <paramref name="right" />.</returns>
     public static int Compare(string? left, string? right)
     {
-        var (leftCore, leftPre) = Split(left);
-        var (rightCore, rightPre) = Split(right);
+        (string leftCore, string? leftPre) = Split(left);
+        (string rightCore, string? rightPre) = Split(right);
 
-        for (var index = 0; index < 3; index++)
+        for (int index = 0; index < 3; index++)
         {
-            var order = Number(leftCore, index).CompareTo(Number(rightCore, index));
+            int order = Number(leftCore, index).CompareTo(Number(rightCore, index));
             if (order != 0)
             {
                 return order;
@@ -71,7 +71,7 @@ public static class OkfUpgradeVersion
     /// </remarks>
     public static bool IsDevelopmentBuild(string? version)
     {
-        var (core, _) = Split(version);
+        (string core, string? _) = Split(version);
         return Number(core, 0) == 0 && Number(core, 1) == 0 && Number(core, 2) == 0;
     }
 
@@ -86,7 +86,7 @@ public static class OkfUpgradeVersion
     /// <summary>Splits a version into its numeric core and its prerelease, dropping build metadata.</summary>
     private static (string Core, string? Prerelease) Split(string? version)
     {
-        var text = (version ?? string.Empty).Trim();
+        string text = (version ?? string.Empty).Trim();
         if (text.StartsWith('v'))
         {
             text = text[1..];
@@ -94,26 +94,26 @@ public static class OkfUpgradeVersion
 
         // §10: build metadata is ignored in precedence, so it is dropped before anything
         // else looks at the string. `1.0.0+abc` and `1.0.0` are the same release.
-        var metadata = text.IndexOf('+', StringComparison.Ordinal);
+        int metadata = text.IndexOf('+', StringComparison.Ordinal);
         if (metadata >= 0)
         {
             text = text[..metadata];
         }
 
-        var dash = text.IndexOf('-', StringComparison.Ordinal);
+        int dash = text.IndexOf('-', StringComparison.Ordinal);
         return dash < 0 ? (text, null) : (text[..dash], text[(dash + 1)..]);
     }
 
     /// <summary>Reads one dot-separated component of the numeric core; a missing or unparseable one is zero.</summary>
     private static long Number(string core, int index)
     {
-        var parts = core.Split('.');
+        string[] parts = core.Split('.');
         if (index >= parts.Length)
         {
             return 0;
         }
 
-        return long.TryParse(parts[index], NumberStyles.None, CultureInfo.InvariantCulture, out var value)
+        return long.TryParse(parts[index], NumberStyles.None, CultureInfo.InvariantCulture, out long value)
             ? value
             : 0;
     }
@@ -121,19 +121,19 @@ public static class OkfUpgradeVersion
     /// <summary>Compares two prerelease strings identifier by identifier (§11.4).</summary>
     private static int ComparePrerelease(string left, string right)
     {
-        var leftParts = left.Split('.');
-        var rightParts = right.Split('.');
+        string[] leftParts = left.Split('.');
+        string[] rightParts = right.Split('.');
 
-        for (var index = 0; index < Math.Min(leftParts.Length, rightParts.Length); index++)
+        for (int index = 0; index < Math.Min(leftParts.Length, rightParts.Length); index++)
         {
-            var leftNumeric = IsNumeric(leftParts[index]);
-            var rightNumeric = IsNumeric(rightParts[index]);
+            bool leftNumeric = IsNumeric(leftParts[index]);
+            bool rightNumeric = IsNumeric(rightParts[index]);
 
             if (leftNumeric && rightNumeric)
             {
                 // Numerically, not lexically: rc.10 follows rc.9, and a string compare
                 // would put it before.
-                var order = long.Parse(leftParts[index], CultureInfo.InvariantCulture)
+                int order = long.Parse(leftParts[index], CultureInfo.InvariantCulture)
                     .CompareTo(long.Parse(rightParts[index], CultureInfo.InvariantCulture));
                 if (order != 0)
                 {
@@ -149,7 +149,7 @@ public static class OkfUpgradeVersion
                 return leftNumeric ? -1 : 1;
             }
 
-            var text = string.CompareOrdinal(leftParts[index], rightParts[index]);
+            int text = string.CompareOrdinal(leftParts[index], rightParts[index]);
             if (text != 0)
             {
                 return Math.Sign(text);

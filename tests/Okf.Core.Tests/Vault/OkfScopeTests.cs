@@ -5,16 +5,16 @@ public sealed class OkfScopeTests : IDisposable
 {
     private static readonly DateTimeOffset Registered = new(2026, 8, 16, 9, 30, 0, TimeSpan.Zero);
 
-    private readonly string root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
 
     /// <summary>Builds a project vault, a personal vault, a second vault, and a bare bundle.</summary>
     public OkfScopeTests()
     {
-        Directory.CreateDirectory(Path.Combine(this.root, "project", "okf", "bundles", "project-bundle"));
-        Directory.CreateDirectory(Path.Combine(this.root, "project", "src"));
-        Directory.CreateDirectory(Path.Combine(this.root, "home", "okf", "bundles", "personal-bundle"));
-        Directory.CreateDirectory(Path.Combine(this.root, "other", "okf", "bundles", "other-bundle"));
-        Directory.CreateDirectory(Path.Combine(this.root, "loose-bundle"));
+        Directory.CreateDirectory(Path.Combine(_root, "project", "okf", "bundles", "project-bundle"));
+        Directory.CreateDirectory(Path.Combine(_root, "project", "src"));
+        Directory.CreateDirectory(Path.Combine(_root, "home", "okf", "bundles", "personal-bundle"));
+        Directory.CreateDirectory(Path.Combine(_root, "other", "okf", "bundles", "other-bundle"));
+        Directory.CreateDirectory(Path.Combine(_root, "loose-bundle"));
     }
 
     /// <summary>
@@ -25,8 +25,8 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void ProjectScopeIsExactlyTodaysDiscovery()
     {
-        var environment = Environment(Path.Combine(this.root, "project", "src"));
-        var registry = Registry(Path.Combine(this.root, "other"), Path.Combine(this.root, "loose-bundle"));
+        var environment = Environment(Path.Combine(_root, "project", "src"));
+        var registry = Registry(Path.Combine(_root, "other"), Path.Combine(_root, "loose-bundle"));
 
         var resolved = OkfScope.Resolve(OkfScopeKind.Project, environment, registry).WorkingSet;
         var discovered = OkfDiscovery.Resolve(null, environment);
@@ -48,11 +48,11 @@ public sealed class OkfScopeTests : IDisposable
     {
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Personal,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             OkfRegistry.Empty());
 
         Assert.Equal(["personal-bundle"], resolution.WorkingSet.Bundles.Select(bundle => bundle.Name));
-        Assert.Equal(Path.Combine(this.root, "home", "okf"), resolution.WorkingSet.VaultRoot);
+        Assert.Equal(Path.Combine(_root, "home", "okf"), resolution.WorkingSet.VaultRoot);
         Assert.Empty(resolution.Notes);
     }
 
@@ -60,10 +60,10 @@ public sealed class OkfScopeTests : IDisposable
     public void PersonalScopeHonoursOkfHome()
     {
         var environment = new OkfEnvironment(
-            this.root,
+            _root,
             [
-                new KeyValuePair<string, string>("HOME", this.root),
-                new KeyValuePair<string, string>(OkfEnvironment.HomeVariable, Path.Combine(this.root, "other", "okf")),
+                new KeyValuePair<string, string>("HOME", _root),
+                new KeyValuePair<string, string>(OkfEnvironment.HomeVariable, Path.Combine(_root, "other", "okf")),
             ]);
 
         var resolution = OkfScope.Resolve(OkfScopeKind.Personal, environment, OkfRegistry.Empty());
@@ -74,11 +74,11 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void RegisteredScopeIsEveryEntryAndExcludesTheProjectVaultNobodyRegistered()
     {
-        var registry = Registry(Path.Combine(this.root, "other"), Path.Combine(this.root, "loose-bundle"));
+        var registry = Registry(Path.Combine(_root, "other"), Path.Combine(_root, "loose-bundle"));
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(
@@ -91,7 +91,7 @@ public sealed class OkfScopeTests : IDisposable
         // sentence says so in the plural.
         Assert.Null(resolution.WorkingSet.VaultRoot);
         Assert.Equal(
-            $"--scope registered: 2 bundles from 2 registered roots in '{OkfRegistry.PathFor(Environment(this.root))}'",
+            $"--scope registered: 2 bundles from 2 registered roots in '{OkfRegistry.PathFor(Environment(_root))}'",
             resolution.WorkingSet.Resolution);
     }
 
@@ -104,16 +104,16 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void OneRegisteredRootIsNamedInTheSingularAndBecomesTheVault()
     {
-        var registry = Registry(Path.Combine(this.root, "other"));
+        var registry = Registry(Path.Combine(_root, "other"));
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
-        Assert.Equal(Path.Combine(this.root, "other", "okf"), resolution.WorkingSet.VaultRoot);
+        Assert.Equal(Path.Combine(_root, "other", "okf"), resolution.WorkingSet.VaultRoot);
         Assert.Equal(
-            $"--scope registered: 1 bundle from 1 registered root in '{OkfRegistry.PathFor(Environment(this.root))}'",
+            $"--scope registered: 1 bundle from 1 registered root in '{OkfRegistry.PathFor(Environment(_root))}'",
             resolution.WorkingSet.Resolution);
     }
 
@@ -125,17 +125,17 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void TwoBundlesInOneRegisteredRootPluralizeIndependently()
     {
-        Directory.CreateDirectory(Path.Combine(this.root, "twin", "okf", "bundles", "first"));
-        Directory.CreateDirectory(Path.Combine(this.root, "twin", "okf", "bundles", "second"));
-        var registry = Registry(Path.Combine(this.root, "twin"));
+        Directory.CreateDirectory(Path.Combine(_root, "twin", "okf", "bundles", "first"));
+        Directory.CreateDirectory(Path.Combine(_root, "twin", "okf", "bundles", "second"));
+        var registry = Registry(Path.Combine(_root, "twin"));
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(
-            $"--scope registered: 2 bundles from 1 registered root in '{OkfRegistry.PathFor(Environment(this.root))}'",
+            $"--scope registered: 2 bundles from 1 registered root in '{OkfRegistry.PathFor(Environment(_root))}'",
             resolution.WorkingSet.Resolution);
     }
 
@@ -146,9 +146,9 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void AnEmptyRegistryAndAStaleOneAreDifferentRefusals()
     {
-        var registry = Registry(Path.Combine(this.root, "loose-bundle"));
-        Directory.Delete(Path.Combine(this.root, "loose-bundle"));
-        var environment = Environment(Path.Combine(this.root, "project", "src"));
+        var registry = Registry(Path.Combine(_root, "loose-bundle"));
+        Directory.Delete(Path.Combine(_root, "loose-bundle"));
+        var environment = Environment(Path.Combine(_root, "project", "src"));
 
         var stale = Assert.Throws<OkfDiscoveryException>(
             () => OkfScope.Resolve(OkfScopeKind.Registered, environment, registry));
@@ -170,8 +170,8 @@ public sealed class OkfScopeTests : IDisposable
     public void APersonalVaultWithNoBundlesDirectoryIsRefusedWithBothWaysOut()
     {
         var environment = new OkfEnvironment(
-            Path.Combine(this.root, "project"),
-            [new KeyValuePair<string, string>("HOME", Path.Combine(this.root, "no-home"))]);
+            Path.Combine(_root, "project"),
+            [new KeyValuePair<string, string>("HOME", Path.Combine(_root, "no-home"))]);
 
         var exception = Assert.Throws<OkfDiscoveryException>(
             () => OkfScope.Resolve(OkfScopeKind.Personal, environment, OkfRegistry.Empty()));
@@ -187,12 +187,12 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void AMissingRegisteredPathIsANoteNotAnError()
     {
-        var registry = Registry(Path.Combine(this.root, "other"), Path.Combine(this.root, "loose-bundle"));
-        Directory.Delete(Path.Combine(this.root, "loose-bundle"));
+        var registry = Registry(Path.Combine(_root, "other"), Path.Combine(_root, "loose-bundle"));
+        Directory.Delete(Path.Combine(_root, "loose-bundle"));
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(["other-bundle"], resolution.WorkingSet.Bundles.Select(bundle => bundle.Name));
@@ -206,7 +206,7 @@ public sealed class OkfScopeTests : IDisposable
     {
         var exception = Assert.Throws<OkfDiscoveryException>(() => OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             OkfRegistry.Empty()));
 
         Assert.Contains("okf register", exception.Message, StringComparison.Ordinal);
@@ -215,11 +215,11 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void AllIsTheProjectPlusTheRegistry()
     {
-        var registry = Registry(Path.Combine(this.root, "other"), Path.Combine(this.root, "loose-bundle"));
+        var registry = Registry(Path.Combine(_root, "other"), Path.Combine(_root, "loose-bundle"));
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.All,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(
@@ -229,13 +229,13 @@ public sealed class OkfScopeTests : IDisposable
         // The project vault still names the config layer a team committed (AD-31), and the
         // sentence is the project's own with the registry appended rather than the
         // registry-only count.
-        Assert.Equal(Path.Combine(this.root, "project", "okf"), resolution.WorkingSet.VaultRoot);
+        Assert.Equal(Path.Combine(_root, "project", "okf"), resolution.WorkingSet.VaultRoot);
         Assert.EndsWith(
             ", plus the registry (--scope all)",
             resolution.WorkingSet.Resolution,
             StringComparison.Ordinal);
         Assert.Contains(
-            Path.Combine(this.root, "project", "okf"),
+            Path.Combine(_root, "project", "okf"),
             resolution.WorkingSet.Resolution,
             StringComparison.Ordinal);
     }
@@ -248,12 +248,12 @@ public sealed class OkfScopeTests : IDisposable
     public void AVaultRegisteredTwiceUnderTwoNamesContributesOneBundle()
     {
         var registry = OkfRegistry.Empty();
-        registry.Register(Path.Combine(this.root, "project"), Registered);
-        registry.Register(Path.Combine(this.root, "project", "okf"), Registered);
+        registry.Register(Path.Combine(_root, "project"), Registered);
+        registry.Register(Path.Combine(_root, "project", "okf"), Registered);
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.All,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(["project-bundle"], resolution.WorkingSet.Bundles.Select(bundle => bundle.Name));
@@ -263,10 +263,10 @@ public sealed class OkfScopeTests : IDisposable
     [SkippableFact]
     public void ASymlinkedVaultIsNotASecondCopyOfTheSameBundles()
     {
-        var link = Path.Combine(this.root, "mirror");
+        var link = Path.Combine(_root, "mirror");
         try
         {
-            Directory.CreateSymbolicLink(link, Path.Combine(this.root, "other", "okf"));
+            Directory.CreateSymbolicLink(link, Path.Combine(_root, "other", "okf"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -274,12 +274,12 @@ public sealed class OkfScopeTests : IDisposable
         }
 
         var registry = OkfRegistry.Empty();
-        registry.Register(Path.Combine(this.root, "other"), Registered);
+        registry.Register(Path.Combine(_root, "other"), Registered);
         registry.Register(link, Registered);
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.Registered,
-            Environment(Path.Combine(this.root, "project", "src")),
+            Environment(Path.Combine(_root, "project", "src")),
             registry);
 
         Assert.Equal(2, registry.Entries.Count);
@@ -289,12 +289,12 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void AllWithoutAProjectVaultFallsBackToTheRegistryAndSaysSo()
     {
-        var registry = Registry(Path.Combine(this.root, "other"));
-        var elsewhere = Directory.CreateDirectory(Path.Combine(this.root, "no-vault", "deep")).FullName;
+        var registry = Registry(Path.Combine(_root, "other"));
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_root, "no-vault", "deep")).FullName;
 
         var resolution = OkfScope.Resolve(
             OkfScopeKind.All,
-            new OkfEnvironment(elsewhere, [new KeyValuePair<string, string>("HOME", Path.Combine(this.root, "no-home"))]),
+            new OkfEnvironment(elsewhere, [new KeyValuePair<string, string>("HOME", Path.Combine(_root, "no-home"))]),
             registry);
 
         Assert.Equal(["other-bundle"], resolution.WorkingSet.Bundles.Select(bundle => bundle.Name));
@@ -302,7 +302,7 @@ public sealed class OkfScopeTests : IDisposable
 
         // With no project to take one from, the vault is the registry's single root and the
         // sentence is the registry-only form.
-        Assert.Equal(Path.Combine(this.root, "other", "okf"), resolution.WorkingSet.VaultRoot);
+        Assert.Equal(Path.Combine(_root, "other", "okf"), resolution.WorkingSet.VaultRoot);
         Assert.StartsWith("--scope all: ", resolution.WorkingSet.Resolution, StringComparison.Ordinal);
     }
 
@@ -313,11 +313,11 @@ public sealed class OkfScopeTests : IDisposable
     [Fact]
     public void AllWithNothingAnywhereIsRefusedRatherThanEmpty()
     {
-        var elsewhere = Directory.CreateDirectory(Path.Combine(this.root, "no-vault", "deep")).FullName;
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_root, "no-vault", "deep")).FullName;
 
         var exception = Assert.Throws<OkfDiscoveryException>(() => OkfScope.Resolve(
             OkfScopeKind.All,
-            new OkfEnvironment(elsewhere, [new KeyValuePair<string, string>("HOME", Path.Combine(this.root, "no-home"))]),
+            new OkfEnvironment(elsewhere, [new KeyValuePair<string, string>("HOME", Path.Combine(_root, "no-home"))]),
             OkfRegistry.Empty()));
 
         Assert.Contains("--scope all", exception.Message, StringComparison.Ordinal);
@@ -350,7 +350,7 @@ public sealed class OkfScopeTests : IDisposable
     {
         try
         {
-            Directory.Delete(this.root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (IOException)
         {
@@ -372,5 +372,5 @@ public sealed class OkfScopeTests : IDisposable
     }
 
     private OkfEnvironment Environment(string workingDirectory) =>
-        new(workingDirectory, [new KeyValuePair<string, string>("HOME", Path.Combine(this.root, "home"))]);
+        new(workingDirectory, [new KeyValuePair<string, string>("HOME", Path.Combine(_root, "home"))]);
 }

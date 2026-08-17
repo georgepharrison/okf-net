@@ -81,8 +81,8 @@ internal static class JsonOutput
 
     private static string Render(Action<Utf8JsonWriter> body, JsonWriterOptions options)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        using MemoryStream buffer = new MemoryStream();
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, options))
         {
             body(writer);
         }

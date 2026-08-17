@@ -175,12 +175,12 @@ public static class OkfBundler
         ArgumentNullException.ThrowIfNull(workingSet);
         options ??= new OkfBundlerOptions();
 
-        var bundles = Select(workingSet, options.Bundles);
-        var entries = new List<OkfDistributionEntry>();
+        List<OkfBundle> bundles = Select(workingSet, options.Bundles);
+        List<OkfDistributionEntry> entries = new List<OkfDistributionEntry>();
 
-        foreach (var bundle in bundles)
+        foreach (OkfBundle bundle in bundles)
         {
-            foreach (var file in bundle.ContentFiles())
+            foreach (string file in bundle.ContentFiles())
             {
                 if (IsJunk(file))
                 {
@@ -198,7 +198,7 @@ public static class OkfBundler
 
         entries.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
 
-        var manifest = new OkfDistributionManifest(
+        OkfDistributionManifest manifest = new OkfDistributionManifest(
             options.Generator,
             VaultName(workingSet.VaultRoot),
             OkfCanonicalTimestamp.ToCanonical(options.GeneratedAt),
@@ -219,7 +219,7 @@ public static class OkfBundler
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrEmpty(outputPath);
 
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputPath));
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputPath));
 
         switch (format)
         {
@@ -248,7 +248,7 @@ public static class OkfBundler
     public static OkfDistributionVerification Verify(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
         string? manifestText;
         Dictionary<string, string> digests;
@@ -293,13 +293,13 @@ public static class OkfBundler
             return Unreadable(full, $"{OkfDistributionManifest.FileName} does not parse as a distribution manifest.");
         }
 
-        var findings = new List<OkfDistributionFinding>();
-        var recorded = new HashSet<string>(StringComparer.Ordinal);
+        List<OkfDistributionFinding> findings = new List<OkfDistributionFinding>();
+        HashSet<string> recorded = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var file in manifest.Files)
+        foreach (OkfDistributionFile file in manifest.Files)
         {
             recorded.Add(file.Path);
-            if (!digests.TryGetValue(file.Path, out var actual))
+            if (!digests.TryGetValue(file.Path, out string? actual))
             {
                 findings.Add(new OkfDistributionFinding(
                     OkfDistributionIssue.Missing,
@@ -317,7 +317,7 @@ public static class OkfBundler
             }
         }
 
-        foreach (var extra in digests.Keys.Where(key => !recorded.Contains(key)).Order(StringComparer.Ordinal))
+        foreach (string extra in digests.Keys.Where(key => !recorded.Contains(key)).Order(StringComparer.Ordinal))
         {
             findings.Add(new OkfDistributionFinding(
                 OkfDistributionIssue.Unlisted,
@@ -330,7 +330,7 @@ public static class OkfBundler
         // symlink is the one an attacker would add, because extracting it plants a path
         // into somebody else's filesystem. They carry no bytes to hash, so they can never
         // match a recorded digest and are always unlisted.
-        foreach (var link in foreign.Order(StringComparer.Ordinal))
+        foreach (string link in foreign.Order(StringComparer.Ordinal))
         {
             findings.Add(new OkfDistributionFinding(
                 OkfDistributionIssue.Unlisted,
@@ -362,7 +362,7 @@ public static class OkfBundler
     /// <summary>The bundles a selection names, or all of them when it names none.</summary>
     private static List<OkfBundle> Select(OkfWorkingSet workingSet, IReadOnlyList<string> names)
     {
-        var available = workingSet.Bundles
+        List<OkfBundle> available = workingSet.Bundles
             .OrderBy(bundle => bundle.Name, StringComparer.Ordinal)
             .ToList();
 
@@ -371,10 +371,10 @@ public static class OkfBundler
             return available;
         }
 
-        var selected = new List<OkfBundle>();
-        foreach (var name in names.Distinct(StringComparer.Ordinal))
+        List<OkfBundle> selected = new List<OkfBundle>();
+        foreach (string name in names.Distinct(StringComparer.Ordinal))
         {
-            var bundle = available.FirstOrDefault(candidate =>
+            OkfBundle? bundle = available.FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, name, StringComparison.Ordinal));
 
             if (bundle is null)
@@ -398,18 +398,18 @@ public static class OkfBundler
     /// </summary>
     private static List<OkfExternalLink> DanglingLinks(List<OkfDistributionEntry> entries, string? vaultRoot)
     {
-        var shipped = new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal);
-        var dangling = new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>();
+        HashSet<string> shipped = new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal);
+        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> dangling = new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>();
 
-        foreach (var entry in entries.Where(entry => entry.Path.EndsWith(".md", StringComparison.Ordinal)))
+        foreach (OkfDistributionEntry entry in entries.Where(entry => entry.Path.EndsWith(".md", StringComparison.Ordinal)))
         {
-            var directory = Path.GetDirectoryName(entry.SourcePath)!;
-            var layout = FileLayout.Of(File.ReadAllText(entry.SourcePath));
-            var scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
+            string directory = Path.GetDirectoryName(entry.SourcePath)!;
+            FileLayout layout = FileLayout.Of(File.ReadAllText(entry.SourcePath));
+            MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
 
-            foreach (var link in scan.Links)
+            foreach (MarkdownLink link in scan.Links)
             {
-                if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out var resolved) != LinkTarget.Outside
+                if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out string? resolved) != LinkTarget.Outside
                     || resolved is null)
                 {
                     continue;
@@ -419,13 +419,13 @@ public static class OkfBundler
                 // survives normalization — so it is trimmed before the target is compared
                 // against the packaged paths, or a link to a bundle that *is* shipped
                 // would be reported as dangling.
-                var target = Path.TrimEndingDirectorySeparator(resolved);
+                string target = Path.TrimEndingDirectorySeparator(resolved);
                 if (IsShipped(shipped, target))
                 {
                     continue;
                 }
 
-                var key = (entry.Path, link.Target, BundleNameOf(target, vaultRoot));
+                (string Path, string Target, string?) key = (entry.Path, link.Target, BundleNameOf(target, vaultRoot));
                 if (!dangling.ContainsKey(key))
                 {
                     dangling[key] = new OkfExternalLink(key.Item1, key.Item2, key.Item3, link.Line);
@@ -452,14 +452,14 @@ public static class OkfBundler
             return null;
         }
 
-        var prefix = Path.Combine(vaultRoot, OkfDiscovery.BundlesDirectoryName) + Path.DirectorySeparatorChar;
+        string prefix = Path.Combine(vaultRoot, OkfDiscovery.BundlesDirectoryName) + Path.DirectorySeparatorChar;
         if (!resolved.StartsWith(prefix, StringComparison.Ordinal))
         {
             return null;
         }
 
-        var remainder = resolved[prefix.Length..];
-        var separator = remainder.IndexOf(Path.DirectorySeparatorChar, StringComparison.Ordinal);
+        string remainder = resolved[prefix.Length..];
+        int separator = remainder.IndexOf(Path.DirectorySeparatorChar, StringComparison.Ordinal);
         return separator < 0 ? remainder : remainder[..separator];
     }
 
@@ -476,8 +476,8 @@ public static class OkfBundler
             return null;
         }
 
-        var trimmed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
-        var name = Path.GetFileName(trimmed);
+        string trimmed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
+        string name = Path.GetFileName(trimmed);
         if (!string.Equals(name, OkfDiscovery.VaultDirectoryName, StringComparison.Ordinal))
         {
             return name;
@@ -488,14 +488,14 @@ public static class OkfBundler
 
     private static bool IsJunk(string path)
     {
-        var name = Path.GetFileName(path);
+        string name = Path.GetFileName(path);
         return JunkSuffixes.Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>The distribution's contents in write order: the files, then the manifest, sorted by path.</summary>
     private static IEnumerable<(string Path, Func<Stream> Open)> Contents(OkfDistributionPlan plan)
     {
-        var manifest = Encoding.UTF8.GetBytes(plan.Manifest.ToJson());
+        byte[] manifest = Encoding.UTF8.GetBytes(plan.Manifest.ToJson());
         return plan.Entries
             .Select(entry => (entry.Path, Open: (Func<Stream>)(() => File.OpenRead(entry.SourcePath))))
             .Append((OkfDistributionManifest.FileName, () => (Stream)new MemoryStream(manifest)))
@@ -504,7 +504,7 @@ public static class OkfBundler
 
     private static void WriteArchive(OkfDistributionPlan plan, string output, Action<OkfDistributionPlan, Stream> write)
     {
-        var directory = Path.GetDirectoryName(output);
+        string? directory = Path.GetDirectoryName(output);
         if (directory is { Length: > 0 })
         {
             Directory.CreateDirectory(directory);
@@ -512,7 +512,7 @@ public static class OkfBundler
 
         // An archive is wholly generated output, so it is replaced rather than defended:
         // the same call that produced it produces it again, byte for byte.
-        using var file = File.Create(output);
+        using FileStream file = File.Create(output);
         write(plan, file);
     }
 
@@ -541,12 +541,12 @@ public static class OkfBundler
         // implementation — extract this archive into a directory named after the octal
         // timestamp (`02263523000/bundles/…`). GNU tar and libarchive read it correctly
         // either way; writing NULs makes CPython read it correctly too, and costs nothing.
-        using var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true);
-        using var tar = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
+        using GZipStream gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true);
+        using TarWriter tar = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
 
-        foreach (var (path, open) in Contents(plan))
+        foreach ((string path, Func<Stream> open) in Contents(plan))
         {
-            using var content = open();
+            using Stream content = open();
             tar.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, path)
             {
                 DataStream = content,
@@ -562,19 +562,19 @@ public static class OkfBundler
 
     private static void WriteZip(OkfDistributionPlan plan, Stream output)
     {
-        using var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
+        using ZipArchive zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
 
-        foreach (var (path, open) in Contents(plan))
+        foreach ((string path, Func<Stream> open) in Contents(plan))
         {
-            var entry = zip.CreateEntry(path, CompressionLevel.Optimal);
+            ZipArchiveEntry entry = zip.CreateEntry(path, CompressionLevel.Optimal);
 
             // A DateTimeOffset with an explicit zero offset, so the DOS timestamp the zip
             // format stores does not depend on the packaging machine's time zone.
             entry.LastWriteTime = ArchiveTimestamp;
             entry.ExternalAttributes = ZipFileAttributes;
 
-            using var content = open();
-            using var target = entry.Open();
+            using Stream content = open();
+            using Stream target = entry.Open();
             content.CopyTo(target);
         }
     }
@@ -584,12 +584,12 @@ public static class OkfBundler
         Clear(output);
         Directory.CreateDirectory(output);
 
-        foreach (var (path, open) in Contents(plan))
+        foreach ((string path, Func<Stream> open) in Contents(plan))
         {
-            var target = Path.Combine(output, path.Replace('/', Path.DirectorySeparatorChar));
+            string target = Path.Combine(output, path.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using var content = open();
-            using var file = File.Create(target);
+            using Stream content = open();
+            using FileStream file = File.Create(target);
             content.CopyTo(file);
         }
     }
@@ -612,7 +612,7 @@ public static class OkfBundler
             return;
         }
 
-        var manifestPath = Path.Combine(output, OkfDistributionManifest.FileName);
+        string manifestPath = Path.Combine(output, OkfDistributionManifest.FileName);
         if (!File.Exists(manifestPath)
             || OkfDistributionManifest.Parse(File.ReadAllText(manifestPath)) is not { } manifest)
         {
@@ -621,9 +621,9 @@ public static class OkfBundler
                 "so it was not written by `okf bundle`. Point --out at an empty or new directory.");
         }
 
-        foreach (var file in manifest.Files)
+        foreach (OkfDistributionFile file in manifest.Files)
         {
-            var target = Path.Combine(output, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            string target = Path.Combine(output, file.Path.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(target))
             {
                 File.Delete(target);
@@ -637,7 +637,7 @@ public static class OkfBundler
     /// <summary>Removes the directories a cleared distribution left behind, deepest first.</summary>
     private static void PruneEmptyDirectories(string root)
     {
-        foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+        foreach (string directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
                      .OrderByDescending(path => path.Length))
         {
             if (!Directory.EnumerateFileSystemEntries(directory).Any())
@@ -651,11 +651,11 @@ public static class OkfBundler
         string root)
     {
         string? manifest = null;
-        var digests = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, string> digests = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
-            var path = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
+            string path = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
             if (string.Equals(path, OkfDistributionManifest.FileName, StringComparison.Ordinal))
             {
                 manifest = File.ReadAllText(file);
@@ -680,7 +680,7 @@ public static class OkfBundler
     /// </summary>
     private static bool IsZip(string archive)
     {
-        using var file = File.OpenRead(archive);
+        using FileStream file = File.OpenRead(archive);
         Span<byte> magic = stackalloc byte[2];
         return file.ReadAtLeast(magic, 2, throwOnEndOfStream: false) == 2 && magic[0] == 'P' && magic[1] == 'K';
     }
@@ -688,17 +688,17 @@ public static class OkfBundler
     private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadZip(string archive)
     {
         string? manifest = null;
-        var digests = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, string> digests = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        using var zip = ZipFile.OpenRead(archive);
-        foreach (var entry in zip.Entries)
+        using ZipArchive zip = ZipFile.OpenRead(archive);
+        foreach (ZipArchiveEntry entry in zip.Entries)
         {
             if (entry.FullName.EndsWith('/'))
             {
                 continue;
             }
 
-            using var content = entry.Open();
+            using Stream content = entry.Open();
             if (string.Equals(entry.FullName, OkfDistributionManifest.FileName, StringComparison.Ordinal))
             {
                 manifest = Read(content);
@@ -715,16 +715,16 @@ public static class OkfBundler
         string archive)
     {
         string? manifest = null;
-        var digests = new Dictionary<string, string>(StringComparer.Ordinal);
-        var foreign = new List<string>();
+        Dictionary<string, string> digests = new Dictionary<string, string>(StringComparer.Ordinal);
+        List<string> foreign = new List<string>();
 
-        using var file = File.OpenRead(archive);
-        using var gzip = new GZipStream(file, CompressionMode.Decompress);
-        using var reader = new TarReader(gzip);
+        using FileStream file = File.OpenRead(archive);
+        using GZipStream gzip = new GZipStream(file, CompressionMode.Decompress);
+        using TarReader reader = new TarReader(gzip);
 
         while (reader.GetNextEntry() is { } entry)
         {
-            var path = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
+            string path = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
 
             if (entry.EntryType is TarEntryType.Directory or TarEntryType.DirectoryList)
             {
@@ -748,7 +748,7 @@ public static class OkfBundler
             // it — which means "empty", not "absent". Reading it as absent made `--verify`
             // report the bundler's OWN output as missing a file the moment a bundle held
             // one, which the zip and directory shapes handled correctly all along.
-            var content = entry.DataStream ?? Stream.Null;
+            Stream content = entry.DataStream ?? Stream.Null;
 
             if (string.Equals(path, OkfDistributionManifest.FileName, StringComparison.Ordinal))
             {
@@ -764,7 +764,7 @@ public static class OkfBundler
 
     private static string Read(Stream stream)
     {
-        using var reader = new StreamReader(stream, Encoding.UTF8);
+        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
 

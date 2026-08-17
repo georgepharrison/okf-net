@@ -289,5 +289,5 @@ public static class OkfRules
     /// <returns>The rule.</returns>
     /// <exception cref="ArgumentException">No such rule is shipped.</exception>
     public static OkfRule Get(string id) =>
-        TryGet(id, out var rule) ? rule : throw new ArgumentException($"Unknown diagnostic id '{id}'.", nameof(id));
+        TryGet(id, out OkfRule? rule) ? rule : throw new ArgumentException($"Unknown diagnostic id '{id}'.", nameof(id));
 }

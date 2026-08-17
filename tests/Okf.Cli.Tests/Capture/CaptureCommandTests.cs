@@ -431,13 +431,13 @@ public class CaptureCommandTests
     /// </summary>
     private sealed class CaptureVault : IDisposable
     {
-        private readonly TempTree tree = new();
+        private readonly TempTree _tree = new();
 
         public CaptureVault(bool withManifest = true)
         {
-            this.tree.CreateDirectory(Path.Combine("okf", "bundles", "b"));
-            Raw = this.tree.CreateDirectory(Path.Combine("okf", "raw"));
-            Home = this.tree.CreateDirectory("home");
+            _tree.CreateDirectory(Path.Combine("okf", "bundles", "b"));
+            Raw = _tree.CreateDirectory(Path.Combine("okf", "raw"));
+            Home = _tree.CreateDirectory("home");
 
             if (withManifest)
             {
@@ -451,23 +451,23 @@ public class CaptureCommandTests
         /// <summary>A home directory with no okf configuration in it.</summary>
         public string Home { get; }
 
-        private string Vault => Path.Combine(this.tree.Root, "okf");
+        private string Vault => Path.Combine(_tree.Root, "okf");
 
-        public CliRun Run(params string[] args) => CliHarness.RunIn(this.tree.Root, Home, args);
+        public CliRun Run(params string[] args) => CliHarness.RunIn(_tree.Root, Home, args);
 
         public CliRun Add(string relativePath) =>
             Run("capture", "add", $"okf/raw/{relativePath}", "--by", "claude-fable/5", "--captured-at", "2026-08-16T14:00:00Z");
 
         public void Drop(string relativePath, string content) =>
-            this.tree.Write(Path.Combine("okf", "raw", relativePath), content);
+            _tree.Write(Path.Combine("okf", "raw", relativePath), content);
 
         public void Concept(string vaultRelativePath) =>
-            this.tree.Write(
+            _tree.Write(
                 Path.Combine("okf", vaultRelativePath),
                 "---\ntype: Reference\ntitle: Page\n---\n\nBody.\n");
 
         public void WriteManifest(string text) =>
-            this.tree.Write(Path.Combine("okf", "raw", OkfCaptureManifest.FileName), text);
+            _tree.Write(Path.Combine("okf", "raw", OkfCaptureManifest.FileName), text);
 
         public string Manifest() => File.ReadAllText(OkfCaptureManifest.PathFor(Vault));
 
@@ -500,6 +500,6 @@ public class CaptureCommandTests
             return (process.ExitCode, output);
         }
 
-        public void Dispose() => this.tree.Dispose();
+        public void Dispose() => _tree.Dispose();
     }
 }

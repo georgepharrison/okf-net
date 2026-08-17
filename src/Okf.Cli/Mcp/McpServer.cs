@@ -77,9 +77,9 @@ internal sealed class McpServer
     private static readonly string[] SupportedProtocolVersions =
         [LatestProtocolVersion, "2025-03-26", "2024-11-05"];
 
-    private readonly McpToolset tools;
-    private readonly TextReader input;
-    private readonly TextWriter output;
+    private readonly McpToolset _tools;
+    private readonly TextReader _input;
+    private readonly TextWriter _output;
 
     /// <summary>Initializes a server.</summary>
     /// <param name="tools">The tools the server exposes.</param>
@@ -90,9 +90,9 @@ internal sealed class McpServer
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
-        this.tools = tools;
-        this.input = input;
-        this.output = output;
+        _tools = tools;
+        _input = input;
+        _output = output;
     }
 
     /// <summary>
@@ -102,7 +102,7 @@ internal sealed class McpServer
     /// <returns>The process exit code — always success, because closing stdin is how an MCP client says goodbye.</returns>
     public int Run()
     {
-        while (this.input.ReadLine() is { } line)
+        while (_input.ReadLine() is { } line)
         {
             if (line.Trim().Length == 0)
             {
@@ -130,7 +130,7 @@ internal sealed class McpServer
 
         using (document)
         {
-            var root = document.RootElement;
+            JsonElement root = document.RootElement;
 
             if (root.ValueKind == JsonValueKind.Array)
             {
@@ -149,8 +149,8 @@ internal sealed class McpServer
             // A message with no id (or a null id) is a notification: the spec forbids a
             // response to one, including an error response, so an invalid notification is
             // dropped rather than answered.
-            var isRequest = root.TryGetProperty("id", out var id) && id.ValueKind != JsonValueKind.Null;
-            var identifier = isRequest ? id : (JsonElement?)null;
+            bool isRequest = root.TryGetProperty("id", out JsonElement id) && id.ValueKind != JsonValueKind.Null;
+            JsonElement? identifier = isRequest ? id : (JsonElement?)null;
 
             try
             {
@@ -188,7 +188,7 @@ internal sealed class McpServer
     /// </summary>
     private void Respond(JsonElement root, bool isRequest, JsonElement? identifier)
     {
-        if (!root.TryGetProperty("jsonrpc", out var version)
+        if (!root.TryGetProperty("jsonrpc", out JsonElement version)
             || version.ValueKind != JsonValueKind.String
             || !string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal))
         {
@@ -200,7 +200,7 @@ internal sealed class McpServer
             return;
         }
 
-        if (!root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String)
+        if (!root.TryGetProperty("method", out JsonElement method) || method.ValueKind != JsonValueKind.String)
         {
             if (isRequest)
             {
@@ -218,7 +218,7 @@ internal sealed class McpServer
             return;
         }
 
-        var parameters = root.TryGetProperty("params", out var value) ? value : (JsonElement?)null;
+        JsonElement? parameters = root.TryGetProperty("params", out JsonElement value) ? value : (JsonElement?)null;
         Dispatch(method.GetString()!, parameters, identifier);
     }
 
@@ -239,7 +239,7 @@ internal sealed class McpServer
                 break;
 
             case "tools/call":
-                WriteResult(id, this.tools.Call(parameters));
+                WriteResult(id, _tools.Call(parameters));
                 break;
 
             default:
@@ -256,13 +256,13 @@ internal sealed class McpServer
     /// </summary>
     private static string Initialize(JsonElement? parameters)
     {
-        var requested = parameters is { ValueKind: JsonValueKind.Object } value
-            && value.TryGetProperty("protocolVersion", out var version)
+        string? requested = parameters is { ValueKind: JsonValueKind.Object } value
+            && value.TryGetProperty("protocolVersion", out JsonElement version)
             && version.ValueKind == JsonValueKind.String
                 ? version.GetString()
                 : null;
 
-        var negotiated = requested is not null
+        string negotiated = requested is not null
             && Array.IndexOf(SupportedProtocolVersions, requested) >= 0
                 ? requested
                 : LatestProtocolVersion;
@@ -335,8 +335,8 @@ internal sealed class McpServer
         // half-written envelope on the wire, so an id that cannot be echoed becomes null.
         try
         {
-            using var buffer = new MemoryStream();
-            using (var scratch = new Utf8JsonWriter(buffer, JsonOutput.WireOptions))
+            using MemoryStream buffer = new MemoryStream();
+            using (Utf8JsonWriter scratch = new Utf8JsonWriter(buffer, JsonOutput.WireOptions))
             {
                 value.WriteTo(scratch);
             }
@@ -356,8 +356,8 @@ internal sealed class McpServer
     /// </summary>
     private void Send(string message)
     {
-        this.output.Write(message);
-        this.output.Write('\n');
-        this.output.Flush();
+        _output.Write(message);
+        _output.Write('\n');
+        _output.Flush();
     }
 }

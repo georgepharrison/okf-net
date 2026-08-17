@@ -96,9 +96,9 @@ public static class OkfUpgrade
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var baseUri = BaseUri(options.BaseUrl);
-        var manifestUri = ManifestUri(baseUri, options.Version);
-        var manifest = ReadManifest(manifestUri, fetch ?? HttpFetch(options.UserAgent));
+        Uri baseUri = BaseUri(options.BaseUrl);
+        Uri manifestUri = ManifestUri(baseUri, options.Version);
+        OkfUpgradeManifest manifest = ReadManifest(manifestUri, fetch ?? HttpFetch(options.UserAgent));
 
         // The installer's check, for the installer's reason: a host that answers every path
         // with the newest release would otherwise silently ignore a pinned version.
@@ -109,12 +109,12 @@ public static class OkfUpgrade
                 $"asked for {pinned} but {manifestUri} describes {manifest.Version}.");
         }
 
-        var assetName = AssetName();
-        var asset = manifest.Find(assetName)
+        string assetName = AssetName();
+        OkfUpgradeAsset asset = manifest.Find(assetName)
             ?? throw new OkfUpgradeException(
                 $"release {manifest.Version} lists no {assetName} asset with a path and a sha256.");
 
-        var target = options.ExecutablePath is { Length: > 0 } path
+        string target = options.ExecutablePath is { Length: > 0 } path
             ? Path.GetFullPath(path)
             : Environment.ProcessPath
                 ?? throw new OkfUpgradeException(
@@ -146,8 +146,8 @@ public static class OkfUpgrade
     {
         ArgumentNullException.ThrowIfNull(plan);
 
-        var target = plan.TargetPath;
-        var directory = Path.GetDirectoryName(target);
+        string target = plan.TargetPath;
+        string? directory = Path.GetDirectoryName(target);
         if (directory is not { Length: > 0 })
         {
             throw new OkfUpgradeException($"'{target}' has no directory to stage a download in.");
@@ -158,7 +158,7 @@ public static class OkfUpgrade
         // build runs — `Environment.ProcessPath` is `dotnet`, and renaming a verified okf
         // over it would break the machine's .NET rather than upgrade okf. Confirmed
         // empirically, and it caught exactly that during this work item.
-        var name = Path.GetFileName(target);
+        string name = Path.GetFileName(target);
         if (!string.Equals(name, "okf", StringComparison.Ordinal)
             && !string.Equals(name, "okf.exe", StringComparison.OrdinalIgnoreCase))
         {
@@ -168,7 +168,7 @@ public static class OkfUpgrade
                 "    a published okf. Upgrade an installed binary, or reinstall with install.sh.");
         }
 
-        var staging = Path.Combine(directory, $".okf.upgrade.{Guid.NewGuid():N}");
+        string staging = Path.Combine(directory, $".okf.upgrade.{Guid.NewGuid():N}");
         try
         {
             Download(plan.AssetUri, staging, fetch ?? HttpFetch(userAgent));
@@ -176,7 +176,7 @@ public static class OkfUpgrade
             // Verified BEFORE anything is renamed, and both digests are printed on a
             // mismatch: the two hashes are what tells a truncated download apart from the
             // wrong file (install.sh says the same, for the same reason).
-            var digest = OkfCaptureManifest.Sha256Of(staging);
+            string digest = OkfCaptureManifest.Sha256Of(staging);
             if (!string.Equals(digest, plan.Asset.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 throw new OkfUpgradeException(
@@ -196,7 +196,7 @@ public static class OkfUpgrade
             }
 
             string? retired = null;
-            foreach (var step in PlanSwap(target, staging, OperatingSystem.IsWindows()))
+            foreach (OkfUpgradeStep step in PlanSwap(target, staging, OperatingSystem.IsWindows()))
             {
                 Move(step);
                 if (step.Kind == OkfUpgradeStepKind.Retire)
@@ -350,8 +350,8 @@ public static class OkfUpgrade
     {
         ArgumentException.ThrowIfNullOrEmpty(baseUrl);
 
-        var trimmed = baseUrl.TrimEnd('/');
-        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+        string trimmed = baseUrl.TrimEnd('/');
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
         {
             throw new OkfUpgradeException($"'{baseUrl}' is not a URL.");
         }
@@ -393,7 +393,7 @@ public static class OkfUpgrade
     {
         ArgumentNullException.ThrowIfNull(baseUri);
 
-        var normalized = (version ?? string.Empty).Trim();
+        string normalized = (version ?? string.Empty).Trim();
         if (normalized.StartsWith('v'))
         {
             normalized = normalized[1..];
@@ -439,8 +439,8 @@ public static class OkfUpgrade
     /// </remarks>
     private static Uri Under(Uri baseUri, string relative)
     {
-        var candidate = new Uri($"{Root(baseUri)}/{relative}");
-        var prefix = baseUri.AbsolutePath.TrimEnd('/') + "/";
+        Uri candidate = new Uri($"{Root(baseUri)}/{relative}");
+        string prefix = baseUri.AbsolutePath.TrimEnd('/') + "/";
 
         if (!string.Equals(candidate.Scheme, baseUri.Scheme, StringComparison.Ordinal)
             || !string.Equals(candidate.Authority, baseUri.Authority, StringComparison.Ordinal)
@@ -493,7 +493,7 @@ public static class OkfUpgrade
             throw new OkfUpgradeException($"{current} answered with a redirect and no Location.");
         }
 
-        var next = location.IsAbsoluteUri ? location : new Uri(current, location);
+        Uri next = location.IsAbsoluteUri ? location : new Uri(current, location);
         if (httpsOnly && !string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
         {
             throw new OkfUpgradeException(
@@ -516,12 +516,12 @@ public static class OkfUpgrade
     {
         ArgumentNullException.ThrowIfNull(uri);
 
-        var httpsOnly = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal);
-        var current = uri;
+        bool httpsOnly = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal);
+        Uri current = uri;
 
-        for (var hop = 0; hop <= MaximumRedirects; hop++)
+        for (int hop = 0; hop <= MaximumRedirects; hop++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, current);
             request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
 
             HttpResponseMessage response;
@@ -540,7 +540,7 @@ public static class OkfUpgrade
 
             if (IsRedirect(response.StatusCode))
             {
-                var next = response.Headers.Location;
+                Uri? next = response.Headers.Location;
                 response.Dispose();
                 current = ResolveRedirect(current, next, httpsOnly);
                 continue;
@@ -548,7 +548,7 @@ public static class OkfUpgrade
 
             if (!response.IsSuccessStatusCode)
             {
-                var status = (int)response.StatusCode;
+                int status = (int)response.StatusCode;
                 response.Dispose();
                 throw new OkfUpgradeException($"could not fetch {current}: HTTP {status}.");
             }
@@ -573,7 +573,7 @@ public static class OkfUpgrade
         // (disposeHandler: true), which disposes it; the analyzer cannot see ownership
         // transfer through a bool ctor argument, and a `using` here would dispose the
         // handler before the returned HttpClient ever uses it.
-        var handler = new SocketsHttpHandler
+        SocketsHttpHandler handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.None,
@@ -588,7 +588,7 @@ public static class OkfUpgrade
         string json;
         try
         {
-            using var stream = fetch(manifestUri);
+            using Stream stream = fetch(manifestUri);
             json = ReadBounded(stream, manifestUri);
         }
         catch (Exception exception) when (exception is not OkfUpgradeException)
@@ -627,7 +627,7 @@ public static class OkfUpgrade
 
         using (file)
         {
-            using var source = fetch(assetUri);
+            using Stream source = fetch(assetUri);
             CopyBounded(source, file, assetUri);
         }
     }
@@ -642,8 +642,8 @@ public static class OkfUpgrade
     /// </remarks>
     private static void CopyBounded(Stream source, Stream destination, Uri assetUri)
     {
-        var buffer = new byte[81920];
-        var total = 0L;
+        byte[] buffer = new byte[81920];
+        long total = 0L;
 
         int read;
         while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
@@ -666,8 +666,8 @@ public static class OkfUpgrade
     /// </summary>
     private static string ReadBounded(Stream source, Uri manifestUri)
     {
-        var buffer = new byte[8192];
-        using var text = new MemoryStream();
+        byte[] buffer = new byte[8192];
+        using MemoryStream text = new MemoryStream();
 
         int read;
         while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
@@ -685,7 +685,7 @@ public static class OkfUpgrade
         // Through a StreamReader rather than Encoding.UTF8.GetString, so a manifest written
         // with a byte-order mark still parses: JsonDocument refuses a leading U+FEFF.
         text.Position = 0;
-        using var reader = new StreamReader(text);
+        using StreamReader reader = new StreamReader(text);
         return reader.ReadToEnd();
     }
 
@@ -725,34 +725,34 @@ public static class OkfUpgrade
     /// <summary>Keeps the response alive for as long as the caller is reading its body.</summary>
     private sealed class ResponseStream : Stream
     {
-        private readonly HttpResponseMessage response;
-        private readonly Stream inner;
+        private readonly HttpResponseMessage _response;
+        private readonly Stream _inner;
 
         public ResponseStream(HttpResponseMessage response)
         {
-            this.response = response;
-            this.inner = response.Content.ReadAsStream();
+            _response = response;
+            _inner = response.Content.ReadAsStream();
         }
 
-        public override bool CanRead => this.inner.CanRead;
+        public override bool CanRead => _inner.CanRead;
 
         public override bool CanSeek => false;
 
         public override bool CanWrite => false;
 
-        public override long Length => this.inner.Length;
+        public override long Length => _inner.Length;
 
         public override long Position
         {
-            get => this.inner.Position;
+            get => _inner.Position;
             set => throw new NotSupportedException();
         }
 
-        public override void Flush() => this.inner.Flush();
+        public override void Flush() => _inner.Flush();
 
-        public override int Read(byte[] buffer, int offset, int count) => this.inner.Read(buffer, offset, count);
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
 
-        public override int Read(Span<byte> buffer) => this.inner.Read(buffer);
+        public override int Read(Span<byte> buffer) => _inner.Read(buffer);
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
@@ -764,8 +764,8 @@ public static class OkfUpgrade
         {
             if (disposing)
             {
-                this.inner.Dispose();
-                this.response.Dispose();
+                _inner.Dispose();
+                _response.Dispose();
             }
 
             base.Dispose(disposing);

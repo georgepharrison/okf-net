@@ -17,7 +17,7 @@ internal static class AgentPointerReport
     /// <exception cref="IOException">A file could not be written.</exception>
     public static void Write(string projectRoot, OkfEnvironment environment, TextWriter output)
     {
-        foreach (var file in OkfAgentPointer.Write(projectRoot))
+        foreach (OkfAgentPointerFile file in OkfAgentPointer.Write(projectRoot))
         {
             output.WriteLine(
                 $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");

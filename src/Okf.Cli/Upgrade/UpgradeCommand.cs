@@ -58,7 +58,7 @@ internal static class UpgradeCommand
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        var self = runtime ?? new UpgradeRuntime();
+        UpgradeRuntime self = runtime ?? new UpgradeRuntime();
 
         UpgradeArguments parsed;
         try
@@ -78,7 +78,7 @@ internal static class UpgradeCommand
             return CliApplication.ExitSuccess;
         }
 
-        var options = new OkfUpgradeOptions
+        OkfUpgradeOptions options = new OkfUpgradeOptions
         {
             BaseUrl = environment.GetVariable(OkfUpgradeOptions.BaseUrlVariable) is { Length: > 0 } configured
                 ? configured

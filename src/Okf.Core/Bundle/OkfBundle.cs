@@ -66,7 +66,7 @@ public sealed class OkfBundle
     public static bool IsReservedFile(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        var name = Path.GetFileName(path);
+        string name = Path.GetFileName(path);
         return string.Equals(name, IndexFileName, StringComparison.Ordinal)
             || string.Equals(name, LogFileName, StringComparison.Ordinal);
     }
@@ -88,7 +88,7 @@ public sealed class OkfBundle
     public static bool IsConventionalFile(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        var name = Path.GetFileName(path);
+        string name = Path.GetFileName(path);
         return Conventional.Contains(name, StringComparer.Ordinal);
     }
 
@@ -146,11 +146,11 @@ public sealed class OkfBundle
     private IReadOnlyList<string> Walk(string pattern)
 #pragma warning restore CA1859
     {
-        var files = new List<string>();
+        List<string> files = new List<string>();
         Collect(Root, pattern, files);
 
-        var ordered = new List<(string Relative, string Absolute)>(files.Count);
-        foreach (var file in files)
+        List<(string Relative, string Absolute)> ordered = new List<(string Relative, string Absolute)>(files.Count);
+        foreach (string file in files)
         {
             ordered.Add((RelativePath(file), file));
         }
@@ -206,7 +206,7 @@ public sealed class OkfBundle
             return false;
         }
 
-        var candidate = Path.TrimEndingDirectorySeparator(
+        string candidate = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
 
         if (!IsInside(candidate) || !FollowsNoLinkOut(candidate))
@@ -236,8 +236,8 @@ public sealed class OkfBundle
     /// </summary>
     private bool FollowsNoLinkOut(string candidate)
     {
-        var current = Root;
-        foreach (var segment in Path.GetRelativePath(Root, candidate).Split(Path.DirectorySeparatorChar))
+        string current = Root;
+        foreach (string segment in Path.GetRelativePath(Root, candidate).Split(Path.DirectorySeparatorChar))
         {
             if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
             {
@@ -245,7 +245,7 @@ public sealed class OkfBundle
             }
 
             current = Path.Combine(current, segment);
-            switch (Link(current, out var target))
+            switch (Link(current, out string? target))
             {
                 case LinkKind.None:
                     break;
@@ -309,7 +309,7 @@ public sealed class OkfBundle
 
     private void Collect(string directory, string pattern, List<string> files)
     {
-        foreach (var file in Directory.EnumerateFiles(directory, pattern))
+        foreach (string file in Directory.EnumerateFiles(directory, pattern))
         {
             if (IgnoredMetadataNames.Contains(Path.GetFileName(file)))
             {
@@ -320,13 +320,13 @@ public sealed class OkfBundle
             // not contain: directory links are never descended into, but a link named
             // `notes.md` pointing at `~/.ssh/id_rsa` would otherwise be linted, indexed and
             // searched as bundle content.
-            if (Link(file, out var target) is LinkKind.None || (target is not null && IsInside(target)))
+            if (Link(file, out string? target) is LinkKind.None || (target is not null && IsInside(target)))
             {
                 files.Add(file);
             }
         }
 
-        foreach (var child in new DirectoryInfo(directory).EnumerateDirectories())
+        foreach (DirectoryInfo child in new DirectoryInfo(directory).EnumerateDirectories())
         {
             // A directory symlink is never descended into. Pointing one at an ancestor
             // makes the walk recur until the OS refuses the path — every level of which

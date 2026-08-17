@@ -101,8 +101,8 @@ public static class OkfSkillInstaller
     {
         ArgumentNullException.ThrowIfNull(environment);
 
-        var hosts = new List<OkfSkillHost> { OkfSkillHost.Data };
-        var root = scope == OkfSkillScope.Project ? environment.CurrentDirectory : environment.HomeDirectory;
+        List<OkfSkillHost> hosts = new List<OkfSkillHost> { OkfSkillHost.Data };
+        string root = scope == OkfSkillScope.Project ? environment.CurrentDirectory : environment.HomeDirectory;
 
         if (System.IO.Directory.Exists(Path.Combine(root, ClaudeDirectoryName)))
         {
@@ -134,7 +134,7 @@ public static class OkfSkillInstaller
 
         // The data copy is the user's by definition: it is okf's own directory, not a
         // host's, and a project-scoped install still wants one canonical copy to point at.
-        var root = scope == OkfSkillScope.Project && host != OkfSkillHost.Data
+        string root = scope == OkfSkillScope.Project && host != OkfSkillHost.Data
             ? environment.CurrentDirectory
             : environment.HomeDirectory;
 
@@ -163,15 +163,15 @@ public static class OkfSkillInstaller
         ArgumentNullException.ThrowIfNull(environment);
         options ??= new OkfSkillInstallOptions();
 
-        var hosts = options.Hosts.Count > 0
+        IReadOnlyList<OkfSkillHost> hosts = options.Hosts.Count > 0
             ? options.Hosts
             : DetectHosts(environment, options.Scope);
 
-        var files = new List<OkfSkillInstallFile>();
-        foreach (var host in hosts)
+        List<OkfSkillInstallFile> files = new List<OkfSkillInstallFile>();
+        foreach (OkfSkillHost host in hosts)
         {
-            var target = SkillsDirectory(host, options.Scope, environment, options.Directory);
-            foreach (var skill in OkfSkills.All)
+            string target = SkillsDirectory(host, options.Scope, environment, options.Directory);
+            foreach (OkfSkill skill in OkfSkills.All)
             {
                 files.Add(Write(Path.Combine(target, skill.Name, OkfSkills.SkillFileName), skill, options.Force));
             }

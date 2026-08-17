@@ -21,10 +21,10 @@ internal static class YamlBridge
     /// <exception cref="OkfDocumentException">The text is not a single well-formed YAML document.</exception>
     public static OkfValue? Load(string yaml)
     {
-        var stream = new YamlStream();
+        YamlStream stream = new YamlStream();
         try
         {
-            using var reader = new StringReader(yaml);
+            using StringReader reader = new StringReader(yaml);
             stream.Load(reader);
         }
         catch (YamlException ex)
@@ -54,11 +54,11 @@ internal static class YamlBridge
     /// <exception cref="OkfDocumentException">The value graph contains a cycle.</exception>
     public static string Emit(OkfValue value)
     {
-        var writer = new StringWriter(CultureInfo.InvariantCulture) { NewLine = "\n" };
+        StringWriter writer = new StringWriter(CultureInfo.InvariantCulture) { NewLine = "\n" };
 
         // bestWidth is unbounded so long scalars are never line-wrapped: wrapping
         // would make byte-stable output depend on column arithmetic (PRD ACC-7).
-        var emitter = new Emitter(writer, new EmitterSettings(
+        Emitter emitter = new Emitter(writer, new EmitterSettings(
             bestIndent: 2,
             bestWidth: int.MaxValue,
             isCanonical: false,
@@ -75,7 +75,7 @@ internal static class YamlBridge
 
     private static OkfValue Convert(YamlNode node, Dictionary<YamlNode, OkfValue> seen)
     {
-        if (seen.TryGetValue(node, out var already))
+        if (seen.TryGetValue(node, out OkfValue? already))
         {
             return already;
         }
@@ -83,14 +83,14 @@ internal static class YamlBridge
         switch (node)
         {
             case YamlScalarNode scalar:
-                var converted = new OkfScalar(scalar.Value ?? string.Empty, FromYaml(scalar.Style));
+                OkfScalar converted = new OkfScalar(scalar.Value ?? string.Empty, FromYaml(scalar.Style));
                 seen[node] = converted;
                 return converted;
 
             case YamlSequenceNode sequence:
-                var seq = new OkfSequence { Style = FromYaml(sequence.Style) };
+                OkfSequence seq = new OkfSequence { Style = FromYaml(sequence.Style) };
                 seen[node] = seq;
-                foreach (var child in sequence.Children)
+                foreach (YamlNode child in sequence.Children)
                 {
                     seq.Add(Convert(child, seen));
                 }
@@ -98,9 +98,9 @@ internal static class YamlBridge
                 return seq;
 
             case YamlMappingNode mapping:
-                var map = new OkfMapping { Style = FromYaml(mapping.Style) };
+                OkfMapping map = new OkfMapping { Style = FromYaml(mapping.Style) };
                 seen[node] = map;
-                foreach (var entry in mapping.Children)
+                foreach (KeyValuePair<YamlNode, YamlNode> entry in mapping.Children)
                 {
                     map.Add(Convert(entry.Key, seen), Convert(entry.Value, seen));
                 }
@@ -124,7 +124,7 @@ internal static class YamlBridge
                 // `null` PyYAML's dumper uses instead. A code-built `Scalar("")`
                 // keeps style `Any` and still emits `''`, because that one really
                 // is an empty string.
-                var text = scalar is { Style: OkfScalarStyle.Plain, Value.Length: 0 } ? "null" : scalar.Value;
+                string text = scalar is { Style: OkfScalarStyle.Plain, Value.Length: 0 } ? "null" : scalar.Value;
                 emitter.Emit(new Scalar(
                     AnchorName.Empty,
                     TagName.Empty,
@@ -137,7 +137,7 @@ internal static class YamlBridge
             case OkfSequence sequence:
                 Enter(value, path);
                 emitter.Emit(new SequenceStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYaml(sequence.Style)));
-                foreach (var item in sequence)
+                foreach (OkfValue item in sequence)
                 {
                     EmitValue(item, emitter, path);
                 }
@@ -149,7 +149,7 @@ internal static class YamlBridge
             case OkfMapping mapping:
                 Enter(value, path);
                 emitter.Emit(new MappingStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYamlMapping(mapping.Style)));
-                foreach (var entry in mapping)
+                foreach (KeyValuePair<OkfValue, OkfValue> entry in mapping)
                 {
                     EmitValue(entry.Key, emitter, path);
                     EmitValue(entry.Value, emitter, path);

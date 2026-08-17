@@ -69,29 +69,29 @@ public static class OkfSiteBuilder
         ArgumentNullException.ThrowIfNull(workingSet);
         options ??= new OkfSiteOptions();
 
-        var pages = new List<OkfSitePage>();
-        var bundles = new List<OkfSiteBundle>();
+        List<OkfSitePage> pages = new List<OkfSitePage>();
+        List<OkfSiteBundle> bundles = new List<OkfSiteBundle>();
 
         // Seeded with the names the site itself occupies at its root, so a bundle called
         // `assets` gets `assets-2` instead of having its pages overwrite the stylesheet.
-        var slugs = new HashSet<string>(StringComparer.Ordinal)
+        HashSet<string> slugs = new HashSet<string>(StringComparer.Ordinal)
         {
             "assets",
             IndexHref,
             DashboardHref,
             GraphHref,
         };
-        var conceptOptions = new OkfConceptOptions { Today = options.Today, ReadText = options.ReadText };
+        OkfConceptOptions conceptOptions = new OkfConceptOptions { Today = options.Today, ReadText = options.ReadText };
 
-        foreach (var bundle in workingSet.Bundles)
+        foreach (OkfBundle bundle in workingSet.Bundles)
         {
-            var slug = UniqueSlug(bundle.Name, slugs);
-            var first = pages.Count;
+            string slug = UniqueSlug(bundle.Name, slugs);
+            int first = pages.Count;
 
-            foreach (var file in bundle.MarkdownFiles())
+            foreach (string file in bundle.MarkdownFiles())
             {
-                var relative = bundle.RelativePath(file);
-                var result = OkfConceptReader.Read(bundle, relative, conceptOptions);
+                string relative = bundle.RelativePath(file);
+                OkfConceptResult result = OkfConceptReader.Read(bundle, relative, conceptOptions);
                 if (result.Concept is not { } concept)
                 {
                     // Frontmatter that does not parse is already an OKF0001 error; a page
@@ -102,20 +102,20 @@ public static class OkfSiteBuilder
                 pages.Add(Page(slug, bundle.Name, relative, concept));
             }
 
-            var conceptCount = pages.Skip(first).Count(page => page.IsConcept);
+            int conceptCount = pages.Skip(first).Count(page => page.IsConcept);
             bundles.Add(new OkfSiteBundle(bundle.Name, slug, Href(slug, OkfBundle.IndexFileName), conceptCount));
         }
 
         pages.Sort(static (left, right) => string.CompareOrdinal(left.Href, right.Href));
 
-        var byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
-        var edges = new List<OkfSiteEdge>();
-        var backlinks = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        Dictionary<string, OkfSitePage> byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
+        List<OkfSiteEdge> edges = new List<OkfSiteEdge>();
+        Dictionary<string, List<string>> backlinks = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
-        foreach (var page in pages)
+        foreach (OkfSitePage page in pages)
         {
-            var source = Strip(page.Concept.Body, page.Kind);
-            var body = OkfSiteMarkdown.Render(
+            string source = Strip(page.Concept.Body, page.Kind);
+            OkfSiteBody body = OkfSiteMarkdown.Render(
                 source,
                 url => Resolve(url, page, byId, options.SingleFile, page.Href));
 
@@ -143,15 +143,15 @@ public static class OkfSiteBuilder
                 page.RootBodyHtml = body.Html;
             }
 
-            foreach (var target in body.LinksTo)
+            foreach (string target in body.LinksTo)
             {
-                if (!page.IsConcept || !byId.TryGetValue(target, out var other) || !other.IsConcept)
+                if (!page.IsConcept || !byId.TryGetValue(target, out OkfSitePage? other) || !other.IsConcept)
                 {
                     continue;
                 }
 
                 edges.Add(new OkfSiteEdge(page.Id, target));
-                if (!backlinks.TryGetValue(target, out var citing))
+                if (!backlinks.TryGetValue(target, out List<string>? citing))
                 {
                     backlinks[target] = citing = [];
                 }
@@ -160,13 +160,13 @@ public static class OkfSiteBuilder
             }
         }
 
-        foreach (var page in pages)
+        foreach (OkfSitePage page in pages)
         {
-            page.CitedBy = backlinks.TryGetValue(page.Id, out var citing) ? citing : [];
+            page.CitedBy = backlinks.TryGetValue(page.Id, out List<string>? citing) ? citing : [];
         }
 
-        var concepts = pages.Where(page => page.IsConcept).ToList();
-        var counts = new OkfSiteCounts(
+        List<OkfSitePage> concepts = pages.Where(page => page.IsConcept).ToList();
+        OkfSiteCounts counts = new OkfSiteCounts(
             bundles.Count,
             concepts.Count,
             concepts.Count(page => page.TrustTier == OkfTrustTier.HumanReviewed),
@@ -175,7 +175,7 @@ public static class OkfSiteBuilder
             concepts.Count(page => page.Stale),
             concepts.Count(page => string.Equals(page.Status, "draft", StringComparison.Ordinal)));
 
-        var name = options.Name is { Length: > 0 } given
+        string name = options.Name is { Length: > 0 } given
             ? given
             : workingSet.VaultRoot is { } vault
                 ? System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(vault))
@@ -204,11 +204,11 @@ public static class OkfSiteBuilder
         ArgumentException.ThrowIfNullOrEmpty(slug);
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
 
-        var withoutExtension = relativePath.EndsWith(".md", StringComparison.Ordinal)
+        string withoutExtension = relativePath.EndsWith(".md", StringComparison.Ordinal)
             ? relativePath[..^3]
             : relativePath;
 
-        var segments = withoutExtension.Split('/').Select(Uri.EscapeDataString);
+        IEnumerable<string> segments = withoutExtension.Split('/').Select(Uri.EscapeDataString);
         return $"{Uri.EscapeDataString(slug)}/{string.Join('/', segments)}.html";
     }
 
@@ -224,9 +224,9 @@ public static class OkfSiteBuilder
         ArgumentNullException.ThrowIfNull(from);
         ArgumentException.ThrowIfNullOrEmpty(to);
 
-        var fromSegments = from.Split('/');
-        var toSegments = to.Split('/');
-        var shared = 0;
+        string[] fromSegments = from.Split('/');
+        string[] toSegments = to.Split('/');
+        int shared = 0;
         while (shared < fromSegments.Length - 1
                && shared < toSegments.Length - 1
                && string.Equals(fromSegments[shared], toSegments[shared], StringComparison.Ordinal))
@@ -234,8 +234,8 @@ public static class OkfSiteBuilder
             shared++;
         }
 
-        var builder = new StringBuilder();
-        for (var i = shared; i < fromSegments.Length - 1; i++)
+        StringBuilder builder = new StringBuilder();
+        for (int i = shared; i < fromSegments.Length - 1; i++)
         {
             builder.Append("../");
         }
@@ -246,15 +246,15 @@ public static class OkfSiteBuilder
 
     private static OkfSitePage Page(string slug, string bundleName, string relativePath, OkfConcept concept)
     {
-        var kind = System.IO.Path.GetFileName(relativePath) switch
+        OkfSitePageKind kind = System.IO.Path.GetFileName(relativePath) switch
         {
             OkfBundle.IndexFileName => OkfSitePageKind.Index,
             OkfBundle.LogFileName => OkfSitePageKind.Log,
             _ => OkfSitePageKind.Concept,
         };
 
-        var frontmatter = concept.Frontmatter;
-        var title = kind switch
+        OkfMapping frontmatter = concept.Frontmatter;
+        string title = kind switch
         {
             // An index's own name is its directory: "format", not "index".
             OkfSitePageKind.Index => Directory(relativePath) ?? bundleName,
@@ -274,21 +274,21 @@ public static class OkfSiteBuilder
         {
             Status = FrontmatterValues.Scalar(frontmatter, "status") ?? DefaultStatus,
             StaleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after"),
-            Generated = Event(frontmatter.TryGetValue("generated", out var generated) ? generated : null),
+            Generated = Event(frontmatter.TryGetValue("generated", out OkfValue? generated) ? generated : null),
             Verified = [.. OkfDocument.NormalizeVerified(frontmatter).Select(Event).OfType<OkfSiteEvent>()],
         };
     }
 
     private static string? Directory(string relativePath)
     {
-        var separator = relativePath.LastIndexOf('/');
+        int separator = relativePath.LastIndexOf('/');
         if (separator < 0)
         {
             return null;
         }
 
-        var parent = relativePath[..separator];
-        var previous = parent.LastIndexOf('/');
+        string parent = relativePath[..separator];
+        int previous = parent.LastIndexOf('/');
         return previous < 0 ? parent : parent[(previous + 1)..];
     }
 
@@ -302,8 +302,8 @@ public static class OkfSiteBuilder
             return body;
         }
 
-        var lines = body.Split('\n');
-        var kept = lines.Where(line => !string.Equals(line.Trim(), OkfIndexGenerator.GeneratedMarker, StringComparison.Ordinal));
+        string[] lines = body.Split('\n');
+        IEnumerable<string> kept = lines.Where(line => !string.Equals(line.Trim(), OkfIndexGenerator.GeneratedMarker, StringComparison.Ordinal));
         return string.Join('\n', kept);
     }
 
@@ -326,9 +326,9 @@ public static class OkfSiteBuilder
             return new OkfSiteLink(null, null, "external", true);
         }
 
-        var hash = url.IndexOf('#', StringComparison.Ordinal);
-        var target = hash < 0 ? url : url[..hash];
-        var fragment = hash < 0 ? string.Empty : url[hash..];
+        int hash = url.IndexOf('#', StringComparison.Ordinal);
+        string target = hash < 0 ? url : url[..hash];
+        string fragment = hash < 0 ? string.Empty : url[hash..];
 
         if (target.Length == 0 || !target.EndsWith(".md", StringComparison.Ordinal))
         {
@@ -338,7 +338,7 @@ public static class OkfSiteBuilder
         }
 
         // §6.1: a leading `/` is bundle-root-relative, not host-root-relative.
-        var basePath = target.StartsWith('/')
+        string basePath = target.StartsWith('/')
             ? string.Empty
             : ParentOf(page.Path);
 
@@ -350,8 +350,8 @@ public static class OkfSiteBuilder
             return new OkfSiteLink(Uri.EscapeDataString(url), null, "broken", false);
         }
 
-        var id = $"{page.BundleSlug}/{resolved[..^3]}";
-        if (!pages.TryGetValue(id, out var destination))
+        string id = $"{page.BundleSlug}/{resolved[..^3]}";
+        if (!pages.TryGetValue(id, out OkfSitePage? destination))
         {
             // §6.1: "Consumers MUST tolerate broken links" — a link to knowledge that is
             // not written yet is marked, never dropped. It is still re-expressed relative
@@ -365,7 +365,7 @@ public static class OkfSiteBuilder
                 false);
         }
 
-        var href = singleFile
+        string href = singleFile
             // A single-file site spends its whole fragment on routing, so a deep link into
             // a concept's own heading cannot survive the trip. The concept does.
             ? "#c=" + Uri.EscapeDataString(destination.Id)
@@ -376,19 +376,19 @@ public static class OkfSiteBuilder
 
     private static string ParentOf(string relativePath)
     {
-        var separator = relativePath.LastIndexOf('/');
+        int separator = relativePath.LastIndexOf('/');
         return separator < 0 ? string.Empty : relativePath[..separator];
     }
 
     private static string? Normalize(string basePath, string target)
     {
-        var segments = new List<string>();
+        List<string> segments = new List<string>();
         if (basePath.Length > 0)
         {
             segments.AddRange(basePath.Split('/'));
         }
 
-        foreach (var segment in target.Split('/'))
+        foreach (string segment in target.Split('/'))
         {
             switch (segment)
             {
@@ -420,23 +420,23 @@ public static class OkfSiteBuilder
         bool singleFile)
 #pragma warning restore CA1859
     {
-        var crumbs = new List<OkfSiteCrumb>();
-        var segments = page.Path.Split('/');
-        var depth = page.Kind == OkfSitePageKind.Index ? segments.Length - 1 : segments.Length;
+        List<OkfSiteCrumb> crumbs = new List<OkfSiteCrumb>();
+        string[] segments = page.Path.Split('/');
+        int depth = page.Kind == OkfSitePageKind.Index ? segments.Length - 1 : segments.Length;
 
         // The bundle crumb, then one per directory above the page. An index page names its
         // own directory, so it stops one level short and takes that name for itself.
-        for (var level = 0; level < depth; level++)
+        for (int level = 0; level < depth; level++)
         {
-            var directory = string.Join('/', segments.Take(level));
-            var indexId = $"{page.BundleSlug}/{(directory.Length == 0 ? string.Empty : directory + "/")}index";
+            string directory = string.Join('/', segments.Take(level));
+            string indexId = $"{page.BundleSlug}/{(directory.Length == 0 ? string.Empty : directory + "/")}index";
             string? href = null;
-            if (pages.TryGetValue(indexId, out var index))
+            if (pages.TryGetValue(indexId, out OkfSitePage? index))
             {
                 href = singleFile ? "#c=" + Uri.EscapeDataString(index.Id) : RelativeHref(page.Href, index.Href);
             }
 
-            var label = level == 0 ? page.BundleName : segments[level - 1];
+            string label = level == 0 ? page.BundleName : segments[level - 1];
             crumbs.Add(new OkfSiteCrumb(label, href));
         }
 
@@ -451,7 +451,7 @@ public static class OkfSiteBuilder
             return null;
         }
 
-        var by = FrontmatterValues.Scalar(mapping, "by");
+        string? by = FrontmatterValues.Scalar(mapping, "by");
         return by is { Length: > 0 } ? new OkfSiteEvent(by, FrontmatterValues.Scalar(mapping, "at")) : null;
     }
 
@@ -459,7 +459,7 @@ public static class OkfSiteBuilder
         OkfMapping frontmatter,
         IReadOnlyDictionary<string, int> footnotes)
     {
-        if (!frontmatter.TryGetValue("sources", out var value))
+        if (!frontmatter.TryGetValue("sources", out OkfValue? value))
         {
             return [];
         }
@@ -477,7 +477,7 @@ public static class OkfSiteBuilder
         [
             .. entries.Select(entry =>
             {
-                var id = FrontmatterValues.Scalar(entry, "id") ?? string.Empty;
+                string id = FrontmatterValues.Scalar(entry, "id") ?? string.Empty;
                 return new OkfSiteSource(
                     id,
                     FrontmatterValues.Scalar(entry, "title"),
@@ -485,29 +485,29 @@ public static class OkfSiteBuilder
                     FrontmatterValues.Scalar(entry, "author"),
                     FrontmatterValues.Scalar(entry, "last_modified"),
                     FrontmatterValues.Scalar(entry, "usage_count"),
-                    id.Length > 0 && footnotes.TryGetValue(id, out var order) ? order : null);
+                    id.Length > 0 && footnotes.TryGetValue(id, out int order) ? order : null);
             }),
         ];
     }
 
     private static string UniqueSlug(string name, HashSet<string> taken)
     {
-        var builder = new StringBuilder(name.Length);
-        foreach (var character in name)
+        StringBuilder builder = new StringBuilder(name.Length);
+        foreach (char character in name)
         {
             builder.Append(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-'
                 ? character
                 : '-');
         }
 
-        var slug = builder.ToString().Trim('-');
+        string slug = builder.ToString().Trim('-');
         if (slug.Length == 0 || slug is "." or "..")
         {
             slug = "bundle";
         }
 
-        var candidate = slug;
-        var suffix = 2;
+        string candidate = slug;
+        int suffix = 2;
         while (!taken.Add(candidate))
         {
             candidate = $"{slug}-{suffix.ToString(System.Globalization.CultureInfo.InvariantCulture)}";

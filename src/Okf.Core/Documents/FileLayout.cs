@@ -7,14 +7,14 @@ namespace Okf.Core.Documents;
 /// </summary>
 internal sealed class FileLayout
 {
-    private readonly string[] lines;
-    private readonly int frontmatterEndIndex;
+    private readonly string[] _lines;
+    private readonly int _frontmatterEndIndex;
 
     private FileLayout(string text, string[] lines, int frontmatterEndIndex, string body, int bodyFirstLine)
     {
         Text = text;
-        this.lines = lines;
-        this.frontmatterEndIndex = frontmatterEndIndex;
+        _lines = lines;
+        _frontmatterEndIndex = frontmatterEndIndex;
         Body = body;
         BodyFirstLine = bodyFirstLine;
     }
@@ -29,15 +29,15 @@ internal sealed class FileLayout
     public int BodyFirstLine { get; }
 
     /// <summary>Whether the file opens with a frontmatter fence.</summary>
-    public bool HasFrontmatter => this.frontmatterEndIndex > 0;
+    public bool HasFrontmatter => _frontmatterEndIndex > 0;
 
     /// <summary>Locates a file's frontmatter block and body.</summary>
     /// <param name="text">The file's full text.</param>
     /// <returns>The layout.</returns>
     public static FileLayout Of(string text)
     {
-        var lines = text.Split('\n');
-        for (var i = 0; i < lines.Length; i++)
+        string[] lines = text.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
         {
             lines[i] = lines[i].TrimEnd('\r');
         }
@@ -54,8 +54,8 @@ internal sealed class FileLayout
             return new FileLayout(text, lines, 0, text, 1);
         }
 
-        var end = -1;
-        for (var i = 1; i < lines.Length; i++)
+        int end = -1;
+        for (int i = 1; i < lines.Length; i++)
         {
             if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
             {
@@ -70,11 +70,11 @@ internal sealed class FileLayout
             return new FileLayout(text, lines, 0, string.Empty, 1);
         }
 
-        var body = string.Join('\n', lines.Skip(end + 1));
+        string body = string.Join('\n', lines.Skip(end + 1));
 
         // OkfDocument.Parse consumes a single newline after the closing fence, so the
         // body's first line is the one after the blank separator when there is one.
-        var consumesBlank = end + 1 < lines.Length && lines[end + 1].Length == 0;
+        bool consumesBlank = end + 1 < lines.Length && lines[end + 1].Length == 0;
         if (consumesBlank)
         {
             body = body[1..];
@@ -91,9 +91,9 @@ internal sealed class FileLayout
     /// <returns>The line number, or <see langword="null" />.</returns>
     public int? FrontmatterKeyLine(string key)
     {
-        for (var i = 1; i < this.frontmatterEndIndex; i++)
+        for (int i = 1; i < _frontmatterEndIndex; i++)
         {
-            var line = this.lines[i];
+            string line = _lines[i];
             if (line.Length > key.Length
                 && line.StartsWith(key, StringComparison.Ordinal)
                 && line[key.Length] == ':')

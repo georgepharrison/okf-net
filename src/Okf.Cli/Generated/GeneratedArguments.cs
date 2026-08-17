@@ -5,7 +5,7 @@ namespace Okf.Cli.Generated;
 /// <summary>The parsed form of <c>okf generated</c>'s command line.</summary>
 internal sealed class GeneratedArguments
 {
-    private readonly List<string> paths = [];
+    private readonly List<string> _paths = [];
 
     private GeneratedArguments()
     {
@@ -15,7 +15,7 @@ internal sealed class GeneratedArguments
     public string? Verb { get; private set; }
 
     /// <summary>The concept paths to stamp, in the order given.</summary>
-    public IReadOnlyList<string> Paths => this.paths;
+    public IReadOnlyList<string> Paths => _paths;
 
     /// <summary>The generating actor (<c>--by</c>), which is never defaulted.</summary>
     public string? By { get; private set; }
@@ -39,12 +39,12 @@ internal sealed class GeneratedArguments
     public static GeneratedArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new GeneratedArguments();
+        GeneratedArguments parsed = new GeneratedArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -86,7 +86,7 @@ internal sealed class GeneratedArguments
                     }
                     else
                     {
-                        parsed.paths.Add(argument);
+                        parsed._paths.Add(argument);
                     }
 
                     break;

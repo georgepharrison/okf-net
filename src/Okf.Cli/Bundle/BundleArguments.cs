@@ -6,7 +6,7 @@ namespace Okf.Cli.Bundle;
 /// <summary>The parsed form of <c>okf bundle</c>'s command line.</summary>
 internal sealed class BundleArguments
 {
-    private readonly List<string> bundles = [];
+    private readonly List<string> _bundles = [];
 
     private BundleArguments()
     {
@@ -22,7 +22,7 @@ internal sealed class BundleArguments
     public OkfDistributionFormat? Format { get; private set; }
 
     /// <summary>The bundle names to package; empty means every bundle in the working set.</summary>
-    public IReadOnlyList<string> Bundles => this.bundles;
+    public IReadOnlyList<string> Bundles => _bundles;
 
     /// <summary>An archive or directory to re-hash against its own manifest, instead of packaging.</summary>
     public string? Verify { get; private set; }
@@ -66,12 +66,12 @@ internal sealed class BundleArguments
     public static BundleArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new BundleArguments();
+        BundleArguments parsed = new BundleArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -96,7 +96,7 @@ internal sealed class BundleArguments
                     break;
 
                 case "--bundle":
-                    parsed.bundles.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
+                    parsed._bundles.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--format":
@@ -146,7 +146,7 @@ internal sealed class BundleArguments
             value,
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-            out var instant)
+            out DateTimeOffset instant)
             ? instant
             : throw new OkfConfigException(
                 $"'{value}' is not a readable instant; --generated-at takes an RFC 3339 timestamp " +
@@ -168,7 +168,7 @@ internal sealed class BundleArguments
         {
             // Verification reads a finished distribution; every packaging option would be
             // describing a run that is not happening.
-            var conflicting = new List<string>();
+            List<string> conflicting = new List<string>();
             if (Output is not null)
             {
                 conflicting.Add("--out");
@@ -179,7 +179,7 @@ internal sealed class BundleArguments
                 conflicting.Add("--format");
             }
 
-            if (this.bundles.Count > 0)
+            if (_bundles.Count > 0)
             {
                 conflicting.Add("--bundle");
             }

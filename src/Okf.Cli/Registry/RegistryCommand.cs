@@ -87,9 +87,9 @@ internal static class RegistryCommand
         TextWriter output,
         TextWriter error)
     {
-        var registry = OkfRegistry.Load(environment);
-        var target = Target(arguments, environment);
-        var (entry, added) = registry.Register(target, DateTimeOffset.Now);
+        OkfRegistry registry = OkfRegistry.Load(environment);
+        string target = Target(arguments, environment);
+        (OkfRegistryEntry entry, bool added) = registry.Register(target, DateTimeOffset.Now);
 
         if (!added)
         {
@@ -111,9 +111,9 @@ internal static class RegistryCommand
         TextWriter output,
         TextWriter error)
     {
-        var registry = OkfRegistry.Load(environment);
-        var target = arguments.Target ?? Target(arguments, environment);
-        var removed = registry.Unregister(target, environment.CurrentDirectory);
+        OkfRegistry registry = OkfRegistry.Load(environment);
+        string target = arguments.Target ?? Target(arguments, environment);
+        OkfRegistryEntry? removed = registry.Unregister(target, environment.CurrentDirectory);
 
         if (removed is null)
         {
@@ -138,8 +138,8 @@ internal static class RegistryCommand
 
     private static int List(RegistryArguments arguments, OkfEnvironment environment, TextWriter output)
     {
-        var registry = OkfRegistry.Load(environment);
-        var path = OkfRegistry.PathFor(environment);
+        OkfRegistry registry = OkfRegistry.Load(environment);
+        string path = OkfRegistry.PathFor(environment);
 
         if (arguments.Json)
         {
@@ -154,13 +154,13 @@ internal static class RegistryCommand
             return CliApplication.ExitSuccess;
         }
 
-        var width = registry.Entries.Max(entry => entry.Id.Length);
-        var missing = 0;
-        foreach (var entry in registry.Entries)
+        int width = registry.Entries.Max(entry => entry.Id.Length);
+        int missing = 0;
+        foreach (OkfRegistryEntry entry in registry.Entries)
         {
             // Whether the path still exists is reported, never repaired: a lint rule that
             // rewrote machine-wide state would be a rule with a side effect (AD-7).
-            var present = entry.Exists;
+            bool present = entry.Exists;
             missing += present ? 0 : 1;
             output.WriteLine(
                 $"{entry.Id.PadRight(width)}  {entry.Kind.ToRegistryString().PadRight(6)}  {entry.Path}" +
@@ -179,8 +179,8 @@ internal static class RegistryCommand
 
     private static int Prune(OkfEnvironment environment, TextWriter output)
     {
-        var registry = OkfRegistry.Load(environment);
-        var removed = registry.Prune();
+        OkfRegistry registry = OkfRegistry.Load(environment);
+        IReadOnlyList<OkfRegistryEntry> removed = registry.Prune();
 
         if (removed.Count == 0)
         {
@@ -191,7 +191,7 @@ internal static class RegistryCommand
         }
 
         registry.Save(OkfRegistry.PathFor(environment));
-        foreach (var entry in removed)
+        foreach (OkfRegistryEntry entry in removed)
         {
             output.WriteLine($"Pruned '{entry.Id}' ({entry.Kind.ToRegistryString()}): {entry.Path}");
         }
@@ -224,7 +224,7 @@ internal static class RegistryCommand
     {
         error.WriteLine($"okf: registry {OkfRegistry.PathFor(environment)}");
 
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
+        OkfConfig? global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
         if (global?.AutoRegister is { } autoRegister)
         {
             // Recorded and validated, with no behaviour attached: registration is explicit,
@@ -241,7 +241,7 @@ internal static class RegistryCommand
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
-            foreach (var entry in registry.Entries)
+            foreach (OkfRegistryEntry entry in registry.Entries)
             {
                 writer.WriteStartObject();
                 writer.WriteString("id", entry.Id);

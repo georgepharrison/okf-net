@@ -63,7 +63,7 @@ internal static partial class LintText
         string documentDirectory,
         [NotNullWhen(true)] out string? resolved)
     {
-        var landed = Resolve(target, bundleRoot, documentDirectory, out var candidate);
+        LinkTarget landed = Resolve(target, bundleRoot, documentDirectory, out string? candidate);
         resolved = landed == LinkTarget.Inside ? candidate : null;
         return resolved is not null;
     }
@@ -87,14 +87,14 @@ internal static partial class LintText
     {
         resolved = null;
 
-        var path = target.Trim();
-        var fragment = path.IndexOf('#', StringComparison.Ordinal);
+        string path = target.Trim();
+        int fragment = path.IndexOf('#', StringComparison.Ordinal);
         if (fragment >= 0)
         {
             path = path[..fragment];
         }
 
-        var query = path.IndexOf('?', StringComparison.Ordinal);
+        int query = path.IndexOf('?', StringComparison.Ordinal);
         if (query >= 0)
         {
             path = path[..query];
@@ -119,7 +119,7 @@ internal static partial class LintText
             return LinkTarget.NotAPath;
         }
 
-        var native = path.Replace('/', Path.DirectorySeparatorChar);
+        string native = path.Replace('/', Path.DirectorySeparatorChar);
         string combined;
         try
         {
@@ -134,7 +134,7 @@ internal static partial class LintText
 
         resolved = combined;
 
-        var root = Path.TrimEndingDirectorySeparator(bundleRoot);
+        string root = Path.TrimEndingDirectorySeparator(bundleRoot);
         return combined.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
             || string.Equals(combined, root, StringComparison.Ordinal)
             ? LinkTarget.Inside
@@ -156,7 +156,7 @@ internal static partial class LintText
     /// <returns>How the value reads, and whether it points at something that exists.</returns>
     public static SourceResource ClassifyResource(string resource, string bundleRoot, string documentDirectory)
     {
-        var value = resource.Trim();
+        string value = resource.Trim();
         if (!IsCheckablePath(value))
         {
             return SourceResource.NotAPath;
@@ -168,13 +168,13 @@ internal static partial class LintText
         // slash (`policies/margin-standard.md` cited from `metrics/`), and a provenance
         // pointer that names a real file in the bundle is doing its job whichever base the
         // author had in mind. A typo, or a path that leaves the bundle, still fails both.
-        if (Exists(Resolve(value, bundleRoot, documentDirectory, out var relative), relative))
+        if (Exists(Resolve(value, bundleRoot, documentDirectory, out string? relative), relative))
         {
             return SourceResource.Resolved;
         }
 
         return !value.StartsWith('/')
-            && Exists(Resolve("/" + value, bundleRoot, documentDirectory, out var rooted), rooted)
+            && Exists(Resolve("/" + value, bundleRoot, documentDirectory, out string? rooted), rooted)
             ? SourceResource.Resolved
             : SourceResource.Unresolved;
     }
@@ -207,7 +207,7 @@ internal static partial class LintText
             return true;
         }
 
-        var slash = value.LastIndexOf('/');
+        int slash = value.LastIndexOf('/');
         return slash >= 0 && value.AsSpan(slash + 1).Contains('.');
     }
 

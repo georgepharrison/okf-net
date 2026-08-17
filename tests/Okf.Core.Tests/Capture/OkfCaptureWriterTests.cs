@@ -713,18 +713,18 @@ public class OkfCaptureWriterTests
     /// </summary>
     private sealed class RawZone : IDisposable
     {
-        private readonly TempTree tree = new();
+        private readonly TempTree _tree = new();
 
-        public RawZone() => Root = this.tree.CreateDirectory(Path.Combine("okf", "raw"));
+        public RawZone() => Root = _tree.CreateDirectory(Path.Combine("okf", "raw"));
 
         /// <summary>The <c>raw/</c> directory.</summary>
         public string Root { get; }
 
         /// <summary>The vault root holding it.</summary>
-        public string Vault => Path.Combine(this.tree.Root, "okf");
+        public string Vault => Path.Combine(_tree.Root, "okf");
 
         public void Drop(string relativePath, string content) =>
-            this.tree.Write(Path.Combine("okf", "raw", relativePath), content);
+            _tree.Write(Path.Combine("okf", "raw", relativePath), content);
 
         public OkfCaptureAddition Addition(
             string relativePath,
@@ -740,6 +740,6 @@ public class OkfCaptureWriterTests
                 Form = form,
             };
 
-        public void Dispose() => this.tree.Dispose();
+        public void Dispose() => _tree.Dispose();
     }
 }

@@ -47,12 +47,12 @@ internal sealed class InitArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static InitArguments Parse(string[] args)
     {
-        var parsed = new InitArguments();
+        InitArguments parsed = new InitArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {

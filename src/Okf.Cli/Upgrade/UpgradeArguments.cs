@@ -41,12 +41,12 @@ internal sealed class UpgradeArguments
     public static UpgradeArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new UpgradeArguments();
+        UpgradeArguments parsed = new UpgradeArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {

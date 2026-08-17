@@ -7,15 +7,15 @@ public sealed class OkfRegistryTests : IDisposable
 {
     private static readonly DateTimeOffset Registered = new(2026, 8, 16, 9, 30, 0, TimeSpan.Zero);
 
-    private readonly string root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
 
     /// <summary>Builds two projects with vaults, a bare bundle, and a config directory.</summary>
     public OkfRegistryTests()
     {
-        Directory.CreateDirectory(Path.Combine(this.root, "alpha", "okf", "bundles", "one"));
-        Directory.CreateDirectory(Path.Combine(this.root, "elsewhere", "alpha", "okf", "bundles", "two"));
-        Directory.CreateDirectory(Path.Combine(this.root, "foreign-bundle"));
-        Directory.CreateDirectory(Path.Combine(this.root, ".config", "okf"));
+        Directory.CreateDirectory(Path.Combine(_root, "alpha", "okf", "bundles", "one"));
+        Directory.CreateDirectory(Path.Combine(_root, "elsewhere", "alpha", "okf", "bundles", "two"));
+        Directory.CreateDirectory(Path.Combine(_root, "foreign-bundle"));
+        Directory.CreateDirectory(Path.Combine(_root, ".config", "okf"));
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class OkfRegistryTests : IDisposable
     [Fact]
     public void ClassificationAgreesWithDiscoveryAboutWhatAVaultIs()
     {
-        var environment = Environment(this.root);
+        var environment = Environment(_root);
 
         foreach (var path in new[] { Project("alpha"), Path.Combine(Project("alpha"), "okf") })
         {
@@ -49,7 +49,7 @@ public sealed class OkfRegistryTests : IDisposable
             Assert.Equal(OkfDiscovery.Resolve(path, environment).VaultRoot, classified);
         }
 
-        var (bundle, bundleKind) = OkfRegistry.Classify(Path.Combine(this.root, "foreign-bundle"));
+        var (bundle, bundleKind) = OkfRegistry.Classify(Path.Combine(_root, "foreign-bundle"));
 
         Assert.Equal(OkfRegistryKind.Bundle, bundleKind);
         Assert.Equal(
@@ -60,7 +60,7 @@ public sealed class OkfRegistryTests : IDisposable
     [Fact]
     public void ClassifyingSomethingThatIsNotADirectoryIsRefused()
     {
-        var file = Path.Combine(this.root, "notes.md");
+        var file = Path.Combine(_root, "notes.md");
         File.WriteAllText(file, "x");
 
         // The two refusals are different findings and say so: a file is a wrong kind of
@@ -71,7 +71,7 @@ public sealed class OkfRegistryTests : IDisposable
             StringComparison.Ordinal);
         Assert.Contains(
             "No such directory",
-            Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(Path.Combine(this.root, "nowhere"))).Message,
+            Assert.Throws<OkfDiscoveryException>(() => OkfRegistry.Classify(Path.Combine(_root, "nowhere"))).Message,
             StringComparison.Ordinal);
     }
 
@@ -88,7 +88,7 @@ public sealed class OkfRegistryTests : IDisposable
     [InlineData("!!!", "vault")]
     public void AnIdIsASlugOfTheDirectoryName(string directory, string expected)
     {
-        var path = Path.Combine(this.root, directory);
+        var path = Path.Combine(_root, directory);
         Directory.CreateDirectory(path);
         var registry = OkfRegistry.Empty();
 
@@ -103,7 +103,7 @@ public sealed class OkfRegistryTests : IDisposable
     [Fact]
     public void ABundleDirectoryCalledOkfIsNotNamedForItsParent()
     {
-        var bundle = Path.Combine(this.root, "notes", OkfDiscovery.VaultDirectoryName);
+        var bundle = Path.Combine(_root, "notes", OkfDiscovery.VaultDirectoryName);
         Directory.CreateDirectory(bundle);
         var registry = OkfRegistry.Empty();
 
@@ -121,12 +121,12 @@ public sealed class OkfRegistryTests : IDisposable
     public void UnregisteringMatchesTheIdBeforeThePath()
     {
         var registry = OkfRegistry.Empty();
-        var elsewhere = registry.Register(Path.Combine(this.root, "elsewhere", "alpha"), Registered).Entry;
+        var elsewhere = registry.Register(Path.Combine(_root, "elsewhere", "alpha"), Registered).Entry;
         var beside = registry.Register(Project("alpha"), Registered).Entry;
 
         Assert.Equal("alpha", elsewhere.Id);
         Assert.Equal("alpha-2", beside.Id);
-        Assert.Equal("alpha", registry.Unregister("alpha", this.root)?.Id);
+        Assert.Equal("alpha", registry.Unregister("alpha", _root)?.Id);
         Assert.Equal(["alpha-2"], registry.Entries.Select(entry => entry.Id));
     }
 
@@ -142,8 +142,8 @@ public sealed class OkfRegistryTests : IDisposable
         var registry = OkfRegistry.Empty();
 
         var first = registry.Register(Project("alpha"), Registered);
-        var second = registry.Register(Path.Combine(this.root, "elsewhere", "alpha"), Registered);
-        var bundle = registry.Register(Path.Combine(this.root, "foreign-bundle"), Registered);
+        var second = registry.Register(Path.Combine(_root, "elsewhere", "alpha"), Registered);
+        var bundle = registry.Register(Path.Combine(_root, "foreign-bundle"), Registered);
 
         Assert.Equal("alpha", first.Entry.Id);
         Assert.Equal("alpha-2", second.Entry.Id);
@@ -158,7 +158,7 @@ public sealed class OkfRegistryTests : IDisposable
     [Fact]
     public void AnIdIsReadBackAsWrittenEvenWhenItNoLongerMatchesTheDirectory()
     {
-        var moved = Path.Combine(this.root, "elsewhere", "alpha", "okf");
+        var moved = Path.Combine(_root, "elsewhere", "alpha", "okf");
         var registry = OkfRegistry.Parse(
             $$"""
             {
@@ -195,7 +195,7 @@ public sealed class OkfRegistryTests : IDisposable
     public void TheFileIsSortedByIdAndEndsInExactlyOneNewline()
     {
         var registry = OkfRegistry.Empty();
-        registry.Register(Path.Combine(this.root, "foreign-bundle"), Registered);
+        registry.Register(Path.Combine(_root, "foreign-bundle"), Registered);
         registry.Register(Project("alpha"), Registered);
 
         var json = registry.ToJson();
@@ -237,7 +237,7 @@ public sealed class OkfRegistryTests : IDisposable
     [Fact]
     public void TheJsonIsIndentedAndLeavesPathCharactersUnescaped()
     {
-        var directory = Path.Combine(this.root, "a+b&c");
+        var directory = Path.Combine(_root, "a+b&c");
         Directory.CreateDirectory(directory);
         var registry = OkfRegistry.Empty();
         registry.Register(directory, Registered);
@@ -255,7 +255,7 @@ public sealed class OkfRegistryTests : IDisposable
         var path = RegistryPath;
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
-        registry.Register(Path.Combine(this.root, "foreign-bundle"), Registered);
+        registry.Register(Path.Combine(_root, "foreign-bundle"), Registered);
         registry.Save(path);
 
         var written = File.ReadAllText(path);
@@ -282,7 +282,7 @@ public sealed class OkfRegistryTests : IDisposable
     public void AnUnwritableRegistryIsAConfigFailureRatherThanARawIoError()
     {
         // A directory where the file must go: every write to it fails, on every platform.
-        var path = Path.Combine(this.root, "blocked", OkfRegistry.FileName);
+        var path = Path.Combine(_root, "blocked", OkfRegistry.FileName);
         Directory.CreateDirectory(path);
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
@@ -290,13 +290,13 @@ public sealed class OkfRegistryTests : IDisposable
         var exception = Assert.Throws<OkfConfigException>(() => registry.Save(path));
 
         Assert.Contains("Cannot write registry", exception.Message, StringComparison.Ordinal);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(this.root, "blocked")));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_root, "blocked")));
     }
 
     [Fact]
     public void SavingCreatesTheConfigDirectoryWhenItIsAbsent()
     {
-        var path = Path.Combine(this.root, "fresh", "okf", OkfRegistry.FileName);
+        var path = Path.Combine(_root, "fresh", "okf", OkfRegistry.FileName);
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
         registry.Save(path);
@@ -337,11 +337,11 @@ public sealed class OkfRegistryTests : IDisposable
     {
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
-        registry.Register(Path.Combine(this.root, "foreign-bundle"), Registered);
+        registry.Register(Path.Combine(_root, "foreign-bundle"), Registered);
 
-        Assert.Equal("alpha", registry.Unregister("alpha", this.root)?.Id);
-        Assert.Null(registry.Unregister("alpha", this.root));
-        Assert.Equal("foreign-bundle", registry.Unregister("foreign-bundle", this.root)?.Id);
+        Assert.Equal("alpha", registry.Unregister("alpha", _root)?.Id);
+        Assert.Null(registry.Unregister("alpha", _root));
+        Assert.Equal("foreign-bundle", registry.Unregister("foreign-bundle", _root)?.Id);
         Assert.Empty(registry.Entries);
     }
 
@@ -358,12 +358,12 @@ public sealed class OkfRegistryTests : IDisposable
     {
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
-        var project = Path.Combine(this.root, "elsewhere", "alpha");
+        var project = Path.Combine(_root, "elsewhere", "alpha");
         var entry = registry.Register(project, Registered).Entry;
 
         Assert.Equal("alpha-2", entry.Id);
         Assert.Equal(Path.Combine(project, "okf"), entry.Path);
-        Assert.Equal("alpha-2", registry.Unregister(relative ? Path.Combine("elsewhere", "alpha") : project, this.root)?.Id);
+        Assert.Equal("alpha-2", registry.Unregister(relative ? Path.Combine("elsewhere", "alpha") : project, _root)?.Id);
         Assert.Equal(["alpha"], registry.Entries.Select(existing => existing.Id));
     }
 
@@ -377,9 +377,9 @@ public sealed class OkfRegistryTests : IDisposable
     {
         var registry = OkfRegistry.Empty();
         var alpha = registry.Register(Project("alpha"), Registered).Entry;
-        registry.Register(Path.Combine(this.root, "elsewhere", "alpha"), Registered);
+        registry.Register(Path.Combine(_root, "elsewhere", "alpha"), Registered);
 
-        Assert.Equal("alpha", registry.Unregister(alpha.Path, this.root)?.Id);
+        Assert.Equal("alpha", registry.Unregister(alpha.Path, _root)?.Id);
         Assert.Equal(["alpha-2"], registry.Entries.Select(entry => entry.Id));
     }
 
@@ -388,7 +388,7 @@ public sealed class OkfRegistryTests : IDisposable
     {
         var registry = OkfRegistry.Empty();
         registry.Register(Project("alpha"), Registered);
-        var doomed = registry.Register(Path.Combine(this.root, "foreign-bundle"), Registered).Entry;
+        var doomed = registry.Register(Path.Combine(_root, "foreign-bundle"), Registered).Entry;
         Directory.Delete(doomed.Path);
 
         var pruned = registry.Prune();
@@ -403,7 +403,7 @@ public sealed class OkfRegistryTests : IDisposable
     {
         try
         {
-            Directory.Delete(this.root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (IOException)
         {
@@ -413,10 +413,10 @@ public sealed class OkfRegistryTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private string RegistryPath => Path.Combine(this.root, ".config", "okf", OkfRegistry.FileName);
+    private string RegistryPath => Path.Combine(_root, ".config", "okf", OkfRegistry.FileName);
 
-    private string Project(string name) => Path.Combine(this.root, name);
+    private string Project(string name) => Path.Combine(_root, name);
 
     private OkfEnvironment Environment(string workingDirectory) =>
-        new(workingDirectory, [new KeyValuePair<string, string>("HOME", this.root)]);
+        new(workingDirectory, [new KeyValuePair<string, string>("HOME", _root)]);
 }

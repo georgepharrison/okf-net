@@ -240,11 +240,11 @@ public class GeneratedCommandTests
     /// <summary>A throwaway bundle holding three concepts and a home with no okf configuration.</summary>
     private sealed class Bundle : IDisposable
     {
-        private readonly TempTree tree = new();
+        private readonly TempTree _tree = new();
 
         public Bundle()
         {
-            this.tree.CreateDirectory("bundle");
+            _tree.CreateDirectory("bundle");
             Write(
                 "widgets.md",
                 "---\ntype: Concept\ntitle: Widgets\ngenerated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\n---\n\nBody.\n");
@@ -253,26 +253,26 @@ public class GeneratedCommandTests
                 "verified.md",
                 "---\ntype: Concept\ntitle: Verified\ngenerated: { by: claude-opus/4, at: 2020-01-01T00:00:00Z }\n"
                 + "verified:\n  - { by: \"human:ringo\", at: 2021-01-01T00:00:00Z }\n---\n\nBody.\n");
-            Home = this.tree.CreateDirectory("home");
+            Home = _tree.CreateDirectory("home");
         }
 
         /// <summary>A home directory with no okf configuration in it.</summary>
         public string Home { get; }
 
         public string Path(string relativePath) =>
-            System.IO.Path.Combine(this.tree.Root, "bundle", relativePath);
+            System.IO.Path.Combine(_tree.Root, "bundle", relativePath);
 
         public string Read(string relativePath) => File.ReadAllText(Path(relativePath));
 
         public string Write(string relativePath, string content) =>
-            this.tree.Write(System.IO.Path.Combine("bundle", relativePath), content);
+            _tree.Write(System.IO.Path.Combine("bundle", relativePath), content);
 
         public CliRun Run(params string[] args) =>
-            CliHarness.RunIn(System.IO.Path.Combine(this.tree.Root, "bundle"), Home, args);
+            CliHarness.RunIn(System.IO.Path.Combine(_tree.Root, "bundle"), Home, args);
 
         public CliRun Stamp(string relativePath, string actor, string at) =>
             Run("generated", "stamp", Path(relativePath), "--by", actor, "--at", at);
 
-        public void Dispose() => this.tree.Dispose();
+        public void Dispose() => _tree.Dispose();
     }
 }

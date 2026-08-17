@@ -262,16 +262,16 @@ public static class OkfInboxScanner
         ArgumentNullException.ThrowIfNull(bundles);
         options ??= new OkfInboxOptions();
 
-        var list = bundles.ToList();
-        var items = new List<OkfInboxItem>();
-        var concepts = 0;
-        var skipped = 0;
+        List<OkfBundle> list = bundles.ToList();
+        List<OkfInboxItem> items = new List<OkfInboxItem>();
+        int concepts = 0;
+        int skipped = 0;
 
-        foreach (var bundle in list)
+        foreach (OkfBundle bundle in list)
         {
             // MarkdownFiles() is already ordinal by path and skips links out of the bundle,
             // so the bundle order the working set fixed is the whole ordering story.
-            foreach (var file in bundle.MarkdownFiles())
+            foreach (string file in bundle.MarkdownFiles())
             {
                 if (OkfBundle.IsReservedFile(file))
                 {
@@ -308,17 +308,17 @@ public static class OkfInboxScanner
     {
         ArgumentNullException.ThrowIfNull(concept);
 
-        var frontmatter = concept.Frontmatter;
-        var generated = Nested(frontmatter, "generated");
-        var generatedBy = generated is null ? null : FrontmatterValues.Scalar(generated, "by");
-        var generatedAtText = generated is null ? null : FrontmatterValues.Scalar(generated, "at");
-        var generatedAt = OkfLifecycleInstant.Parse(generatedAtText);
+        OkfMapping frontmatter = concept.Frontmatter;
+        OkfMapping? generated = Nested(frontmatter, "generated");
+        string? generatedBy = generated is null ? null : FrontmatterValues.Scalar(generated, "by");
+        string? generatedAtText = generated is null ? null : FrontmatterValues.Scalar(generated, "at");
+        OkfLifecycleInstant? generatedAt = OkfLifecycleInstant.Parse(generatedAtText);
 
-        var (verifiedBy, verifiedAtText, verifiedAt) = LatestVerification(frontmatter);
-        var status = FrontmatterValues.Scalar(frontmatter, "status");
-        var staleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after");
+        (string? verifiedBy, string? verifiedAtText, OkfLifecycleInstant? verifiedAt) = LatestVerification(frontmatter);
+        string? status = FrontmatterValues.Scalar(frontmatter, "status");
+        string? staleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after");
 
-        var reasons = new List<OkfInboxReason>();
+        List<OkfInboxReason> reasons = new List<OkfInboxReason>();
         if (IsUnacknowledged(concept, generated, generatedBy, generatedAt, verifiedAt, status))
         {
             reasons.Add(OkfInboxReason.Unacknowledged);
@@ -329,7 +329,7 @@ public static class OkfInboxScanner
             reasons.Add(OkfInboxReason.Stale);
         }
 
-        var drifted = DriftedSources(frontmatter, generatedAt);
+        List<OkfDriftedSource> drifted = DriftedSources(frontmatter, generatedAt);
         if (drifted.Count > 0)
         {
             reasons.Add(OkfInboxReason.SourceDrift);
@@ -411,9 +411,9 @@ public static class OkfInboxScanner
         string? at = null;
         OkfLifecycleInstant? latest = null;
 
-        foreach (var verification in OkfDocument.NormalizeVerified(frontmatter))
+        foreach (OkfMapping verification in OkfDocument.NormalizeVerified(frontmatter))
         {
-            var text = FrontmatterValues.Scalar(verification, "at");
+            string? text = FrontmatterValues.Scalar(verification, "at");
             if (OkfLifecycleInstant.Parse(text) is not { } parsed)
             {
                 continue;
@@ -443,16 +443,16 @@ public static class OkfInboxScanner
     private static List<OkfDriftedSource> DriftedSources(OkfMapping frontmatter, OkfLifecycleInstant? generatedAt)
     {
         if (generatedAt is not { } generated
-            || !frontmatter.TryGetValue("sources", out var value)
+            || !frontmatter.TryGetValue("sources", out OkfValue? value)
             || value is not OkfSequence sources)
         {
             return [];
         }
 
-        var drifted = new List<OkfDriftedSource>();
-        foreach (var source in sources.OfType<OkfMapping>())
+        List<OkfDriftedSource> drifted = new List<OkfDriftedSource>();
+        foreach (OkfMapping source in sources.OfType<OkfMapping>())
         {
-            var lastModified = FrontmatterValues.Scalar(source, "last_modified");
+            string? lastModified = FrontmatterValues.Scalar(source, "last_modified");
             if (OkfLifecycleInstant.Parse(lastModified) is { } modified
                 && OkfLifecycleInstant.IsAfterAtEitherPrecision(modified, generated))
             {
@@ -467,5 +467,5 @@ public static class OkfInboxScanner
     }
 
     private static OkfMapping? Nested(OkfMapping mapping, string key) =>
-        mapping.TryGetValue(key, out var value) ? value as OkfMapping : null;
+        mapping.TryGetValue(key, out OkfValue? value) ? value as OkfMapping : null;
 }

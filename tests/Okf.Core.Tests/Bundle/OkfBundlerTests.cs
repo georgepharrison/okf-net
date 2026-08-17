@@ -1089,32 +1089,32 @@ public class OkfBundlerTests
                 return;
 
             case OkfDistributionFormat.Zip:
-            {
-                using var zip = ZipFile.Open(output, ZipArchiveMode.Update);
-                var entry = zip.GetEntry(path)!;
-                using var stream = entry.Open();
-                stream.SetLength(0);
-                stream.Write(Encoding.UTF8.GetBytes(content));
-                return;
-            }
-
-            default:
-            {
-                var contents = TarContents(output);
-                contents[path] = content;
-                using var file = File.Create(output);
-                using var gzip = new GZipStream(file, CompressionLevel.Optimal);
-                using var writer = new TarWriter(gzip, TarEntryFormat.Gnu);
-                foreach (var (name, text) in contents.OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 {
-                    writer.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, name)
-                    {
-                        DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)),
-                    });
+                    using var zip = ZipFile.Open(output, ZipArchiveMode.Update);
+                    var entry = zip.GetEntry(path)!;
+                    using var stream = entry.Open();
+                    stream.SetLength(0);
+                    stream.Write(Encoding.UTF8.GetBytes(content));
+                    return;
                 }
 
-                return;
-            }
+            default:
+                {
+                    var contents = TarContents(output);
+                    contents[path] = content;
+                    using var file = File.Create(output);
+                    using var gzip = new GZipStream(file, CompressionLevel.Optimal);
+                    using var writer = new TarWriter(gzip, TarEntryFormat.Gnu);
+                    foreach (var (name, text) in contents.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                    {
+                        writer.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, name)
+                        {
+                            DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)),
+                        });
+                    }
+
+                    return;
+                }
         }
     }
 
@@ -1124,13 +1124,13 @@ public class OkfBundlerTests
     /// </summary>
     private sealed class BundlerVault : IDisposable
     {
-        private readonly string parent;
+        private readonly string _parent;
 
         public BundlerVault()
         {
-            this.parent = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
-            Root = Path.Combine(this.parent, "vault-project", OkfDiscovery.VaultDirectoryName);
-            Output = Path.Combine(this.parent, "out");
+            _parent = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+            Root = Path.Combine(_parent, "vault-project", OkfDiscovery.VaultDirectoryName);
+            Output = Path.Combine(_parent, "out");
             Directory.CreateDirectory(Output);
 
             // The bundles: concepts, reserved files, an about file, and a non-markdown
@@ -1200,19 +1200,19 @@ public class OkfBundlerTests
 
         public string CreateDirectory(string relativePath)
         {
-            var path = Path.Combine(this.parent, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            var path = Path.Combine(_parent, relativePath.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(path);
             return path;
         }
 
         public OkfWorkingSet WorkingSet() =>
-            OkfDiscovery.Resolve(Root, new OkfEnvironment(this.parent));
+            OkfDiscovery.Resolve(Root, new OkfEnvironment(_parent));
 
         public void Dispose()
         {
             try
             {
-                Directory.Delete(this.parent, recursive: true);
+                Directory.Delete(_parent, recursive: true);
             }
             catch (IOException)
             {

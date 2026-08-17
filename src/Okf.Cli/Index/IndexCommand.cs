@@ -65,7 +65,7 @@ internal static class IndexCommand
     {
         // PRD CLI-1: `okf index` resolves its working set exactly as `okf lint` does, so
         // the two commands never disagree about which bundle they are looking at.
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
 
         if (arguments.Verbose)
         {
@@ -76,17 +76,17 @@ internal static class IndexCommand
                 : "okf: writing generated index.md files");
         }
 
-        var plans = workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
+        List<OkfIndexPlan> plans = workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
 
         if (!arguments.Check)
         {
-            foreach (var plan in plans)
+            foreach (OkfIndexPlan plan in plans)
             {
                 OkfIndexGenerator.Apply(plan);
             }
         }
 
-        var indexes = plans.SelectMany(plan => plan.Indexes).ToList();
+        List<OkfIndex> indexes = plans.SelectMany(plan => plan.Indexes).ToList();
 
         if (arguments.Json)
         {
@@ -114,17 +114,17 @@ internal static class IndexCommand
         string baseDirectory,
         TextWriter output)
     {
-        foreach (var index in indexes.Where(index => index.Status != OkfIndexStatus.Unchanged))
+        foreach (OkfIndex index in indexes.Where(index => index.Status != OkfIndexStatus.Unchanged))
         {
             output.WriteLine($"{DiagnosticWriter.Display(index.Path, baseDirectory)}: {WriteVerb(index.Status)}");
         }
 
-        var created = indexes.Count(index => index.Status == OkfIndexStatus.Created);
-        var updated = indexes.Count(index => index.Status == OkfIndexStatus.Drifted);
-        var unchanged = indexes.Count(index => index.Status == OkfIndexStatus.Unchanged);
-        var replaced = indexes.Count(index => index.Status == OkfIndexStatus.Foreign);
+        int created = indexes.Count(index => index.Status == OkfIndexStatus.Created);
+        int updated = indexes.Count(index => index.Status == OkfIndexStatus.Drifted);
+        int unchanged = indexes.Count(index => index.Status == OkfIndexStatus.Unchanged);
+        int replaced = indexes.Count(index => index.Status == OkfIndexStatus.Foreign);
 
-        var summary = new StringBuilder()
+        StringBuilder summary = new StringBuilder()
             .Append("Generated ")
             .Append(DiagnosticWriter.Plural(indexes.Count, "index", "indexes"))
             .Append(" in ")
@@ -154,12 +154,12 @@ internal static class IndexCommand
         string baseDirectory,
         TextWriter output)
     {
-        foreach (var index in indexes.Where(index => index.IsDrift))
+        foreach (OkfIndex index in indexes.Where(index => index.IsDrift))
         {
             output.WriteLine($"{DiagnosticWriter.Display(index.Path, baseDirectory)}: {CheckVerb(index.Status)}");
         }
 
-        var drifted = indexes.Count(index => index.IsDrift);
+        int drifted = indexes.Count(index => index.IsDrift);
         output.WriteLine(
             $"Checked {DiagnosticWriter.Plural(indexes.Count, "index", "indexes")} in " +
             $"{DiagnosticWriter.Plural(bundleCount, "bundle")}: " +
@@ -178,9 +178,9 @@ internal static class IndexCommand
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
-            foreach (var plan in plans)
+            foreach (OkfIndexPlan plan in plans)
             {
-                foreach (var index in plan.Indexes)
+                foreach (OkfIndex index in plan.Indexes)
                 {
                     writer.WriteStartObject();
                     writer.WriteString("path", DiagnosticWriter.Display(index.Path, baseDirectory));
