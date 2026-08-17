@@ -130,55 +130,66 @@ internal sealed class McpServer
 
         using (document)
         {
-            JsonElement root = document.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
+            if (Request(document.RootElement) is { } request)
             {
-                // JSON-RPC batching was removed from MCP in the 2025-06-18 revision, and a
-                // batch has no single id to answer under, so it is refused as a whole.
-                WriteError(null, InvalidRequest, "Batch requests are not supported; send one JSON-RPC message per line.");
-                return;
+                Answer(request);
             }
-
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                WriteError(null, InvalidRequest, "A JSON-RPC message must be an object.");
-                return;
-            }
-
-            // A message with no id (or a null id) is a notification: the spec forbids a
-            // response to one, including an error response, so an invalid notification is
-            // dropped rather than answered.
-            bool isRequest = root.TryGetProperty("id", out JsonElement id) && id.ValueKind != JsonValueKind.Null;
-            JsonElement? identifier = isRequest ? id : (JsonElement?)null;
-
-            try
-            {
-                Respond(root, isRequest, identifier);
-            }
-            catch (McpProtocolException exception)
-            {
-                WriteError(identifier, exception.Code, exception.Message);
-            }
-#pragma warning disable CA1031 // deliberate: see the comment below — the stdio loop's
-            // contract is that it survives whatever arrives on stdin, so this is the one
-            // place a failure of any type is turned back into a response instead of killing
-            // the loop.
-            catch (Exception exception)
-            {
-                // A bundle that moved or turned unreadable under us is the environment's
-                // failure, not the client's, and it must not take the server down. Nor may
-                // anything else: the loop's contract is that it survives whatever arrives on
-                // stdin, and a client reaches code that throws types this method cannot
-                // enumerate — `System.Text.Json` alone throws `InvalidOperationException`
-                // when a string carrying an unpaired `\uD800` escape is read, which is legal
-                // to parse and possible in any field. Dying there would lose every request
-                // still queued behind it, so an unexpected failure is reported as one and
-                // the next line is read.
-                WriteError(identifier, InternalError, exception.Message);
-            }
-#pragma warning restore CA1031
         }
+    }
+
+    private sealed record IncomingRequest(JsonElement Root, bool IsRequest, JsonElement? Identifier);
+
+    private IncomingRequest? Request(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            // JSON-RPC batching was removed from MCP in the 2025-06-18 revision, and a
+            // batch has no single id to answer under, so it is refused as a whole.
+            WriteError(null, InvalidRequest, "Batch requests are not supported; send one JSON-RPC message per line.");
+            return null;
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            WriteError(null, InvalidRequest, "A JSON-RPC message must be an object.");
+            return null;
+        }
+
+        // A message with no id (or a null id) is a notification: the spec forbids a
+        // response to one, including an error response, so an invalid notification is
+        // dropped rather than answered.
+        bool isRequest = root.TryGetProperty("id", out JsonElement id) && id.ValueKind != JsonValueKind.Null;
+        return new IncomingRequest(root, isRequest, isRequest ? id : null);
+    }
+
+    private void Answer(IncomingRequest request)
+    {
+        try
+        {
+            Respond(request);
+        }
+        catch (McpProtocolException exception)
+        {
+            WriteError(request.Identifier, exception.Code, exception.Message);
+        }
+#pragma warning disable CA1031 // deliberate: see the comment below — the stdio loop's
+        // contract is that it survives whatever arrives on stdin, so this is the one
+        // place a failure of any type is turned back into a response instead of killing
+        // the loop.
+        catch (Exception exception)
+        {
+            // A bundle that moved or turned unreadable under us is the environment's
+            // failure, not the client's, and it must not take the server down. Nor may
+            // anything else: the loop's contract is that it survives whatever arrives on
+            // stdin, and a client reaches code that throws types this method cannot
+            // enumerate — `System.Text.Json` alone throws `InvalidOperationException`
+            // when a string carrying an unpaired `\uD800` escape is read, which is legal
+            // to parse and possible in any field. Dying there would lose every request
+            // still queued behind it, so an unexpected failure is reported as one and
+            // the next line is read.
+            WriteError(request.Identifier, InternalError, exception.Message);
+        }
+#pragma warning restore CA1031
     }
 
     /// <summary>
@@ -186,31 +197,21 @@ internal sealed class McpServer
     /// rather than in <see cref="Handle" />, which owns the one place a failure is turned
     /// back into a response.
     /// </summary>
-    private void Respond(JsonElement root, bool isRequest, JsonElement? identifier)
+    private void Respond(IncomingRequest request)
     {
-        if (!root.TryGetProperty("jsonrpc", out JsonElement version)
-            || version.ValueKind != JsonValueKind.String
-            || !string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal))
+        if (!HasJsonRpcVersion(request.Root))
         {
-            if (isRequest)
-            {
-                WriteError(identifier, InvalidRequest, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
-            }
-
+            RefuseIfRequest(request, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
             return;
         }
 
-        if (!root.TryGetProperty("method", out JsonElement method) || method.ValueKind != JsonValueKind.String)
+        if (!request.Root.TryGetProperty("method", out JsonElement method) || method.ValueKind != JsonValueKind.String)
         {
-            if (isRequest)
-            {
-                WriteError(identifier, InvalidRequest, "A JSON-RPC message must carry a string \"method\".");
-            }
-
+            RefuseIfRequest(request, "A JSON-RPC message must carry a string \"method\".");
             return;
         }
 
-        if (!isRequest)
+        if (!request.IsRequest)
         {
             // Nothing okf-net exposes changes on a notification: it has no subscriptions
             // and no write tools (MCP-4). `notifications/initialized` and the rest are
@@ -218,8 +219,23 @@ internal sealed class McpServer
             return;
         }
 
-        JsonElement? parameters = root.TryGetProperty("params", out JsonElement value) ? value : (JsonElement?)null;
-        Dispatch(method.GetString()!, parameters, identifier);
+        JsonElement? parameters = request.Root.TryGetProperty("params", out JsonElement value)
+            ? value
+            : (JsonElement?)null;
+        Dispatch(method.GetString()!, parameters, request.Identifier);
+    }
+
+    private static bool HasJsonRpcVersion(JsonElement root) =>
+        root.TryGetProperty("jsonrpc", out JsonElement version)
+        && version.ValueKind == JsonValueKind.String
+        && string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal);
+
+    private void RefuseIfRequest(IncomingRequest request, string message)
+    {
+        if (request.IsRequest)
+        {
+            WriteError(request.Identifier, InvalidRequest, message);
+        }
     }
 
     private void Dispatch(string method, JsonElement? parameters, JsonElement? id)
@@ -256,38 +272,38 @@ internal sealed class McpServer
     /// </summary>
     private static string Initialize(JsonElement? parameters)
     {
+        return JsonOutput.WriteWire(writer => WriteInitialize(writer, NegotiatedVersion(parameters)));
+    }
+
+    private static string NegotiatedVersion(JsonElement? parameters)
+    {
         string? requested = parameters is { ValueKind: JsonValueKind.Object } value
             && value.TryGetProperty("protocolVersion", out JsonElement version)
             && version.ValueKind == JsonValueKind.String
                 ? version.GetString()
                 : null;
+        return requested is not null && Array.IndexOf(SupportedProtocolVersions, requested) >= 0
+            ? requested
+            : LatestProtocolVersion;
+    }
 
-        string negotiated = requested is not null
-            && Array.IndexOf(SupportedProtocolVersions, requested) >= 0
-                ? requested
-                : LatestProtocolVersion;
+    private static void WriteInitialize(Utf8JsonWriter writer, string negotiated)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("protocolVersion", negotiated);
+        writer.WriteStartObject("capabilities");
+        writer.WriteStartObject("tools");
 
-        return JsonOutput.WriteWire(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("protocolVersion", negotiated);
-
-            writer.WriteStartObject("capabilities");
-            writer.WriteStartObject("tools");
-
-            // The tool list is fixed at startup, so there is never a change to notify.
-            writer.WriteBoolean("listChanged", false);
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-
-            writer.WriteStartObject("serverInfo");
-            writer.WriteString("name", "okf");
-            writer.WriteString("version", CliApplication.Version);
-            writer.WriteEndObject();
-
-            writer.WriteString("instructions", McpToolset.Instructions);
-            writer.WriteEndObject();
-        });
+        // The tool list is fixed at startup, so there is never a change to notify.
+        writer.WriteBoolean("listChanged", false);
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        writer.WriteStartObject("serverInfo");
+        writer.WriteString("name", "okf");
+        writer.WriteString("version", CliApplication.Version);
+        writer.WriteEndObject();
+        writer.WriteString("instructions", McpToolset.Instructions);
+        writer.WriteEndObject();
     }
 
     private void WriteResult(JsonElement? id, string resultJson)

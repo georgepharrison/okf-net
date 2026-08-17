@@ -30,25 +30,16 @@ internal static class CaptureCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        CaptureArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = CaptureArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            return Usage(error, exception.Message);
+            return CliApplication.ExitUsage;
         }
 
         if (parsed.ShowHelp || parsed.Verb is null)
         {
-            if (parsed.Verb is null && !parsed.ShowHelp)
-            {
-                return Usage(error, "no subcommand. `okf capture add` records an item; `okf capture close` ingests one.");
-            }
-
-            WriteUsage(output);
-            return CliApplication.ExitSuccess;
+            return parsed.Verb is null && !parsed.ShowHelp
+                ? Usage(error, "no subcommand. `okf capture add` records an item; `okf capture close` ingests one.")
+                : Help(output);
         }
 
         try
@@ -60,19 +51,33 @@ internal static class CaptureCommand
                 _ => Usage(error, $"unknown capture subcommand '{parsed.Verb}'; expected 'add' or 'close'."),
             };
         }
-        catch (OkfDiscoveryException exception)
-        {
-            return Usage(error, exception.Message);
-        }
-        catch (IOException exception)
-        {
-            return Usage(error, exception.Message);
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             return Usage(error, exception.Message);
         }
     }
+
+    private static CaptureArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return CaptureArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            Usage(error, exception.Message);
+            return null;
+        }
+    }
+
+    private static int Help(TextWriter output)
+    {
+        WriteUsage(output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or IOException or UnauthorizedAccessException;
 
     private static int Add(
         CaptureArguments arguments,
@@ -80,17 +85,9 @@ internal static class CaptureCommand
         TextWriter output,
         TextWriter error)
     {
-        if (arguments.Operands.Count != 1)
+        if (RefuseAddUsage(arguments, error) is { } usage)
         {
-            return Usage(
-                error,
-                "`okf capture add <file-or-directory-under-raw>` records exactly one item, and "
-                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "item")} were named.");
-        }
-
-        if (arguments.Concepts.Count > 0)
-        {
-            return Usage(error, "`--concept` belongs to `okf capture close`; a fresh capture is uningested by definition.");
+            return usage;
         }
 
         if (Actor(arguments, error) is not { } actor || Vault(environment, error) is not { } vault)
@@ -102,23 +99,45 @@ internal static class CaptureCommand
         (string current, bool mark) = File.Exists(manifestPath)
             ? ReadManifest(manifestPath)
             : (OkfCaptureWriter.EmptyManifest, false);
-
-        OkfCaptureWriteResult result = OkfCaptureWriter.Add(
-            current,
-            Path.Combine(vault, OkfCaptureManifest.RawDirectoryName),
-            new OkfCaptureAddition
-            {
-                ItemPath = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Operands[0])),
-                CapturedBy = actor,
-                CapturedAt = arguments.At ?? DateTimeOffset.UtcNow,
-                OriginalUrl = arguments.Url,
-                Title = arguments.Title,
-                SourceLastModified = arguments.SourceLastModified,
-                Form = arguments.Form,
-            });
-
-        return Report(result, manifestPath, mark, arguments, environment, output, error);
+        return Report(
+            OkfCaptureWriter.Add(
+                current,
+                Path.Combine(vault, OkfCaptureManifest.RawDirectoryName),
+                Addition(arguments, environment, actor)),
+            new WrittenManifest(manifestPath, mark, arguments, environment),
+            output,
+            error);
     }
+
+    private static int? RefuseAddUsage(CaptureArguments arguments, TextWriter error)
+    {
+        if (arguments.Operands.Count != 1)
+        {
+            return Usage(
+                error,
+                "`okf capture add <file-or-directory-under-raw>` records exactly one item, and "
+                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "item")} were named.");
+        }
+
+        return arguments.Concepts.Count > 0
+            ? Usage(error, "`--concept` belongs to `okf capture close`; a fresh capture is uningested by definition.")
+            : null;
+    }
+
+    private static OkfCaptureAddition Addition(
+        CaptureArguments arguments,
+        OkfEnvironment environment,
+        string actor) =>
+        new OkfCaptureAddition
+        {
+            ItemPath = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Operands[0])),
+            CapturedBy = actor,
+            CapturedAt = arguments.At ?? DateTimeOffset.UtcNow,
+            OriginalUrl = arguments.Url,
+            Title = arguments.Title,
+            SourceLastModified = arguments.SourceLastModified,
+            Form = arguments.Form,
+        };
 
     /// <summary>
     /// The manifest's text, with a leading byte-order mark reported rather than swallowed.
@@ -139,20 +158,9 @@ internal static class CaptureCommand
         TextWriter output,
         TextWriter error)
     {
-        if (arguments.Operands.Count != 1)
+        if (RefuseCloseUsage(arguments, error) is { } usage)
         {
-            return Usage(
-                error,
-                "`okf capture close <id-or-path>` closes exactly one entry, and "
-                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "entry", "entries")} were named.");
-        }
-
-        if (arguments.Concepts.Count == 0)
-        {
-            return Usage(
-                error,
-                "no `--concept` named. Closing an ingestion records which concepts now carry the artifact, "
-                + "vault-root-relative (e.g. bundles/<name>/references/<concept>.md).");
+            return usage;
         }
 
         if (Actor(arguments, error) is not { } actor || Vault(environment, error) is not { } vault)
@@ -160,28 +168,26 @@ internal static class CaptureCommand
             return CliApplication.ExitUsage;
         }
 
-        // Every concept is checked before the manifest is touched: an ingestion pointing at
-        // a file that is not there is the violation `check-manifest.py` reports, and a
-        // half-closed entry cannot be reopened.
-        foreach (string concept in arguments.Concepts)
+        if (CheckConcepts(arguments, vault, error) is { } refused)
         {
-            if (concept.StartsWith('/') || concept.Split('/', '\\').Contains(".."))
-            {
-                error.WriteLine(
-                    $"okf: error: `{concept}` must stay inside the vault. `ingestion.concepts` paths are relative "
-                    + "to the vault root, never absolute and never escaping it.");
-                return CliApplication.ExitDiagnostics;
-            }
-
-            if (!File.Exists(Path.Combine(vault, concept.Replace('/', Path.DirectorySeparatorChar))))
-            {
-                error.WriteLine(
-                    $"okf: error: `{concept}` names no file under '{vault}'. An ingested capture points at the "
-                    + "concept that carries it, so the concept is written first.");
-                return CliApplication.ExitDiagnostics;
-            }
+            return refused;
         }
 
+        return CloseManifest(new CloseRequest(arguments, actor, vault, environment), output, error);
+    }
+
+    private sealed record CloseRequest(
+        CaptureArguments Arguments,
+        string Actor,
+        string Vault,
+        OkfEnvironment Environment);
+
+    private static int CloseManifest(CloseRequest request, TextWriter output, TextWriter error)
+    {
+        CaptureArguments arguments = request.Arguments;
+        string actor = request.Actor;
+        string vault = request.Vault;
+        OkfEnvironment environment = request.Environment;
         string manifestPath = OkfCaptureManifest.PathFor(vault);
         if (!File.Exists(manifestPath))
         {
@@ -190,50 +196,127 @@ internal static class CaptureCommand
         }
 
         (string current, bool mark) = ReadManifest(manifestPath);
-        OkfCaptureWriteResult result = OkfCaptureWriter.Close(
-            current,
-            new OkfCaptureClosure
-            {
-                Entry = arguments.Operands[0],
-                By = actor,
-                At = arguments.At ?? DateTimeOffset.UtcNow,
-                Concepts = arguments.Concepts,
-            });
-
-        return Report(result, manifestPath, mark, arguments, environment, output, error);
+        return Report(
+            OkfCaptureWriter.Close(current, Closure(arguments, actor)),
+            new WrittenManifest(manifestPath, mark, arguments, environment),
+            output,
+            error);
     }
+
+    private static int? RefuseCloseUsage(CaptureArguments arguments, TextWriter error)
+    {
+        if (arguments.Operands.Count != 1)
+        {
+            return Usage(
+                error,
+                "`okf capture close <id-or-path>` closes exactly one entry, and "
+                + $"{DiagnosticWriter.Plural(arguments.Operands.Count, "entry", "entries")} were named.");
+        }
+
+        return arguments.Concepts.Count == 0
+            ? Usage(
+                error,
+                "no `--concept` named. Closing an ingestion records which concepts now carry the artifact, "
+                + "vault-root-relative (e.g. bundles/<name>/references/<concept>.md).")
+            : null;
+    }
+
+    /// <summary>
+    /// Every concept is checked before the manifest is touched: an ingestion pointing at
+    /// a file that is not there is the violation `check-manifest.py` reports, and a
+    /// half-closed entry cannot be reopened.
+    /// </summary>
+    private static int? CheckConcepts(CaptureArguments arguments, string vault, TextWriter error)
+    {
+        foreach (string concept in arguments.Concepts)
+        {
+            if (CheckConcept(concept, vault, error) is { } refused)
+            {
+                return refused;
+            }
+        }
+
+        return null;
+    }
+
+    private static int? CheckConcept(string concept, string vault, TextWriter error)
+    {
+        if (concept.StartsWith('/') || concept.Split('/', '\\').Contains(".."))
+        {
+            error.WriteLine(
+                $"okf: error: `{concept}` must stay inside the vault. `ingestion.concepts` paths are relative "
+                + "to the vault root, never absolute and never escaping it.");
+            return CliApplication.ExitDiagnostics;
+        }
+
+        if (File.Exists(Path.Combine(vault, concept.Replace('/', Path.DirectorySeparatorChar))))
+        {
+            return null;
+        }
+
+        error.WriteLine(
+            $"okf: error: `{concept}` names no file under '{vault}'. An ingested capture points at the "
+            + "concept that carries it, so the concept is written first.");
+        return CliApplication.ExitDiagnostics;
+    }
+
+    private static OkfCaptureClosure Closure(CaptureArguments arguments, string actor) =>
+        new OkfCaptureClosure
+        {
+            Entry = arguments.Operands[0],
+            By = actor,
+            At = arguments.At ?? DateTimeOffset.UtcNow,
+            Concepts = arguments.Concepts,
+        };
+
+    private sealed record WrittenManifest(
+        string Path,
+        bool ByteOrderMark,
+        CaptureArguments Arguments,
+        OkfEnvironment Environment);
 
     /// <summary>Writes the result, or reports the refusal at the exit code its kind earns.</summary>
     private static int Report(
         OkfCaptureWriteResult result,
-        string manifestPath,
-        bool byteOrderMark,
-        CaptureArguments arguments,
-        OkfEnvironment environment,
+        WrittenManifest manifest,
         TextWriter output,
         TextWriter error)
     {
-        string display = DiagnosticWriter.Display(manifestPath, environment.CurrentDirectory);
-
+        string display = DiagnosticWriter.Display(manifest.Path, manifest.Environment.CurrentDirectory);
         if (!result.IsWritten)
         {
-            error.WriteLine($"okf: error: {result.Problem}");
-
-            // A refusal that names the record's own state is a diagnostic — the manifest
-            // says no. Everything else is an environment or usage failure, including a
-            // manifest okf cannot read, which is the one case where writing would destroy
-            // what it could not understand (AD-18).
-            return result.Outcome is OkfCaptureWriteOutcome.AlreadyCaptured or OkfCaptureWriteOutcome.AlreadyClosed
-                ? CliApplication.ExitDiagnostics
-                : CliApplication.ExitUsage;
+            return RefuseWrite(result, error);
         }
 
-        OkfCaptureWriter.Save(manifestPath, byteOrderMark ? "\uFEFF" + result.Text : result.Text!);
+        OkfCaptureWriter.Save(manifest.Path, manifest.ByteOrderMark ? "\uFEFF" + result.Text : result.Text!);
+        WriteOutcome(result, manifest.Arguments, display, output);
+        return CliApplication.ExitSuccess;
+    }
 
+    /// <summary>
+    /// A refusal that names the record's own state is a diagnostic — the manifest
+    /// says no. Everything else is an environment or usage failure, including a
+    /// manifest okf cannot read, which is the one case where writing would destroy
+    /// what it could not understand (AD-18).
+    /// </summary>
+    private static int RefuseWrite(OkfCaptureWriteResult result, TextWriter error)
+    {
+        error.WriteLine($"okf: error: {result.Problem}");
+        return result.Outcome is OkfCaptureWriteOutcome.AlreadyCaptured or OkfCaptureWriteOutcome.AlreadyClosed
+            ? CliApplication.ExitDiagnostics
+            : CliApplication.ExitUsage;
+    }
+
+    private static void WriteOutcome(
+        OkfCaptureWriteResult result,
+        CaptureArguments arguments,
+        string display,
+        TextWriter output)
+    {
         if (arguments.Json)
         {
             output.WriteLine(ToJson(result, display));
-            return CliApplication.ExitSuccess;
+            return;
         }
 
         output.WriteLine(result.Outcome switch
@@ -244,8 +327,6 @@ internal static class CaptureCommand
             _ => $"{display}: closed `{result.Id}` into "
                 + $"{DiagnosticWriter.Plural(arguments.Concepts.Count, "concept")}. The item is now immutable.",
         });
-
-        return CliApplication.ExitSuccess;
     }
 
     /// <summary>
@@ -258,29 +339,51 @@ internal static class CaptureCommand
             .First(candidate => string.Equals(candidate.Id, result.Id, StringComparison.Ordinal));
 
         using MemoryStream buffer = new MemoryStream();
-        using (Utf8JsonWriter writer = new Utf8JsonWriter(
-            buffer,
-            new JsonWriterOptions { Indented = true, IndentSize = 2, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        using (Utf8JsonWriter writer = CaptureJsonWriter(buffer))
         {
-            writer.WriteStartObject();
-            writer.WriteString("manifest", manifestPath);
-            writer.WriteString("outcome", result.Outcome.ToString().ToLowerInvariant());
-            writer.WriteString("id", entry.Id);
-            writer.WriteBoolean("ingested", entry.IsIngested);
-            writer.WriteStartArray("files");
-            foreach (OkfCaptureFile file in entry.Files)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("path", file.Path);
-                writer.WriteString("sha256", file.Sha256);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
+            WriteEntry(writer, result, entry, manifestPath);
         }
 
         return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>
+    /// Capture JSON newline remains pinned to `\n` so a Windows run does not change the
+    /// recorded bytes.
+    /// </summary>
+    private static Utf8JsonWriter CaptureJsonWriter(MemoryStream buffer) =>
+        new Utf8JsonWriter(
+            buffer,
+            new JsonWriterOptions
+            {
+                Indented = true,
+                IndentSize = 2,
+                NewLine = "\n",
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+
+    private static void WriteEntry(
+        Utf8JsonWriter writer,
+        OkfCaptureWriteResult result,
+        OkfCaptureEntry entry,
+        string manifestPath)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("manifest", manifestPath);
+        writer.WriteString("outcome", result.Outcome.ToString().ToLowerInvariant());
+        writer.WriteString("id", entry.Id);
+        writer.WriteBoolean("ingested", entry.IsIngested);
+        writer.WriteStartArray("files");
+        foreach (OkfCaptureFile file in entry.Files)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("path", file.Path);
+            writer.WriteString("sha256", file.Sha256);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
     }
 
     /// <summary>

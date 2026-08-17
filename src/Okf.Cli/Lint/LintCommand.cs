@@ -16,15 +16,8 @@ internal static class LintCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        LintArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = LintArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf lint --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -44,27 +37,29 @@ internal static class LintCommand
         {
             return Lint(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static LintArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return LintArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf lint --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or OkfConfigException or IOException or UnauthorizedAccessException;
 
     private static int Lint(
         LintArguments arguments,
@@ -73,11 +68,32 @@ internal static class LintCommand
         TextWriter error)
     {
         OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        ConfigLayers layers = LoadLayers(arguments, environment, workingSet);
+        OkfLintOptions options = Options(workingSet, layers);
 
-        // PRD CLI-4: CLI args > project config > global config, with the built-in
-        // defaults underneath. OKF_HOME is not a layer here — it moves the personal
-        // vault (and therefore which bundles are linted), never a severity.
-        List<OkfSeverityLayer> layers = new List<OkfSeverityLayer>();
+        if (arguments.Verbose)
+        {
+            WriteVerbose(error, workingSet, layers, options.Severities);
+        }
+
+        OkfLintResult result = new OkfLinter(options).Lint(workingSet.Bundles);
+        WriteReport(arguments, result, environment.CurrentDirectory, output);
+        WriteMetadata(arguments, result, error);
+        return result.HasErrors ? CliApplication.ExitDiagnostics : CliApplication.ExitSuccess;
+    }
+
+    private sealed record ConfigLayers(OkfConfig? Global, OkfConfig? Project, string? ProjectPath, List<OkfSeverityLayer> Severities);
+
+    /// <summary>
+    /// PRD CLI-4: CLI args > project config > global config, with the built-in
+    /// defaults underneath. OKF_HOME is not a layer here — it moves the personal
+    /// vault (and therefore which bundles are linted), never a severity.
+    /// </summary>
+    private static ConfigLayers LoadLayers(
+        LintArguments arguments,
+        OkfEnvironment environment,
+        OkfWorkingSet workingSet)
+    {
         OkfConfig? global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
         string? projectPath = arguments.ConfigPath is { } explicitConfig
             ? Path.GetFullPath(Path.Combine(environment.CurrentDirectory, explicitConfig))
@@ -89,7 +105,15 @@ internal static class LintCommand
         }
 
         OkfConfig? project = projectPath is null ? null : OkfConfig.TryLoad(projectPath);
+        return new ConfigLayers(global, project, projectPath, SeverityLayers(arguments, global, project));
+    }
 
+    private static List<OkfSeverityLayer> SeverityLayers(
+        LintArguments arguments,
+        OkfConfig? global,
+        OkfConfig? project)
+    {
+        List<OkfSeverityLayer> layers = new List<OkfSeverityLayer>();
         foreach (OkfConfig? config in new[] { global, project })
         {
             if (config is not null && !config.Severities.IsEmpty)
@@ -103,10 +127,14 @@ internal static class LintCommand
             layers.Add(arguments.CommandLine);
         }
 
-        OkfLintOptions options = new OkfLintOptions
+        return layers;
+    }
+
+    private static OkfLintOptions Options(OkfWorkingSet workingSet, ConfigLayers layers) =>
+        new OkfLintOptions
         {
-            Severities = new OkfSeverityResolver(layers),
-            TagRegistry = project?.TagRegistry ?? global?.TagRegistry,
+            Severities = new OkfSeverityResolver(layers.Severities),
+            TagRegistry = layers.Project?.TagRegistry ?? layers.Global?.TagRegistry,
 
             // The vault, not a bundle: `raw/` sits outside every bundle root, so OKF0310
             // is the one rule whose scope is the whole vault (decisions.md Q3). A working
@@ -116,52 +144,51 @@ internal static class LintCommand
             Today = DateOnly.FromDateTime(DateTime.Now),
         };
 
-        if (arguments.Verbose)
-        {
-            WriteVerbose(error, workingSet, global, project, projectPath, options.Severities);
-        }
-
-        OkfLintResult result = new OkfLinter(options).Lint(workingSet.Bundles);
+    private static void WriteReport(
+        LintArguments arguments,
+        OkfLintResult result,
+        string baseDirectory,
+        TextWriter output)
+    {
         List<OkfDiagnostic> reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
-
         if (arguments.Json)
         {
-            output.Write(DiagnosticWriter.ToJson(reported, environment.CurrentDirectory));
-        }
-        else
-        {
-            DiagnosticWriter.WriteText(reported, result, environment.CurrentDirectory, output);
+            output.Write(DiagnosticWriter.ToJson(reported, baseDirectory));
+            return;
         }
 
-        if (arguments.Verbose)
+        DiagnosticWriter.WriteText(reported, result, baseDirectory, output);
+    }
+
+    private static void WriteMetadata(LintArguments arguments, OkfLintResult result, TextWriter error)
+    {
+        if (!arguments.Verbose)
         {
-            // The run metadata goes to stderr, not into the JSON. `--json` emits a bare
-            // array (PRD CLI-11/CLI-15, and MCP-3 pins the same shape for search), so
-            // wrapping it in an envelope to carry counts would break every consumer that
-            // reads element 0 as a diagnostic. stderr is already where `--verbose` speaks
-            // and is never part of the machine-readable contract.
-            WriteRunMetadata(error, result);
+            return;
         }
 
-        return result.HasErrors ? CliApplication.ExitDiagnostics : CliApplication.ExitSuccess;
+        // The run metadata goes to stderr, not into the JSON. `--json` emits a bare
+        // array (PRD CLI-11/CLI-15, and MCP-3 pins the same shape for search), so
+        // wrapping it in an envelope to carry counts would break every consumer that
+        // reads element 0 as a diagnostic. stderr is already where `--verbose` speaks
+        // and is never part of the machine-readable contract.
+        WriteRunMetadata(error, result);
     }
 
     private static void WriteVerbose(
         TextWriter error,
         OkfWorkingSet workingSet,
-        OkfConfig? global,
-        OkfConfig? project,
-        string? projectPath,
+        ConfigLayers layers,
         OkfSeverityResolver severities)
     {
         VerboseReport.WorkingSet(error, workingSet);
 
-        error.WriteLine(global is null
+        error.WriteLine(layers.Global is null
             ? "okf: global config: none"
-            : $"okf: global config: {global.Source}");
-        error.WriteLine(project is null
-            ? $"okf: project config: none{(projectPath is null ? string.Empty : $" (looked for {projectPath})")}"
-            : $"okf: project config: {project.Source}");
+            : $"okf: global config: {layers.Global.Source}");
+        error.WriteLine(layers.Project is null
+            ? $"okf: project config: none{(layers.ProjectPath is null ? string.Empty : $" (looked for {layers.ProjectPath})")}"
+            : $"okf: project config: {layers.Project.Source}");
 
         // Every rule, not only the reconfigured ones: a rule sitting at a default the
         // reader did not expect is exactly as surprising as one a config layer moved, and

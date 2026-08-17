@@ -77,12 +77,11 @@ internal sealed class LintArguments
                     break;
 
                 case "--format":
-                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
-                    parsed.Json = CliArguments.ParseFormat(format);
+                    parsed.Json = CliArguments.ParseFormat(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--severity":
-                    ApplySeverity(parsed, inlineValue ?? CliArguments.Next(args, ref index, name));
+                    parsed.TakeSeverity(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--treat-all-warnings-as-errors":
@@ -94,18 +93,7 @@ internal sealed class LintArguments
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Path is not null)
-                    {
-                        throw new OkfConfigException(
-                            $"`okf lint` takes at most one path; got '{parsed.Path}' and '{argument}'.");
-                    }
-
-                    parsed.Path = argument;
+                    parsed.TakePath(argument);
                     break;
             }
         }
@@ -113,17 +101,10 @@ internal sealed class LintArguments
         return parsed;
     }
 
-    private static void ApplySeverity(LintArguments parsed, string value)
+    private void TakeSeverity(string value)
     {
         int separator = value.IndexOf('=', StringComparison.Ordinal);
-        if (separator <= 0)
-        {
-            throw new OkfConfigException(
-                $"--severity expects <OKF####>=<hidden|info|warning|error>; got '{value}'.");
-        }
-
-        string id = value[..separator];
-        if (!OkfSeverityExtensions.TryParse(value[(separator + 1)..], out OkfSeverity severity))
+        if (separator <= 0 || !OkfSeverityExtensions.TryParse(value[(separator + 1)..], out OkfSeverity severity))
         {
             throw new OkfConfigException(
                 $"--severity expects <OKF####>=<hidden|info|warning|error>; got '{value}'.");
@@ -131,6 +112,22 @@ internal sealed class LintArguments
 
         // An unknown id is rejected by OkfSeverityResolver, together with the ones config
         // files contribute, so a typo never silently disables a rule (PRD CLI-6).
-        parsed.CommandLine.Severities[id] = severity;
+        CommandLine.Severities[value[..separator]] = severity;
+    }
+
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Path is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf lint` takes at most one path; got '{Path}' and '{argument}'.");
+        }
+
+        Path = argument;
     }
 }

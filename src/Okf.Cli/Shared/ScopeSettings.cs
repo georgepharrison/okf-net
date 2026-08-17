@@ -24,26 +24,14 @@ internal sealed record ScopeSettings(OkfScopeKind Scope, string Layer)
     /// <exception cref="OkfConfigException">A configuration file is malformed.</exception>
     public static ScopeSettings Resolve(OkfScopeKind? commandLine, OkfEnvironment environment)
     {
-        if (commandLine is { } flag)
-        {
-            return new ScopeSettings(flag, "command line");
-        }
+        return commandLine is { } flag
+            ? new ScopeSettings(flag, "command line")
+            : FromConfiguration(environment);
+    }
 
-        // The project config sits at the vault root, so finding it means resolving the
-        // project scope first. An unresolvable project vault is not an error here — it just
-        // means there is no project layer to read.
-        string? projectConfigPath = null;
-        try
-        {
-            projectConfigPath = OkfDiscovery.Resolve(null, environment).ProjectConfigPath;
-        }
-        catch (OkfDiscoveryException)
-        {
-            // No project vault; the global layer and the default still apply.
-        }
-
-        OkfConfig? project = projectConfigPath is null ? null : OkfConfig.TryLoad(projectConfigPath);
-        if (project?.SearchScope is { } fromProject)
+    private static ScopeSettings FromConfiguration(OkfEnvironment environment)
+    {
+        if (ProjectConfig(environment) is { SearchScope: { } fromProject } project)
         {
             return new ScopeSettings(fromProject, project.Source);
         }
@@ -52,5 +40,28 @@ internal sealed record ScopeSettings(OkfScopeKind Scope, string Layer)
         return global?.SearchScope is { } fromGlobal
             ? new ScopeSettings(fromGlobal, global.Source)
             : new ScopeSettings(OkfScopeKind.Project, DefaultsLayerName);
+    }
+
+    /// <summary>
+    /// The project config sits at the vault root, so finding it means resolving the
+    /// project scope first. An unresolvable project vault is not an error here — it just
+    /// means there is no project layer to read.
+    /// </summary>
+    private static OkfConfig? ProjectConfig(OkfEnvironment environment)
+    {
+        OkfConfig? project = null;
+        try
+        {
+            if (OkfDiscovery.Resolve(null, environment).ProjectConfigPath is { } path)
+            {
+                project = OkfConfig.TryLoad(path);
+            }
+        }
+        catch (OkfDiscoveryException)
+        {
+            // No project vault; the global layer and the default still apply.
+        }
+
+        return project;
     }
 }

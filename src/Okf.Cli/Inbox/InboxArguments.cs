@@ -68,22 +68,27 @@ internal sealed class InboxArguments
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Path is not null)
-                    {
-                        throw new OkfConfigException(
-                            $"`okf inbox` takes at most one path; got '{parsed.Path}' and '{argument}'.");
-                    }
-
-                    parsed.Path = argument;
+                    parsed.TakePath(argument);
                     break;
             }
         }
 
         return parsed;
+    }
+
+    private void TakePath(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Path is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf inbox` takes at most one path; got '{Path}' and '{argument}'.");
+        }
+
+        Path = argument;
     }
 }

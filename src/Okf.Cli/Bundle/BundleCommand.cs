@@ -23,15 +23,8 @@ internal static class BundleCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        BundleArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = BundleArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf bundle --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -47,22 +40,29 @@ internal static class BundleCommand
                 ? Verify(target, environment, output, error)
                 : Package(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static BundleArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return BundleArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf bundle --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or IOException or UnauthorizedAccessException;
 
     private static int Package(
         BundleArguments arguments,
@@ -85,46 +85,74 @@ internal static class BundleCommand
                 Generator = $"okf/{CliApplication.Version}",
             });
 
-        OkfDistributionFormat format = arguments.EffectiveFormat();
-        string destination = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Output!));
+        PackageDestination destination = new PackageDestination(
+            plan,
+            Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Output!)),
+            arguments.EffectiveFormat());
+        WriteVerbose(arguments, workingSet, destination, error);
+        OkfBundler.Write(destination.Plan, destination.Path, destination.Format);
+        WriteExternalLinks(destination.Plan, error);
+        WritePackaged(destination, environment, output);
+        return arguments.Lint
+            ? Lint(destination, output, error)
+            : CliApplication.ExitSuccess;
+    }
 
-        if (arguments.Verbose)
+    private sealed record PackageDestination(OkfDistributionPlan Plan, string Path, OkfDistributionFormat Format);
+
+    private static void WriteVerbose(
+        BundleArguments arguments,
+        OkfWorkingSet workingSet,
+        PackageDestination destination,
+        TextWriter error)
+    {
+        if (!arguments.Verbose)
         {
-            error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (OkfBundle bundle in plan.Bundles)
-            {
-                error.WriteLine($"okf: packaging {bundle.Root}");
-            }
-
-            error.WriteLine($"okf: writing {Name(format)} to {destination}");
+            return;
         }
 
-        OkfBundler.Write(plan, destination, format);
+        error.WriteLine($"okf: resolved {workingSet.Resolution}");
+        foreach (OkfBundle bundle in destination.Plan.Bundles)
+        {
+            error.WriteLine($"okf: packaging {bundle.Root}");
+        }
 
-        // §6.1 makes a dangling link legal and obliges consumers to tolerate one, so this
-        // is a warning and never a refusal — but an unannounced dangling link is a
-        // consumer's surprise, so every one of them is said out loud here and recorded in
-        // the manifest.
+        error.WriteLine($"okf: writing {Name(destination.Format)} to {destination.Path}");
+    }
+
+    /// <summary>
+    /// §6.1 makes a dangling link legal and obliges consumers to tolerate one, so this
+    /// is a warning and never a refusal — but an unannounced dangling link is a
+    /// consumer's surprise, so every one of them is said out loud here and recorded in
+    /// the manifest.
+    /// </summary>
+    private static void WriteExternalLinks(OkfDistributionPlan plan, TextWriter error)
+    {
         foreach (OkfExternalLink link in plan.ExternalLinks)
         {
             error.WriteLine($"okf: warning: {Describe(link)}");
         }
+    }
 
+    private static void WritePackaged(
+        PackageDestination destination,
+        OkfEnvironment environment,
+        TextWriter output)
+    {
+        OkfDistributionPlan plan = destination.Plan;
         output.WriteLine(
             $"Packaged {DiagnosticWriter.Plural(plan.Bundles.Count, "bundle")} " +
             $"({DiagnosticWriter.Plural(plan.Entries.Count, "file")}, {Size(plan.TotalBytes)}) " +
-            $"into {DiagnosticWriter.Display(destination, environment.CurrentDirectory)}");
+            $"into {DiagnosticWriter.Display(destination.Path, environment.CurrentDirectory)}");
+        output.WriteLine(ExternalSummary(plan));
+    }
 
-        output.WriteLine(plan.ExternalLinks.Count == 0
+    private static string ExternalSummary(OkfDistributionPlan plan) =>
+        plan.ExternalLinks.Count == 0
             ? "No link leaves the packaged bundles."
             : $"{DiagnosticWriter.Plural(plan.ExternalLinks.Count, "link")} " +
               $"{(plan.ExternalLinks.Count == 1 ? "leaves" : "leave")} the packaged bundles and " +
-              $"{(plan.ExternalLinks.Count == 1 ? "is" : "are")} recorded in {OkfDistributionManifest.FileName}.");
-
-        return arguments.Lint
-            ? Lint(plan, destination, format, output, error)
-            : CliApplication.ExitSuccess;
-    }
+              $"{(plan.ExternalLinks.Count == 1 ? "is" : "are")} recorded in {OkfDistributionManifest.FileName}.";
 
     /// <summary>
     /// Lints what shipped, as a stranger would: the packaged bundles alone, with no
@@ -133,48 +161,17 @@ internal static class BundleCommand
     /// cross-bundle links reports <c>OKF0309</c> at info, which is the expected shape
     /// rather than a defect.
     /// </summary>
-    private static int Lint(
-        OkfDistributionPlan plan,
-        string destination,
-        OkfDistributionFormat format,
-        TextWriter output,
-        TextWriter error)
+    private static int Lint(PackageDestination destination, TextWriter output, TextWriter error)
     {
-        string? directory = format == OkfDistributionFormat.Directory ? destination : null;
+        string? directory = destination.Format == OkfDistributionFormat.Directory ? destination.Path : null;
         string? temporary = directory is null
             ? Path.Combine(Path.GetTempPath(), "okf-bundle", Path.GetRandomFileName())
             : null;
 
         try
         {
-            if (temporary is not null)
-            {
-                // The same writer that produced the archive, so what is linted is what was
-                // packaged rather than a second rendering of it.
-                OkfBundler.Write(plan, temporary, OkfDistributionFormat.Directory);
-                directory = temporary;
-            }
-
-            List<OkfBundle> bundles = plan.Bundles
-                .Select(bundle => new OkfBundle(
-                    Path.Combine(directory!, OkfDiscovery.BundlesDirectoryName, bundle.Name)))
-                .ToList();
-
-            OkfLintResult result = new OkfLinter(new OkfLintOptions()).Lint(bundles);
-            List<OkfDiagnostic> reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
-
-            output.WriteLine();
-            output.WriteLine("Linting the distribution as a consumer would (default severities, no config):");
-            DiagnosticWriter.WriteText(reported, result, directory!, output);
-
-            if (!result.HasErrors)
-            {
-                return CliApplication.ExitSuccess;
-            }
-
-            error.WriteLine(
-                "okf: error: the packaged distribution does not conform; it was written, and it should not be shipped.");
-            return CliApplication.ExitDiagnostics;
+            directory = UnpackIfNeeded(destination.Plan, directory, temporary);
+            return ReportLint(LintUnpacked(destination.Plan, directory!), directory!, output, error);
         }
         finally
         {
@@ -185,12 +182,62 @@ internal static class BundleCommand
         }
     }
 
+    private static string? UnpackIfNeeded(OkfDistributionPlan plan, string? directory, string? temporary)
+    {
+        if (temporary is null)
+        {
+            return directory;
+        }
+
+        // The same writer that produced the archive, so what is linted is what was
+        // packaged rather than a second rendering of it.
+        OkfBundler.Write(plan, temporary, OkfDistributionFormat.Directory);
+        return temporary;
+    }
+
+    private static OkfLintResult LintUnpacked(OkfDistributionPlan plan, string directory)
+    {
+        List<OkfBundle> bundles = plan.Bundles
+            .Select(bundle => new OkfBundle(
+                Path.Combine(directory, OkfDiscovery.BundlesDirectoryName, bundle.Name)))
+            .ToList();
+        return new OkfLinter(new OkfLintOptions()).Lint(bundles);
+    }
+
+    private static int ReportLint(OkfLintResult result, string directory, TextWriter output, TextWriter error)
+    {
+        List<OkfDiagnostic> reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
+        output.WriteLine();
+        output.WriteLine("Linting the distribution as a consumer would (default severities, no config):");
+        DiagnosticWriter.WriteText(reported, result, directory, output);
+        if (!result.HasErrors)
+        {
+            return CliApplication.ExitSuccess;
+        }
+
+        error.WriteLine(
+            "okf: error: the packaged distribution does not conform; it was written, and it should not be shipped.");
+        return CliApplication.ExitDiagnostics;
+    }
+
     private static int Verify(string target, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
         string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, target));
         OkfDistributionVerification result = OkfBundler.Verify(full);
         string display = DiagnosticWriter.Display(full, environment.CurrentDirectory);
 
+        WriteFindings(result, display, output);
+        if (result.IsValid)
+        {
+            return CliApplication.ExitSuccess;
+        }
+
+        error.WriteLine($"okf: error: {display} is not what its {OkfDistributionManifest.FileName} says it is.");
+        return CliApplication.ExitDiagnostics;
+    }
+
+    private static void WriteFindings(OkfDistributionVerification result, string display, TextWriter output)
+    {
         foreach (OkfDistributionFinding finding in result.Findings)
         {
             output.WriteLine($"{finding.Path}: {Name(finding.Issue)}: {finding.Detail}");
@@ -205,14 +252,6 @@ internal static class BundleCommand
                     ? "every file matches its recorded sha256."
                     : $"{DiagnosticWriter.Plural(result.Findings.Count, "problem")}."));
         }
-
-        if (result.IsValid)
-        {
-            return CliApplication.ExitSuccess;
-        }
-
-        error.WriteLine($"okf: error: {display} is not what its {OkfDistributionManifest.FileName} says it is.");
-        return CliApplication.ExitDiagnostics;
     }
 
     private static string Describe(OkfExternalLink link)

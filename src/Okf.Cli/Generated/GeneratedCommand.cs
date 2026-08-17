@@ -23,25 +23,16 @@ internal static class GeneratedCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        GeneratedArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = GeneratedArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            return Usage(error, exception.Message);
+            return CliApplication.ExitUsage;
         }
 
         if (parsed.ShowHelp || parsed.Verb is null)
         {
-            if (parsed.Verb is null && !parsed.ShowHelp)
-            {
-                return Usage(error, "no subcommand. `okf generated stamp <concept>...` is the only one.");
-            }
-
-            WriteUsage(output);
-            return CliApplication.ExitSuccess;
+            return parsed.Verb is null && !parsed.ShowHelp
+                ? Usage(error, "no subcommand. `okf generated stamp <concept>...` is the only one.")
+                : Help(output);
         }
 
         if (parsed.Verb != "stamp")
@@ -53,14 +44,29 @@ internal static class GeneratedCommand
         {
             return Stamp(parsed, environment, output, error);
         }
-        catch (IOException exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return Usage(error, exception.Message);
         }
-        catch (UnauthorizedAccessException exception)
+    }
+
+    private static GeneratedArguments? Parse(string[] args, TextWriter error)
+    {
+        try
         {
-            return Usage(error, exception.Message);
+            return GeneratedArguments.Parse(args);
         }
+        catch (OkfConfigException exception)
+        {
+            Usage(error, exception.Message);
+            return null;
+        }
+    }
+
+    private static int Help(TextWriter output)
+    {
+        WriteUsage(output);
+        return CliApplication.ExitSuccess;
     }
 
     private static int Stamp(
@@ -76,76 +82,152 @@ internal static class GeneratedCommand
                 "no concept named. `okf generated stamp <concept-path>...` stamps the files you name.");
         }
 
+        if (Actor(arguments, error) is not { } actor)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        WarnHumanActor(actor, error);
+        if (CheckedConcepts(arguments, environment, error) is not { } files)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        WriteStamps(new StampRun(arguments, files, actor, environment), output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static string? Actor(GeneratedArguments arguments, TextWriter error)
+    {
         if (arguments.By is not { } actor)
         {
-            return Usage(
+            Usage(
                 error,
                 "no `--by` actor. A generation stamp names who wrote the content; §7 spells an actor "
                 + "`<producer>/<version>`, `human:<id>`, or `process:<id>`.");
+            return null;
         }
 
-        if (!OkfActor.IsValid(actor))
+        if (OkfActor.IsValid(actor))
         {
-            return Usage(
-                error,
-                $"'{actor}' is not an actor. §7 spells one `<producer>/<version>`, `human:<id>`, or `process:<id>`.");
+            return actor;
         }
 
-        if (OkfActor.IsHuman(actor))
+        Usage(
+            error,
+            $"'{actor}' is not an actor. §7 spells one `<producer>/<version>`, `human:<id>`, or `process:<id>`.");
+        return null;
+    }
+
+    /// <summary>
+    /// Allowed — §7 lets a person be a producer — but odd enough to say out loud:
+    /// `generated` by a human makes a concept its own author's work with no second
+    /// actor anywhere, and `okf verify` is the surface a person usually wants.
+    /// </summary>
+    private static void WarnHumanActor(string actor, TextWriter error)
+    {
+        if (!OkfActor.IsHuman(actor))
         {
-            // Allowed — §7 lets a person be a producer — but odd enough to say out loud:
-            // `generated` by a human makes a concept its own author's work with no second
-            // actor anywhere, and `okf verify` is the surface a person usually wants.
-            error.WriteLine(
-                $"okf: warning: '{actor}' is a person. `generated` records who WROTE the content; the human "
-                + "surface is `okf verify`, which records who read and cleared it.");
+            return;
         }
 
-        // Every named concept is read and checked before the first byte is written: a
-        // three-concept run that refuses the third would otherwise leave two claiming a
-        // freshness the run did not finish establishing.
+        error.WriteLine(
+            $"okf: warning: '{actor}' is a person. `generated` records who WROTE the content; the human "
+            + "surface is `okf verify`, which records who read and cleared it.");
+    }
+
+    /// <summary>
+    /// Every named concept is read and checked before the first byte is written: a
+    /// three-concept run that refuses the third would otherwise leave two claiming a
+    /// freshness the run did not finish establishing.
+    /// </summary>
+    private static List<string>? CheckedConcepts(
+        GeneratedArguments arguments,
+        OkfEnvironment environment,
+        TextWriter error)
+    {
         List<string> files = new List<string>();
         foreach (string path in arguments.Paths)
         {
-            string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
-            if (!File.Exists(full))
+            if (CheckedConcept(path, environment, error) is not { } file)
             {
-                return Usage(error, $"no such concept: '{full}'.");
+                return null;
             }
 
-            string text;
-            OkfDocument document;
-            try
-            {
-                text = File.ReadAllText(full);
-                document = OkfDocument.Parse(text);
-            }
-            catch (OkfDocumentException exception)
-            {
-                return Usage(
-                    error,
-                    $"'{DiagnosticWriter.Display(full, environment.CurrentDirectory)}' has frontmatter that does "
-                    + $"not parse ({exception.Message}). Run `okf lint` on the bundle.");
-            }
-
-            // `OkfDocument.Parse` hands back the whole text as the body exactly when it
-            // found no frontmatter block. Stamping one would give a file frontmatter it
-            // never had — holding `generated` and no `type`, which `okf lint` then rejects.
-            if (string.Equals(document.Body, text, StringComparison.Ordinal))
-            {
-                return Usage(
-                    error,
-                    $"'{DiagnosticWriter.Display(full, environment.CurrentDirectory)}' has no frontmatter, so it "
-                    + "is not a concept. `okf generated stamp` refreshes a concept's stamp; it does not give a "
-                    + "file frontmatter it never had.");
-            }
-
-            files.Add(full);
+            files.Add(file);
         }
 
+        return files;
+    }
+
+    private static string? CheckedConcept(string path, OkfEnvironment environment, TextWriter error)
+    {
+        string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
+        if (!File.Exists(full))
+        {
+            Usage(error, $"no such concept: '{full}'.");
+            return null;
+        }
+
+        return Accepts(full, environment, error) ? full : null;
+    }
+
+    private static bool Accepts(string file, OkfEnvironment environment, TextWriter error)
+    {
+        if (ParsedConcept(file, environment, error) is not { } parsed)
+        {
+            return false;
+        }
+
+        // `OkfDocument.Parse` hands back the whole text as the body exactly when it
+        // found no frontmatter block. Stamping one would give a file frontmatter it
+        // never had — holding `generated` and no `type`, which `okf lint` then rejects.
+        if (!string.Equals(parsed.Document.Body, parsed.Text, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        Usage(
+            error,
+            $"'{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has no frontmatter, so it "
+            + "is not a concept. `okf generated stamp` refreshes a concept's stamp; it does not give a "
+            + "file frontmatter it never had.");
+        return false;
+    }
+
+    private sealed record ParsedConceptText(OkfDocument Document, string Text);
+
+    private static ParsedConceptText? ParsedConcept(string file, OkfEnvironment environment, TextWriter error)
+    {
+        try
+        {
+            string text = File.ReadAllText(file);
+            return new ParsedConceptText(OkfDocument.Parse(text), text);
+        }
+        catch (OkfDocumentException exception)
+        {
+            Usage(
+                error,
+                $"'{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has frontmatter that does "
+                + $"not parse ({exception.Message}). Run `okf lint` on the bundle.");
+            return null;
+        }
+    }
+
+    private sealed record StampRun(
+        GeneratedArguments Arguments,
+        List<string> Files,
+        string Actor,
+        OkfEnvironment Environment);
+
+    private static void WriteStamps(StampRun run, TextWriter output)
+    {
+        GeneratedArguments arguments = run.Arguments;
+        List<string> files = run.Files;
+        string actor = run.Actor;
+        OkfEnvironment environment = run.Environment;
         DateTimeOffset at = arguments.At ?? DateTimeOffset.UtcNow;
         string stamp = OkfCanonicalTimestamp.ToCanonical(at);
-
         foreach (string file in files)
         {
             string display = DiagnosticWriter.Display(file, environment.CurrentDirectory);
@@ -162,8 +244,6 @@ internal static class GeneratedCommand
         output.WriteLine(arguments.DryRun
             ? $"Would stamp {DiagnosticWriter.Plural(files.Count, "concept")} as {actor} (--dry-run: nothing written)."
             : $"Stamped {DiagnosticWriter.Plural(files.Count, "concept")} as generated by {actor}.");
-
-        return CliApplication.ExitSuccess;
     }
 
     private static int Usage(TextWriter error, string message)

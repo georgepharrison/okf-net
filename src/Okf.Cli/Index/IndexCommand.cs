@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Index;
@@ -18,15 +19,8 @@ internal static class IndexCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        IndexArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = IndexArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf index --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -40,22 +34,29 @@ internal static class IndexCommand
         {
             return Index(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static IndexArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return IndexArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf index --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or IOException or UnauthorizedAccessException;
 
     private static int Index(
         IndexArguments arguments,
@@ -67,45 +68,68 @@ internal static class IndexCommand
         // the two commands never disagree about which bundle they are looking at.
         OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
 
-        if (arguments.Verbose)
-        {
-            VerboseReport.WorkingSet(error, workingSet);
-
-            error.WriteLine(arguments.Check
-                ? "okf: --check: nothing will be written"
-                : "okf: writing generated index.md files");
-        }
-
-        List<OkfIndexPlan> plans = workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
-
-        if (!arguments.Check)
-        {
-            foreach (OkfIndexPlan plan in plans)
-            {
-                OkfIndexGenerator.Apply(plan);
-            }
-        }
-
+        WriteVerbose(arguments, workingSet, error);
+        List<OkfIndexPlan> plans = arguments.Check
+            ? PlanWithoutWriting(workingSet)
+            : PlanAndApply(workingSet);
         List<OkfIndex> indexes = plans.SelectMany(plan => plan.Indexes).ToList();
-
-        if (arguments.Json)
-        {
-            output.Write(ToJson(plans, environment.CurrentDirectory));
-        }
-        else if (arguments.Check)
-        {
-            WriteCheck(indexes, plans.Count, environment.CurrentDirectory, output);
-        }
-        else
-        {
-            WriteWrite(indexes, plans.Count, environment.CurrentDirectory, output);
-        }
+        WriteReport(new IndexReport(arguments, plans, indexes, environment.CurrentDirectory), output);
 
         // Drift is an error only under --check, which is the CI and hook form of the
         // rule; a plain run has just fixed everything it could fix (PRD CLI-14).
         return arguments.Check && indexes.Any(index => index.IsDrift)
             ? CliApplication.ExitDiagnostics
             : CliApplication.ExitSuccess;
+    }
+
+    private static void WriteVerbose(IndexArguments arguments, OkfWorkingSet workingSet, TextWriter error)
+    {
+        if (!arguments.Verbose)
+        {
+            return;
+        }
+
+        VerboseReport.WorkingSet(error, workingSet);
+        error.WriteLine(arguments.Check
+            ? "okf: --check: nothing will be written"
+            : "okf: writing generated index.md files");
+    }
+
+    private static List<OkfIndexPlan> PlanWithoutWriting(OkfWorkingSet workingSet) =>
+        workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
+
+    private static List<OkfIndexPlan> PlanAndApply(OkfWorkingSet workingSet)
+    {
+        List<OkfIndexPlan> plans = PlanWithoutWriting(workingSet);
+        foreach (OkfIndexPlan plan in plans)
+        {
+            OkfIndexGenerator.Apply(plan);
+        }
+
+        return plans;
+    }
+
+    private sealed record IndexReport(
+        IndexArguments Arguments,
+        List<OkfIndexPlan> Plans,
+        List<OkfIndex> Indexes,
+        string BaseDirectory);
+
+    private static void WriteReport(IndexReport report, TextWriter output)
+    {
+        if (report.Arguments.Json)
+        {
+            output.Write(ToJson(report.Plans, report.BaseDirectory));
+            return;
+        }
+
+        if (report.Arguments.Check)
+        {
+            WriteCheck(report.Indexes, report.Plans.Count, report.BaseDirectory, output);
+            return;
+        }
+
+        WriteWrite(report.Indexes, report.Plans.Count, report.BaseDirectory, output);
     }
 
     private static void WriteWrite(
@@ -119,34 +143,39 @@ internal static class IndexCommand
             output.WriteLine($"{DiagnosticWriter.Display(index.Path, baseDirectory)}: {WriteVerb(index.Status)}");
         }
 
-        int created = indexes.Count(index => index.Status == OkfIndexStatus.Created);
-        int updated = indexes.Count(index => index.Status == OkfIndexStatus.Drifted);
-        int unchanged = indexes.Count(index => index.Status == OkfIndexStatus.Unchanged);
-        int replaced = indexes.Count(index => index.Status == OkfIndexStatus.Foreign);
+        output.WriteLine(WriteSummary(indexes, bundleCount));
+    }
 
+    private static string WriteSummary(List<OkfIndex> indexes, int bundleCount)
+    {
         StringBuilder summary = new StringBuilder()
             .Append("Generated ")
             .Append(DiagnosticWriter.Plural(indexes.Count, "index", "indexes"))
             .Append(" in ")
             .Append(DiagnosticWriter.Plural(bundleCount, "bundle"))
             .Append(": ")
-            .Append(created.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Append(Count(indexes, OkfIndexStatus.Created))
             .Append(" created, ")
-            .Append(updated.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Append(Count(indexes, OkfIndexStatus.Drifted))
             .Append(" updated, ")
-            .Append(unchanged.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Append(Count(indexes, OkfIndexStatus.Unchanged))
             .Append(" unchanged");
 
         // Replacing a hand-written index is destructive, so it is never folded silently
         // into "updated": generated indexes are outputs (PRD CORE-9), but the run says so.
+        int replaced = indexes.Count(index => index.Status == OkfIndexStatus.Foreign);
         if (replaced > 0)
         {
             summary.Append(", ").Append(DiagnosticWriter.Plural(replaced, "hand-written index", "hand-written indexes"))
                 .Append(" replaced");
         }
 
-        output.WriteLine(summary.Append('.').ToString());
+        return summary.Append('.').ToString();
     }
+
+    private static string Count(List<OkfIndex> indexes, OkfIndexStatus status) =>
+        indexes.Count(index => index.Status == status)
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private static void WriteCheck(
         List<OkfIndex> indexes,
@@ -182,20 +211,29 @@ internal static class IndexCommand
             {
                 foreach (OkfIndex index in plan.Indexes)
                 {
-                    writer.WriteStartObject();
-                    writer.WriteString("path", DiagnosticWriter.Display(index.Path, baseDirectory));
-                    writer.WriteString("absolutePath", index.Path);
-                    writer.WriteString("bundle", plan.Bundle.Root);
-                    writer.WriteString("status", Status(index.Status));
-                    writer.WriteBoolean("drift", index.IsDrift);
-                    writer.WriteBoolean("bundleRoot", index.IsBundleRoot);
-                    writer.WriteNumber("entries", index.Entries.Count);
-                    writer.WriteEndObject();
+                    WriteIndex(writer, plan, index, baseDirectory);
                 }
             }
 
             writer.WriteEndArray();
         }) + Environment.NewLine;
+    }
+
+    private static void WriteIndex(
+        Utf8JsonWriter writer,
+        OkfIndexPlan plan,
+        OkfIndex index,
+        string baseDirectory)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("path", DiagnosticWriter.Display(index.Path, baseDirectory));
+        writer.WriteString("absolutePath", index.Path);
+        writer.WriteString("bundle", plan.Bundle.Root);
+        writer.WriteString("status", Status(index.Status));
+        writer.WriteBoolean("drift", index.IsDrift);
+        writer.WriteBoolean("bundleRoot", index.IsBundleRoot);
+        writer.WriteNumber("entries", index.Entries.Count);
+        writer.WriteEndObject();
     }
 
     private static string Status(OkfIndexStatus status) => status switch

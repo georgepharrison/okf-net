@@ -59,16 +59,8 @@ internal static class UpgradeCommand
         ArgumentNullException.ThrowIfNull(error);
 
         UpgradeRuntime self = runtime ?? new UpgradeRuntime();
-
-        UpgradeArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = UpgradeArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf upgrade --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -78,7 +70,35 @@ internal static class UpgradeCommand
             return CliApplication.ExitSuccess;
         }
 
-        OkfUpgradeOptions options = new OkfUpgradeOptions
+        OkfUpgradeOptions options = Options(parsed, environment, self);
+        NoteReservedChannel(parsed, error);
+        if (Resolved(options, self, error) is not { } plan)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        return Apply(new UpgradeRun(parsed, plan, self, options.UserAgent), output, error);
+    }
+
+    private static UpgradeArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return UpgradeArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf upgrade --help` for usage.");
+            return null;
+        }
+    }
+
+    private static OkfUpgradeOptions Options(
+        UpgradeArguments parsed,
+        OkfEnvironment environment,
+        UpgradeRuntime self) =>
+        new OkfUpgradeOptions
         {
             BaseUrl = environment.GetVariable(OkfUpgradeOptions.BaseUrlVariable) is { Length: > 0 } configured
                 ? configured
@@ -90,28 +110,47 @@ internal static class UpgradeCommand
             UserAgent = $"okf/{self.Version}",
         };
 
-        if (parsed.Channel == OkfUpgradeChannel.Rc)
+    /// <summary>
+    /// Said out loud rather than implemented as a second URL. The host serves one
+    /// manifest at its root, so `--channel rc` reading `latest-rc.json` would be a
+    /// 404 dressed up as a feature; the flag exists because the two-channel split is
+    /// decided (issue #23) and its URL is not.
+    /// </summary>
+    private static void NoteReservedChannel(UpgradeArguments parsed, TextWriter error)
+    {
+        if (parsed.Channel != OkfUpgradeChannel.Rc)
         {
-            // Said out loud rather than implemented as a second URL. The host serves one
-            // manifest at its root, so `--channel rc` reading `latest-rc.json` would be a
-            // 404 dressed up as a feature; the flag exists because the two-channel split is
-            // decided (issue #23) and its URL is not.
-            error.WriteLine(
-                "okf: note: `--channel rc` is reserved. The artifact host publishes one manifest at "
-                + "its root today, so this reads the same release as `--channel stable`.");
+            return;
         }
 
-        OkfUpgradePlan plan;
+        error.WriteLine(
+            "okf: note: `--channel rc` is reserved. The artifact host publishes one manifest at "
+            + "its root today, so this reads the same release as `--channel stable`.");
+    }
+
+    private static OkfUpgradePlan? Resolved(OkfUpgradeOptions options, UpgradeRuntime self, TextWriter error)
+    {
         try
         {
-            plan = OkfUpgrade.Resolve(options, self.Fetch);
+            return OkfUpgrade.Resolve(options, self.Fetch);
         }
         catch (OkfUpgradeException exception)
         {
             error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            return null;
         }
+    }
 
+    private sealed record UpgradeRun(
+        UpgradeArguments Parsed,
+        OkfUpgradePlan Plan,
+        UpgradeRuntime Self,
+        string UserAgent);
+
+    private static int Apply(UpgradeRun run, TextWriter output, TextWriter error)
+    {
+        UpgradeArguments parsed = run.Parsed;
+        OkfUpgradePlan plan = run.Plan;
         if (parsed.Json)
         {
             output.WriteLine(Json(plan));
@@ -122,62 +161,112 @@ internal static class UpgradeCommand
             return Check(plan, parsed.Json, output);
         }
 
+        WriteResolved(parsed, plan, output);
+        if (DryRun(parsed, output) || AlreadyCurrent(parsed, plan, output))
+        {
+            return CliApplication.ExitSuccess;
+        }
+
+        return Install(run, output, error);
+    }
+
+    private static bool DryRun(UpgradeArguments parsed, TextWriter output)
+    {
+        if (!parsed.DryRun)
+        {
+            return false;
+        }
+
+        if (!parsed.Json)
+        {
+            output.WriteLine("==> --dry-run: nothing was downloaded or written");
+        }
+
+        return true;
+    }
+
+    private static void WriteResolved(UpgradeArguments parsed, OkfUpgradePlan plan, TextWriter output)
+    {
         if (!parsed.Json)
         {
             WritePlan(plan, parsed.Version is not null, output);
         }
+    }
 
-        if (parsed.DryRun)
+    /// <summary>
+    /// An explicit `--version` is a re-install as much as an upgrade — pinning back to
+    /// an older release is exactly how a tester bisects one — so it downloads even when
+    /// the version matches. Without one, matching means there is nothing to do.
+    /// </summary>
+    private static bool AlreadyCurrent(UpgradeArguments parsed, OkfUpgradePlan plan, TextWriter output)
+    {
+        if (!plan.IsUpToDate || parsed.Version is not null)
         {
-            if (!parsed.Json)
-            {
-                output.WriteLine("==> --dry-run: nothing was downloaded or written");
-            }
-
-            return CliApplication.ExitSuccess;
-        }
-
-        // An explicit `--version` is a re-install as much as an upgrade — pinning back to
-        // an older release is exactly how a tester bisects one — so it downloads even when
-        // the version matches. Without one, matching means there is nothing to do.
-        if (plan.IsUpToDate && parsed.Version is null)
-        {
-            if (!parsed.Json)
-            {
-                output.WriteLine($"==> already {plan.AvailableVersion}; nothing to do");
-            }
-
-            return CliApplication.ExitSuccess;
-        }
-
-        // Only here, on the path that actually installs: a `.old` left by a previous
-        // Windows upgrade is deleted at the start of THIS verb and of no other. Nothing
-        // else in okf-net may delete a file it did not just write.
-        OkfUpgrade.RemoveRetired(plan.TargetPath);
-
-        OkfUpgradeResult result;
-        try
-        {
-            result = OkfUpgrade.Apply(plan, self.Fetch, options.UserAgent);
-        }
-        catch (OkfUpgradeException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            return false;
         }
 
         if (!parsed.Json)
         {
-            output.WriteLine("    sha256 verified");
-            output.WriteLine($"==> upgraded {plan.CurrentVersion} -> {result.Version}");
-            if (result.RetiredPath is { Length: > 0 } retired)
-            {
-                output.WriteLine(
-                    $"    the running binary was moved to {retired}; the next `okf upgrade` deletes it");
-            }
+            output.WriteLine($"==> already {plan.AvailableVersion}; nothing to do");
         }
 
+        return true;
+    }
+
+    private static int Install(UpgradeRun run, TextWriter output, TextWriter error)
+    {
+        UpgradeArguments parsed = run.Parsed;
+        OkfUpgradePlan plan = run.Plan;
+        UpgradeRuntime self = run.Self;
+        string userAgent = run.UserAgent;
+        // Only here, on the path that actually installs: a `.old` left by a previous
+        // Windows upgrade is deleted at the start of THIS verb and of no other. Nothing
+        // else in okf-net may delete a file it did not just write.
+        OkfUpgrade.RemoveRetired(plan.TargetPath);
+        if (Applied(plan, self, userAgent, error) is not { } result)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        WriteInstalled(parsed, plan, result, output);
         return CliApplication.ExitSuccess;
+    }
+
+    private static OkfUpgradeResult? Applied(
+        OkfUpgradePlan plan,
+        UpgradeRuntime self,
+        string userAgent,
+        TextWriter error)
+    {
+        try
+        {
+            return OkfUpgrade.Apply(plan, self.Fetch, userAgent);
+        }
+        catch (OkfUpgradeException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static void WriteInstalled(
+        UpgradeArguments parsed,
+        OkfUpgradePlan plan,
+        OkfUpgradeResult result,
+        TextWriter output)
+    {
+        if (parsed.Json)
+        {
+            return;
+        }
+
+        output.WriteLine("    sha256 verified");
+        output.WriteLine($"==> upgraded {plan.CurrentVersion} -> {result.Version}");
+        if (result.RetiredPath is { Length: > 0 } retired)
+        {
+            output.WriteLine(
+                $"    the running binary was moved to {retired}; the next `okf upgrade` deletes it");
+        }
     }
 
     /// <summary>

@@ -87,12 +87,7 @@ internal sealed class CaptureArguments
                     break;
 
                 case "--by":
-                    if (parsed.By is not null)
-                    {
-                        throw new OkfConfigException("Option '--by' may be given once; an entry names one actor.");
-                    }
-
-                    parsed.By = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.TakeBy(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--url":
@@ -116,34 +111,52 @@ internal sealed class CaptureArguments
                     break;
 
                 case "--captured-at" or "--at":
-                    if (parsed.At is not null)
-                    {
-                        throw new OkfConfigException($"Option '{name}' may be given once; an entry names one instant.");
-                    }
-
-                    parsed.At = CliArguments.ParseInstant(inlineValue ?? CliArguments.Next(args, ref index, name), name);
+                    parsed.TakeAt(name, inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 default:
-                    if (argument.StartsWith('-') && argument.Length > 1)
-                    {
-                        throw new OkfConfigException($"Unknown option '{argument}'.");
-                    }
-
-                    if (parsed.Verb is null)
-                    {
-                        parsed.Verb = argument;
-                    }
-                    else
-                    {
-                        parsed._operands.Add(argument);
-                    }
-
+                    parsed.TakeOperand(argument);
                     break;
             }
         }
 
         return parsed;
+    }
+
+    private void TakeBy(string value)
+    {
+        if (By is not null)
+        {
+            throw new OkfConfigException("Option '--by' may be given once; an entry names one actor.");
+        }
+
+        By = value;
+    }
+
+    private void TakeAt(string option, string value)
+    {
+        if (At is not null)
+        {
+            throw new OkfConfigException($"Option '{option}' may be given once; an entry names one instant.");
+        }
+
+        At = CliArguments.ParseInstant(value, option);
+    }
+
+    private void TakeOperand(string argument)
+    {
+        if (argument.StartsWith('-') && argument.Length > 1)
+        {
+            throw new OkfConfigException($"Unknown option '{argument}'.");
+        }
+
+        if (Verb is null)
+        {
+            Verb = argument;
+            return;
+        }
+
+        _operands.Add(argument);
     }
 
     private static OkfCaptureForm ReadForm(string value) => value switch

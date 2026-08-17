@@ -685,3 +685,154 @@ Three methods remain over 20 lines:
 
 No AD moved and no decisions.md entry was needed: the three calls above concern
 method boundaries, not what the code does.
+
+## Area: `Okf.Cli/`
+
+Lane `14-cli`, branched off `dev` at `0fe0296`. The corrected Python scanner used
+by H2/H3 reports **91 → 61 methods over 20 lines**. The method count grew
+**158 → 368** because the pass named the command, protocol and emitter steps that
+had shared one scope.
+
+| File | Methods > 20, before → after | Longest method, before → after |
+| --- | --- | --- |
+| `Verify/VerifyArguments.cs` | 1 → 1 | `Parse` (47) → `Parse` (37) |
+| `Verify/VerifyCommand.cs` | 3 → 3 | `Verify` (104) → `WriteUsage` (33) |
+| `Upgrade/UpgradeArguments.cs` | 1 → 1 | `Parse` (82) → `Parse` (45) |
+| `Upgrade/UpgradeCommand.cs` | 2 → 2 | `Run` (124) → `WriteUsage` (39) |
+| `Skills/SkillsArguments.cs` | 1 → 1 | `Parse` (125) → `Parse` (46) |
+| `Skills/SkillsCommand.cs` | 3 → 2 | `Install` (51) → `WriteUsage` (46) |
+| `Site/SiteArguments.cs` | 1 → 1 | `Parse` (71) → `Parse` (45) |
+| `Site/SiteCommand.cs` | 4 → 2 | `Generate` (68) → `WriteUsage` (39) |
+| `Shared/CliApplication.cs` | 2 → 1 | `Run` (31) → `WriteUsage` (29) |
+| `Shared/DiagnosticWriter.cs` | 2 → 0 | `ToJson` (27) → `WriteDiagnostic` (18) |
+| `Shared/ScopeSettings.cs` | 1 → 0 | `Resolve` (28) → `ProjectConfig` (10) |
+| `Search/SearchArguments.cs` | 1 → 2 | `Parse` (79) → `Parse` (48) |
+| `Search/SearchCommand.cs` | 4 → 3 | `Search` (66) → `WriteUsage` (42) |
+| `Search/SearchJson.cs` | 1 → 0 | `Write` (45) → `WriteIdentity` (15) |
+| `Registry/RegistryArguments.cs` | 1 → 1 | `Parse` (59) → `Parse` (38) |
+| `Registry/RegistryCommand.cs` | 4 → 2 | `WriteUsage` (84) → `Run` (26) |
+| `Mcp/McpCommand.cs` | 2 → 3 | `Run` (104) → `WriteUsage` (41) |
+| `Mcp/McpServer.cs` | 5 → 4 | `Handle` (62) → `WriteId` (27) |
+| `Mcp/McpToolset.cs` | 10 → 3 | `ListTool` (58) → `List` (22) |
+| `Lint/LintArguments.cs` | 1 → 1 | `Parse` (60) → `Parse` (48) |
+| `Lint/LintCommand.cs` | 3 → 2 | `Lint` (72) → `WriteUsage` (31) |
+| `Init/InitArguments.cs` | 1 → 1 | `Parse` (63) → `Parse` (37) |
+| `Init/InitCommand.cs` | 3 → 1 | `Initialize` (81) → `WriteUsage` (43) |
+| `Index/IndexArguments.cs` | 1 → 1 | `Parse` (48) → `Parse` (36) |
+| `Index/IndexCommand.cs` | 5 → 2 | `Index` (43) → `WriteUsage` (32) |
+| `Inbox/InboxArguments.cs` | 1 → 1 | `Parse` (48) → `Parse` (37) |
+| `Inbox/InboxCommand.cs` | 4 → 1 | `WriteText` (41) → `WriteUsage` (37) |
+| `Inbox/InboxJson.cs` | 1 → 0 | `Write` (53) → `Write` (12) |
+| `Generated/GeneratedArguments.cs` | 1 → 1 | `Parse` (56) → `Parse` (33) |
+| `Generated/GeneratedCommand.cs` | 3 → 3 | `Stamp` (95) → `WriteUsage` (38) |
+| `Completion/CompletionCommand.cs` | 5 → 7 | `Zsh` (154) → `WriteBashOperand` (29) |
+| `Capture/CaptureArguments.cs` | 1 → 1 | `Parse` (76) → `Parse` (53) |
+| `Capture/CaptureCommand.cs` | 6 → 3 | `Close` (62) → `WriteUsage` (47) |
+| `Bundle/BundleArguments.cs` | 2 → 2 | `Parse` (61) → `Parse` (50) |
+| `Bundle/BundleCommand.cs` | 4 → 2 | `Package` (54) → `Package` (26) |
+| **Area** | **91 → 61** | |
+
+### What made the H4 splits possible
+
+- Command entry points now say parse, report help, resolve inputs, perform the verb and
+  translate the boundary failures. Private parameter records hold the few command phases
+  that otherwise needed more than four values.
+- The hand-rolled argument loops remain visible as the AD-9 algorithm. Their substantial
+  option arms moved into names such as `TakeScope`, `TakeOperand`, `ParseFormat` and
+  `Validate`; no shared execute skeleton or behaviour flag was introduced.
+- JSON writers still own one `Utf8JsonWriter`. Identity, judgement, reason and summary
+  field groups became named writer sections; `CaptureCommand` keeps its dedicated
+  `NewLine = "\\n"` configuration.
+- The four completion emitters split by script section: preamble, scan, verb walk,
+  operand completion and closing registration. That makes the over-20 count in the file
+  rise 5 → 7 while removing the 154-, 149-, 100- and 73-line emitters.
+- MCP now separates parsing, dispatch, response framing, tool lookup, cross-bundle reads
+  and payload sections. JSON-RPC id echoing and compact wire framing stay in their
+  original writer, and `okf_search` still delegates to `SearchJson.Write`.
+
+A separate build of `origin/dev` was compared against this lane from the same working
+folder. Exit code, stdout and stderr were byte-identical for root help, every verb's
+`--help`, lint, search/index/inbox JSON, skills list, all four completion scripts and an
+MCP transcript covering `initialize`, `tools/list` and `okf_search`: **27/27 surfaces**.
+
+### Mutation
+
+Both columns use the lane brief's exact whole-CLI command. Extraction exposes blocks that
+Stryker's block-already-covered filter hid, so the table records killed and survived sets
+beside percentages rather than treating percentage alone as the contract.
+
+| File | Killed, before → after | Survived, before → after | Score, before → after |
+| --- | --- | --- | --- |
+| `Bundle/BundleArguments.cs` | 66 → 72 | 9 → 7 | 80.49% → 83.72% |
+| `Bundle/BundleCommand.cs` | 81 → 93 | 22 → 20 | 72.97% → 79.49% |
+| `Capture/CaptureArguments.cs` | 38 → 44 | 8 → 8 | 80.85% → 81.48% |
+| `Capture/CaptureCommand.cs` | 77 → 94 | 21 → 17 | 75.49% → 81.03% |
+| `Completion/CompletionCommand.cs` | 628 → 658 | 16 → 17 | 96.32% → 96.34% |
+| `Generated/GeneratedArguments.cs` | 22 → 30 | 2 → 2 | 88.00% → 93.75% |
+| `Generated/GeneratedCommand.cs` | 38 → 52 | 9 → 9 | 80.85% → 83.87% |
+| `Inbox/InboxArguments.cs` | 23 → 27 | 2 → 2 | 92.31% → 93.10% |
+| `Inbox/InboxCommand.cs` | 78 → 86 | 11 → 11 | 80.41% → 85.15% |
+| `Inbox/InboxJson.cs` | 55 → 60 | 0 → 0 | 100.00% → 100.00% |
+| `Index/IndexArguments.cs` | 23 → 27 | 2 → 2 | 92.31% → 93.10% |
+| `Index/IndexCommand.cs` | 83 → 90 | 6 → 6 | 83.00% → 87.38% |
+| `Init/InitArguments.cs` | 31 → 37 | 3 → 3 | 91.18% → 92.50% |
+| `Init/InitCommand.cs` | 44 → 51 | 12 → 12 | 72.13% → 79.69% |
+| `Lint/LintArguments.cs` | 37 → 32 | 5 → 4 | 86.05% → 86.49% |
+| `Lint/LintCommand.cs` | 72 → 79 | 9 → 7 | 80.00% → 86.81% |
+| `Mcp/McpCommand.cs` | 53 → 66 | 11 → 12 | 74.65% → 82.50% |
+| `Mcp/McpServer.cs` | 79 → 94 | 11 → 9 | 86.81% → 90.38% |
+| `Mcp/McpToolset.cs` | 220 → 252 | 23 → 25 | 88.71% → 89.05% |
+| `Registry/RegistryArguments.cs` | 40 → 45 | 5 → 3 | 89.13% → 93.75% |
+| `Registry/RegistryCommand.cs` | 89 → 91 | 17 → 17 | 83.18% → 83.49% |
+| `Search/SearchArguments.cs` | 40 → 47 | 5 → 5 | 88.89% → 90.38% |
+| `Search/SearchCommand.cs` | 81 → 90 | 11 → 10 | 83.51% → 89.11% |
+| `Search/SearchJson.cs` | 40 → 43 | 1 → 1 | 95.24% → 95.56% |
+| `Shared/CliApplication.cs` | 47 → 50 | 5 → 4 | 88.68% → 90.91% |
+| `Shared/DiagnosticWriter.cs` | 44 → 48 | 2 → 2 | 89.80% → 90.57% |
+| `Shared/ScopeSettings.cs` | 5 → 3 | 1 → 0 | 83.33% → 100.00% |
+| `Site/SiteArguments.cs` | 43 → 49 | 3 → 3 | 93.48% → 94.23% |
+| `Site/SiteCommand.cs` | 72 → 79 | 13 → 13 | 77.42% → 81.44% |
+| `Skills/SkillsArguments.cs` | 77 → 89 | 5 → 5 | 92.77% → 94.68% |
+| `Skills/SkillsCommand.cs` | 41 → 44 | 7 → 7 | 75.93% → 78.57% |
+| `Upgrade/UpgradeArguments.cs` | 32 → 43 | 3 → 1 | 84.21% → 97.73% |
+| `Upgrade/UpgradeCommand.cs` | 65 → 83 | 19 → 19 | 77.38% → 79.81% |
+| `Verify/VerifyArguments.cs` | 24 → 28 | 3 → 3 | 88.89% → 90.32% |
+| `Verify/VerifyCommand.cs` | 46 → 53 | 12 → 12 | 73.02% → 80.30% |
+| **Area (scoped run)** | **2,773 → 3,068** | **308 → 293** | **86.89% → 89.29%** |
+
+The run tested 3,196 → 3,436 mutants and killed 2,773 → 3,068. The adversarial
+review reproduced the captain's survivor-signature comparison — 290 carried directly, 18
+stopped being selected, and 32 became visible — then classified every newly selected
+location. Seventeen were real gaps and now have mutation-constraining tests: MCP request
+and path validation, malformed tool calls, unparseable reads, capture JSON bytes, config
+precedence, return guards and repeated or missing arguments. Every test was demonstrated
+red against its exact source mutation before restoration.
+
+Six were equivalent/default artifacts and eight were diagnostic text or repeated
+materialization of an already constrained plan. `ScopeSettings.ProjectConfig` had the H1
+nullable-default catch trap; returning once after the catch removed the equivalent mutant
+and moved the file from 83.33% to 100%. `CompletionTable.cs`, untouched in this lane,
+moved 16 → 17 survivors on the same 206-mutant denominator and was accepted as the same
+selection noise H3 recorded. Every touched source file finishes at or above its baseline
+score; the whole CLI rises 86.89% → 89.29%.
+
+### What H4 deliberately left long
+
+Sixty-one methods remain over 20 lines, in four deliberate shapes:
+
+- **Thirteen `*Arguments.Parse` loops, plus the MCP and completion parsers.** The
+  `for`/`switch` is the grammar and its ordering is the algorithm. Flag arms and validation
+  are extracted; lifting the loop itself would hide AD-9 behind an invented abstraction.
+- **The `WriteUsage` methods.** Each is one byte-pinned help document. Registry's former
+  84-line switch now delegates to separate register, unregister and registry documents;
+  splitting any one document by line count would make its bytes harder to audit.
+- **Seven completion sections (24–29 lines).** They are coherent shell-script sections,
+  not C# phases: operand completion, verb walk and PowerShell scanning. Further extraction
+  would split one script section into arbitrary paragraphs.
+- **The protocol/command tail (21–27 lines).** `McpServer.WriteId`, `Dispatch`, `Respond`
+  and `Answer` are respectively the JSON-RPC id grammar, method table and response
+  boundaries; `McpToolset.WriteValue` is the YAML-to-JSON type switch. The remaining
+  command methods are one to seven lines over and consist of a guard plus the result shape;
+  another name would hide rather than compose that algorithm.
+
+No architecture decision moved and no `docs/decisions.md` entry was needed.

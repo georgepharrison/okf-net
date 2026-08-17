@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Inbox;
@@ -27,51 +28,73 @@ internal static class InboxJson
             writer.WriteStartArray();
             foreach (OkfInboxItem item in result.Items)
             {
-                OkfConcept concept = item.Concept;
-                writer.WriteStartObject();
-                writer.WriteString("id", concept.Id);
-                writer.WriteString("path", concept.Path);
-                writer.WriteString("displayPath", DiagnosticWriter.Display(concept.AbsolutePath, baseDirectory));
-                writer.WriteString("absolutePath", concept.AbsolutePath);
-                writer.WriteString("bundle", concept.Bundle.Root);
-                writer.WriteString("bundleName", concept.Bundle.Name);
-                writer.WriteString("title", concept.Title);
-                JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
-
-                writer.WriteStartArray("reasons");
-                foreach (OkfInboxReason reason in item.Reasons)
-                {
-                    writer.WriteStringValue(reason.ToWireString());
-                }
-
-                writer.WriteEndArray();
-
-                writer.WriteString("trustTier", concept.TrustTier.ToSpecString());
-                writer.WriteBoolean("stale", concept.Stale);
-                JsonOutput.WriteStringOrNull(writer, "status", item.Status);
-                JsonOutput.WriteStringOrNull(writer, "generatedBy", item.GeneratedBy);
-                JsonOutput.WriteStringOrNull(writer, "generatedAt", item.GeneratedAt);
-                JsonOutput.WriteStringOrNull(writer, "verifiedBy", item.VerifiedBy);
-                JsonOutput.WriteStringOrNull(writer, "verifiedAt", item.VerifiedAt);
-                JsonOutput.WriteStringOrNull(writer, "staleAfter", item.StaleAfter);
-                JsonOutput.WriteNumberOrNull(writer, "ageDays", item.AgeDays);
-                JsonOutput.WriteNumberOrNull(writer, "staleDays", item.StaleDays);
-
-                writer.WriteStartArray("driftedSources");
-                foreach (OkfDriftedSource source in item.DriftedSources)
-                {
-                    writer.WriteStartObject();
-                    JsonOutput.WriteStringOrNull(writer, "id", source.Id);
-                    JsonOutput.WriteStringOrNull(writer, "resource", source.Resource);
-                    writer.WriteString("lastModified", source.LastModified);
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
+                WriteItem(writer, item, baseDirectory);
             }
 
             writer.WriteEndArray();
         });
+    }
+
+    private static void WriteItem(Utf8JsonWriter writer, OkfInboxItem item, string baseDirectory)
+    {
+        OkfConcept concept = item.Concept;
+        writer.WriteStartObject();
+        WriteIdentity(writer, concept, baseDirectory);
+        WriteReasons(writer, item);
+        WriteLifecycle(writer, item, concept);
+        WriteDriftedSources(writer, item);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteIdentity(Utf8JsonWriter writer, OkfConcept concept, string baseDirectory)
+    {
+        writer.WriteString("id", concept.Id);
+        writer.WriteString("path", concept.Path);
+        writer.WriteString("displayPath", DiagnosticWriter.Display(concept.AbsolutePath, baseDirectory));
+        writer.WriteString("absolutePath", concept.AbsolutePath);
+        writer.WriteString("bundle", concept.Bundle.Root);
+        writer.WriteString("bundleName", concept.Bundle.Name);
+        writer.WriteString("title", concept.Title);
+        JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
+    }
+
+    private static void WriteReasons(Utf8JsonWriter writer, OkfInboxItem item)
+    {
+        writer.WriteStartArray("reasons");
+        foreach (OkfInboxReason reason in item.Reasons)
+        {
+            writer.WriteStringValue(reason.ToWireString());
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteLifecycle(Utf8JsonWriter writer, OkfInboxItem item, OkfConcept concept)
+    {
+        writer.WriteString("trustTier", concept.TrustTier.ToSpecString());
+        writer.WriteBoolean("stale", concept.Stale);
+        JsonOutput.WriteStringOrNull(writer, "status", item.Status);
+        JsonOutput.WriteStringOrNull(writer, "generatedBy", item.GeneratedBy);
+        JsonOutput.WriteStringOrNull(writer, "generatedAt", item.GeneratedAt);
+        JsonOutput.WriteStringOrNull(writer, "verifiedBy", item.VerifiedBy);
+        JsonOutput.WriteStringOrNull(writer, "verifiedAt", item.VerifiedAt);
+        JsonOutput.WriteStringOrNull(writer, "staleAfter", item.StaleAfter);
+        JsonOutput.WriteNumberOrNull(writer, "ageDays", item.AgeDays);
+        JsonOutput.WriteNumberOrNull(writer, "staleDays", item.StaleDays);
+    }
+
+    private static void WriteDriftedSources(Utf8JsonWriter writer, OkfInboxItem item)
+    {
+        writer.WriteStartArray("driftedSources");
+        foreach (OkfDriftedSource source in item.DriftedSources)
+        {
+            writer.WriteStartObject();
+            JsonOutput.WriteStringOrNull(writer, "id", source.Id);
+            JsonOutput.WriteStringOrNull(writer, "resource", source.Resource);
+            writer.WriteString("lastModified", source.LastModified);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
     }
 }

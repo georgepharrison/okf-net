@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Shared;
@@ -22,17 +23,22 @@ internal static class DiagnosticWriter
     {
         foreach (OkfDiagnostic diagnostic in diagnostics)
         {
-            string location = diagnostic.Line is { } line
-                ? $"{Display(diagnostic.Path, baseDirectory)}:{line.ToString(CultureInfo.InvariantCulture)}"
-                : Display(diagnostic.Path, baseDirectory);
-            output.WriteLine(
-                $"{location}: {diagnostic.Severity.ToConfigString()} {diagnostic.RuleId}: {diagnostic.Message}");
+            output.WriteLine(Line(diagnostic, baseDirectory));
         }
 
-        int errors = result.Count(OkfSeverity.Error);
-        int warnings = result.Count(OkfSeverity.Warning);
-        int infos = result.Count(OkfSeverity.Info);
+        WriteSummary(result, output);
+    }
 
+    private static string Line(OkfDiagnostic diagnostic, string baseDirectory)
+    {
+        string location = diagnostic.Line is { } line
+            ? $"{Display(diagnostic.Path, baseDirectory)}:{line.ToString(CultureInfo.InvariantCulture)}"
+            : Display(diagnostic.Path, baseDirectory);
+        return $"{location}: {diagnostic.Severity.ToConfigString()} {diagnostic.RuleId}: {diagnostic.Message}";
+    }
+
+    private static void WriteSummary(OkfLintResult result, TextWriter output)
+    {
         // What ran is part of the result: "0 errors" from a run with every rule hidden
         // reads exactly like "0 errors" from a run with all of them live, and a
         // misconfiguration that silences the gate should not look like a passing gate.
@@ -40,7 +46,9 @@ internal static class DiagnosticWriter
             $"Checked {Plural(result.FileCount, "file")} in {Plural(result.Bundles.Count, "bundle")} " +
             $"({Plural(OkfRules.All.Count, "rule")}: {result.ActiveRuleCount.ToString(CultureInfo.InvariantCulture)} " +
             $"active, {result.HiddenRuleCount.ToString(CultureInfo.InvariantCulture)} hidden): " +
-            $"{Plural(errors, "error")}, {Plural(warnings, "warning")}, {Plural(infos, "info", "infos")}.");
+            $"{Plural(result.Count(OkfSeverity.Error), "error")}, " +
+            $"{Plural(result.Count(OkfSeverity.Warning), "warning")}, " +
+            $"{Plural(result.Count(OkfSeverity.Info), "info", "infos")}.");
     }
 
     /// <summary>Renders the diagnostics as the stable JSON array.</summary>
@@ -54,28 +62,33 @@ internal static class DiagnosticWriter
             writer.WriteStartArray();
             foreach (OkfDiagnostic diagnostic in diagnostics)
             {
-                writer.WriteStartObject();
-                writer.WriteString("id", diagnostic.RuleId);
-                writer.WriteString("rule", OkfRules.Get(diagnostic.RuleId).Nickname);
-                writer.WriteString("severity", diagnostic.Severity.ToConfigString());
-                writer.WriteString("path", Display(diagnostic.Path, baseDirectory));
-                writer.WriteString("absolutePath", diagnostic.Path);
-                if (diagnostic.Line is { } line)
-                {
-                    writer.WriteNumber("line", line);
-                }
-                else
-                {
-                    writer.WriteNull("line");
-                }
-
-                writer.WriteString("bundle", diagnostic.BundleRoot ?? string.Empty);
-                writer.WriteString("message", diagnostic.Message);
-                writer.WriteEndObject();
+                WriteDiagnostic(writer, diagnostic, baseDirectory);
             }
 
             writer.WriteEndArray();
         }) + Environment.NewLine;
+    }
+
+    private static void WriteDiagnostic(Utf8JsonWriter writer, OkfDiagnostic diagnostic, string baseDirectory)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("id", diagnostic.RuleId);
+        writer.WriteString("rule", OkfRules.Get(diagnostic.RuleId).Nickname);
+        writer.WriteString("severity", diagnostic.Severity.ToConfigString());
+        writer.WriteString("path", Display(diagnostic.Path, baseDirectory));
+        writer.WriteString("absolutePath", diagnostic.Path);
+        if (diagnostic.Line is { } line)
+        {
+            writer.WriteNumber("line", line);
+        }
+        else
+        {
+            writer.WriteNull("line");
+        }
+
+        writer.WriteString("bundle", diagnostic.BundleRoot ?? string.Empty);
+        writer.WriteString("message", diagnostic.Message);
+        writer.WriteEndObject();
     }
 
     /// <summary>

@@ -113,6 +113,8 @@ public class CaptureCommandTests
         var run = vault.Run(
             "capture", "add", "okf/raw/2026-08-16-a-page.html", "--by", "claude-fable/5", "--json");
 
+        Assert.StartsWith("{\n  \"manifest\": ", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', run.Output);
         using var report = JsonDocument.Parse(run.Output);
         Assert.Equal("added", report.RootElement.GetProperty("outcome").GetString());
         Assert.Equal("2026-08-16-a-page", report.RootElement.GetProperty("id").GetString());

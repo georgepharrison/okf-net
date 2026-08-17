@@ -163,6 +163,9 @@ public class ArgumentParsingTests
         "'yesterday' is not a date.")]
     [InlineData(new[] { "capture", "add", "item", "--at=yesterday" }, "'yesterday' is not a canonical instant")]
     [InlineData(new[] { "generated", "stamp", "c.md", "--by=a", "--by=b" }, "Option '--by' may be given once")]
+    [InlineData(
+        new[] { "generated", "stamp", "c.md", "--at=2026-08-16T14:00:00Z", "--at=2026-08-16T15:00:00Z" },
+        "Option '--at' may be given once")]
     [InlineData(new[] { "generated", "stamp", "c.md", "--at=noon" }, "'noon' is not a canonical instant")]
     [InlineData(new[] { "bundle", "--out=a", "--out=b" }, "Option '--out' was given twice ('a' and 'b').")]
     [InlineData(
@@ -172,15 +175,21 @@ public class ArgumentParsingTests
     [InlineData(new[] { "bundle", "--verify=dist", "--bundle=one" }, "cannot be combined with --bundle")]
     [InlineData(new[] { "bundle", "--out=dist", "--generated-at=soon" }, "'soon' is not a readable instant")]
     [InlineData(new[] { "upgrade", "--channel=nightly" }, "Unknown --channel value 'nightly'")]
+    [InlineData(new[] { "upgrade", "--version=1.0.0", "--version=1.0.1" }, "Option '--version' was given more than once")]
+    [InlineData(new[] { "upgrade", "--version" }, "Option '--version' requires a value")]
+    [InlineData(new[] { "upgrade", "--version=" }, "Option '--version' requires a value")]
+    [InlineData(new[] { "upgrade", "--channel=stable", "--channel=rc" }, "Option '--channel' was given more than once")]
     [InlineData(
         new[] { "upgrade", "--version=1.2.3", "--channel=rc" },
         "'--version' pins one release, so '--channel' has nothing left to choose")]
     [InlineData(new[] { "skills", "install", "--host=emacs" }, "Unknown --host value 'emacs'")]
+    [InlineData(new[] { "skills", "install", "--host=claude", "--host=pi" }, "Option '--host' was given more than once")]
     [InlineData(
         new[] { "skills", "install", "--scope=everyone" },
         "Unknown --scope value 'everyone'; expected 'user' or 'project'.")]
     [InlineData(new[] { "skills", "install", "--dir=a", "--dir=b" }, "Option '--dir' was given more than once.")]
     [InlineData(new[] { "mcp", "--scope=everywhere" }, "Unknown --scope value 'everywhere'")]
+    [InlineData(new[] { "registry", "list", "prune" }, "takes at most one argument")]
     public void AnInlineValueIsTheOptionsValue(string[] args, string expected)
     {
         using var home = new TempTree();
