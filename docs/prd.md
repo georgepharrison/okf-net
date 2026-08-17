@@ -20,9 +20,10 @@
 ## 1. Overview
 
 okf-net is a .NET toolset for producing, validating, and consuming **OKF v0.2 knowledge
-bundles**: directory trees of markdown files with YAML frontmatter. It ships as a
-library (`Okf.Core`), a single CLI binary (`okf`) that also hosts an MCP server
-(`okf mcp`), and three agent skills (two producers and one consumer — §2.4).
+bundles**: directory trees of markdown files with YAML frontmatter. `Okf.Core` is the
+internal library layer behind a single CLI binary (`okf`) that also hosts an MCP server
+(`okf mcp`); the release ships the executable and three agent skills (two producers and
+one consumer — §2.4), not a library package.
 
 The format is the interop layer. Nothing okf-net produces requires okf-net to consume —
 a bundle stays `cat`-readable and `git clone`-portable (spec §1).
@@ -99,12 +100,14 @@ types each one lives in.
 
 ### 2.1 Okf.Core
 
-`Okf.Core` holds **all** logic. The CLI and MCP server are thin adapters over it
-(decisions §4). Every requirement below is satisfied by the library and is unit-testable
-without a process boundary.
+`Okf.Core` holds **all** logic as the internal library layer. The CLI and MCP server are
+thin adapters over it (decisions §4). `Okf.Core` is explicitly non-packable and is not a
+distributed NuGet API. Every requirement below is satisfied by the library and is
+unit-testable without a process boundary.
 
-**BUILT (CORE-1 … CORE-15).** The public API surface was frozen by the 1.0.0 review (work
-item #9) on 2026-08-15, and the two changes that review ordered landed in work item #30.
+**BUILT (CORE-1 … CORE-15).** The in-repository public API surface was frozen by the 1.0.0
+review (work item #9) on 2026-08-15, and the two changes that review ordered landed in work
+item #30.
 
 - **CORE-1 — Frontmatter parse.** Parse a UTF-8 markdown file into `(frontmatter, body)`
   per spec §4.
@@ -420,24 +423,18 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
     against the published manifest. It is confined to one library file, reachable from no
     other verb, and never runs unless it is the verb invoked — no startup check, no
     background poll (`docs/architecture.md` AD-7, AD-53).
-- **CLI-17 — Distribution. BUILT (2026-08-15, work items #25 and #36), except the NuGet
-  package.** Each tag pipeline publishes seven assets under one package version: three
-  binaries — `okf-linux-x64` (NativeAOT), `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe
-  self-contained, because NativeAOT compiles through the host toolchain and the only runner
-  is Linux) — this bundle as `okf-net-knowledge.tar.gz`, the `latest.json` release manifest
-  naming each asset's relative path, size and `sha256`, and the two installers that read it,
-  `install.sh` (Linux and macOS) and `install.ps1` (Windows). `Okf.Core` is **not** published
-  to a NuGet registry (still open, Q10). The CLI ships as a self-contained, single-file binary
-  installable without a .NET SDK (decisions §3), targeting `net10.0` (Q10, partially
-  resolved).
+- **CLI-17 — Distribution. BUILT (2026-08-15, work items #25 and #36; Core packaging
+  settled by #65).** Each tag pipeline publishes eight assets under one package version:
+  three executable binaries, this bundle as `okf-net-knowledge.tar.gz`, the three agent
+  skills as `okf-skills.tar.gz`, the `latest.json` release manifest naming each asset's
+  relative path, size and `sha256`, and the two installers that read it, `install.sh`
+  (Linux and macOS) and `install.ps1` (Windows). `Okf.Core` is explicitly non-packable and
+  no NuGet library artifact is distributed. The CLI ships as a self-contained, single-file
+  binary installable without a .NET SDK (decisions §3), targeting `net10.0` (Q10).
   - NativeAOT is preferred; a trim-safe self-contained non-AOT publish is the documented
     fallback if AOT proves incompatible with a dependency.
-  - `Okf.Core` additionally publishes as a NuGet package to the self-hosted GitLab
-    instance's built-in NuGet registry (instance configuration to be verified at first
-    publish).
   - A release produces binaries for the supported targets and a `curl | sh` install path.
-  - (Specific RIDs, and whether AOT survives the still-undecided YAML serialization
-    library, remain open — see Q10.)
+  - (Specific RIDs and the AOT fallback are recorded in Q10 and the decisions log.)
 
 ### 2.3 `okf mcp`
 
@@ -750,11 +747,11 @@ decision (and its rationale) is recorded in decisions.md.
   decisions.md).** Target framework is `net10.0` (mise pins `dotnet = "10"`). NativeAOT
   single-file is preferred; if it proves incompatible (e.g. Roslyn-based extensibility
   added later, or a reflection-heavy dependency), the toolset falls back to a trim-safe,
-  self-contained non-AOT publish knowingly, per decisions §3. Distribution target is NuGet
-  packages published to the self-hosted GitLab instance's built-in NuGet registry
-  (instance configuration to be verified at first publish). ~~**Still open:** the
-  AOT-compatible YAML serialization library choice — no packaging or publish job exists in
-  `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.~~
+  self-contained non-AOT publish knowingly, per decisions §3. Distribution is the
+  self-contained executable binaries and consume-only knowledge and skills archives; Core
+  is explicitly non-packable and no NuGet library artifact is distributed. ~~**Still open:**
+  the AOT-compatible YAML serialization library choice — no packaging or publish job exists
+  in `.gitlab-ci.yml` yet, and that choice gates whether AOT is actually achievable.~~
   **The YAML half is RESOLVED (2026-08-15, see decisions.md, "YAML library"):** YamlDotNet
   18.1.0, used through its representation model and event emitter only, never its
   serializer — that path is reflection-free, so a real `PublishAot` publish of `Okf.Cli` is
@@ -763,10 +760,9 @@ decision (and its rationale) is recorded in decisions.md.
   self-contained, because NativeAOT compiles through the host's toolchain and the only
   runner is Linux. AOT for the other two needs a macOS and a Windows runner
   ([#38](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/38),
-  [#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)). **Still open:** the
-  `Okf.Core` NuGet package — no packaging step for it exists in `.gitlab-ci.yml`, and the
-  instance's registry configuration is still unverified. `osx-x64`, musl and `linux-arm64`
-  are each one line in the publish job and one case label in `install.sh`, and are not
+  [#39](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/39)). `Okf.Core` remains
+  explicitly non-packable and has no distributed NuGet artifact (#65). `osx-x64`, musl and
+  `linux-arm64` are each one line in the publish job and one case label in `install.sh`, and are not
   built on speculation.
 - **Q11 — `okf verify` and `okf inbox` scope granularity. RESOLVED (2026-08-15, see
   decisions.md).** `okf inbox [path]` resolves its working set exactly as `okf lint` and

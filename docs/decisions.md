@@ -3986,3 +3986,19 @@ a source checkout operation: `sync.sh` is copied into the locally built
 new channel contract exists on the host. A forced sync re-fetches and verifies an existing
 version but never swaps it: changing or briefly removing bytes under a one-year-immutable
 `v<version>/` URL would violate the property both channel links depend on.
+
+### Accepted internal Core surface changes (work item #65, 2026-08-17)
+
+`Okf.Core` is the internal library layer behind the `okf` executable, not a distributed
+NuGet API. Its project is explicitly non-packable (`IsPackable=false`), and `dotnet pack`
+therefore emits no `Okf.Core` package. Release artifacts remain the executable binaries,
+knowledge and skills archives, manifests, and installers; no library artifact or external
+consumer exists.
+
+That product boundary accepts the two post-freeze source changes already recorded in the
+log. The namespace move in [work item #59](#proposed-decisions-vertical-slices-work-item-59-2026-08-16)
+and the removals in [work item #13](#proposed-decisions-two-unreferenced-public-members-leave-okfcore-work-item-13-2026-08-16)
+— `OkfSearchQuery.HasTerms` and `OkfIndexPlan.Count(OkfIndexStatus)` — are accepted for the
+1.x line because no library artifact or external consumer exists. Neither member is to be
+restored. The freeze remains an in-repository compatibility and analyzer constraint, not a
+promise of a NuGet API.

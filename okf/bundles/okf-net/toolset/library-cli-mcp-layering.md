@@ -1,9 +1,9 @@
 ---
 type: Concept
 title: Library, CLI, and MCP Layering
-description: All logic lives in Okf.Core; the CLI and the MCP server are thin adapters and neither is the core.
+description: All logic lives in internal Okf.Core; the CLI and MCP server are thin adapters, and Core is not a distributed NuGet API.
 tags: [okf-net, architecture, cli, mcp, layering]
-generated: { by: "claude-fable/5", at: 2026-08-16T05:54:46Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -17,9 +17,10 @@ sources:
     last_modified: 2026-08-14
 ---
 
-**All logic lives in `Okf.Core`.** The `okf` CLI is a thin wrapper over it.
-The MCP server is a thin protocol wrapper launched as `okf mcp`, a subcommand
-of the same binary. Neither adapter is the core, and neither may hold
+**All logic lives in internal `Okf.Core`.** The `okf` CLI is a thin wrapper over
+it. The MCP server is a thin protocol wrapper launched as `okf mcp`, a
+subcommand of the same binary. Core is explicitly non-packable and is not a
+distributed NuGet API. Neither adapter is the core, and neither may hold
 behaviour the other lacks.[^decisions]
 
 ```text

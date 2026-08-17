@@ -3,7 +3,7 @@ type: Guide
 title: About This Bundle
 description: What the okf-net bundle covers, who maintains it, and how to consume it.
 tags: [okf-net, bundle, meta, dogfood]
-generated: { by: "claude-fable/5", at: 2026-08-16T05:54:46Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
 sources:
   - id: prd
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/prd.md
@@ -18,9 +18,10 @@ sources:
 ---
 
 This is the knowledge bundle for **okf-net**, a .NET toolset for producing,
-validating, and consuming OKF v0.2 knowledge bundles.[^prd] It is designed to
-ship as a library (`Okf.Core`), a single self-contained CLI binary (`okf`)
-that also hosts an MCP server (`okf mcp`), and a set of agent skills. All
+validating, and consuming OKF v0.2 knowledge bundles.[^prd] `Okf.Core` is the
+internal library layer behind a single self-contained CLI binary (`okf`) that
+also hosts an MCP server (`okf mcp`); it is explicitly non-packable and is not
+a distributed NuGet API. The release also carries a set of agent skills. All
 three are built: `Okf.Core`, every CLI verb — `init`, `lint`, `index`,
 `search`, `register`, `unregister`, `registry`, `inbox`, `verify`, `capture`,
 `generated`, `bundle`, `site`, `skills`, `mcp`, `completion`, `upgrade`, plus
