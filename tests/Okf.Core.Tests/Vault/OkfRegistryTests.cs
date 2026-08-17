@@ -332,6 +332,34 @@ public sealed class OkfRegistryTests : IDisposable
     public void AMalformedRegistryIsRefusedRatherThanPartiallyRead(string json) =>
         Assert.Throws<OkfConfigException>(() => OkfRegistry.Parse(json, "test"));
 
+    [Theory]
+    [InlineData("id")]
+    [InlineData("path")]
+    [InlineData("kind")]
+    [InlineData("registeredAt")]
+    public void ARequiredRegistryFieldWithTheWrongJsonTypeIsRejected(string field)
+    {
+        string id = field == "id" ? "5" : "\"alpha\"";
+        string path = field == "path" ? "5" : System.Text.Json.JsonSerializer.Serialize(Path.Combine(Project("alpha"), "okf"));
+        string kind = field == "kind" ? "5" : "\"vault\"";
+        string registeredAt = field == "registeredAt" ? "5" : "\"2026-08-16T09:30:00Z\"";
+
+        string json = $$"""
+            {
+              "entries": [
+                {
+                  "id": {{id}},
+                  "path": {{path}},
+                  "kind": {{kind}},
+                  "registeredAt": {{registeredAt}}
+                }
+              ]
+            }
+            """;
+
+        Assert.Throws<OkfConfigException>(() => OkfRegistry.Parse(json, "test"));
+    }
+
     [Fact]
     public void UnregisteringWorksByIdOrByPathAndAnUnknownOneIsANoOp()
     {
