@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Okf.Core is the internal library layer behind the executable, not a distributed NuGet API. -->
+    <IsPackable>false</IsPackable>
     <!-- decisions.md §3 / PRD CLI-17: NativeAOT single-file is the preferred
          publish mode, so the core library is analyzed for AOT and trim safety. -->
     <IsAotCompatible>true</IsAotCompatible>

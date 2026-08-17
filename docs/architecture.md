@@ -1,9 +1,11 @@
 # okf-net — Architecture Spine
 
-> **Status:** Architecture Spine, `v1.0.0-frozen`. The public API surface of `Okf.Core`
-> was frozen by the [1.0.0 review](decisions.md#100-review-work-item-9-2026-08-15) on
-> 2026-08-15; the two changes that review ordered landed in work item #30. Frozen in
-> shape; namespaces re-homed by folder in #59 (2026-08-16), no external consumers.
+> **Status:** Architecture Spine, `v1.0.0-frozen`. `Okf.Core` is the internal library
+> layer behind the `okf` executable, explicitly non-packable and not a distributed NuGet
+> API. Its in-repository public surface was frozen by the [1.0.0 review](decisions.md#100-review-work-item-9-2026-08-15)
+> on 2026-08-15; the two changes that review ordered landed in work item #30. The #59
+> namespace move and the #13 dead-member removals are accepted because no library
+> artifact or external consumer exists (work item #65).
 >
 > **This document fixes invariants, not rationale.** Every rule below is distilled from
 > [decisions.md](decisions.md), which stays the "why" log and wins wherever the two
@@ -62,8 +64,8 @@ This section is written for the agent that will next update this file.
 ## Design Paradigm
 
 okf-net is a **library-first .NET toolset** for OKF v0.2: one deterministic, offline,
-side-effect-free core (`Okf.Core`) surrounded by thin adapters that only render what the
-core returns — a CLI verb, an MCP tool, an HTML page, an archive entry. The paradigm is
+side-effect-free internal library layer (`Okf.Core`) surrounded by thin adapters that
+only render what the core returns — a CLI verb, an MCP tool, an HTML page, an archive entry. The paradigm is
 ports-and-adapters in its honest, degenerate form: **the core decides, the adapters
 format, and no adapter holds a rule of its own.** Beneath the core sits the format, and
 the format — not the tool — is the interop layer, so distribution is **consume-only**: a
@@ -197,13 +199,15 @@ flowchart TB
 
 - **Binds:** `Okf.Core`, `Okf.Cli`, the MCP server
 - **Prevents:** two surfaces answering the same question differently, one rule at a time.
-- **Rule:** `Okf.Core` has no `ProjectReference` and depends on nothing in this repo.
-  `Okf.Cli` references it one-directionally. Core returns data, never *adapter* output: the
+- **Rule:** `Okf.Core` is the internal library layer, explicitly non-packable
+  (`IsPackable=false`) and not a distributed NuGet API. It has no `ProjectReference` and
+  depends on nothing in this repo. `Okf.Cli` references it one-directionally. Core returns
+  data, never *adapter* output: the
   diagnostic report, the `--json` writers, the console summaries and the exit-code mapping
   are `Okf.Cli`'s and nothing else's. Artifact text the format itself defines — index
   markdown, scaffolded files, site HTML — stays Core's, because it is content rather than
   presentation. Every requirement is unit-testable without a process boundary.
-- **Source:** [decisions §4](decisions.md#4-layering-library-is-the-core), PRD §2.1
+- **Source:** [decisions §4](decisions.md#4-layering-library-is-the-core), [work item #65](decisions.md#accepted-internal-core-surface-changes-work-item-65-2026-08-17), PRD §2.1
 
 ### AD-7 — Offline and hermetic by contract
 

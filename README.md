@@ -326,9 +326,10 @@ Two caveats worth stating plainly:
 
 ## Architecture
 
-Everything lives in one core library; the CLI and MCP server are thin
-adapters over it. Consumers never need more than the binary — or nothing at
-all, since an OKF bundle is just markdown.
+Everything lives in one internal core library; `Okf.Core` is not a distributed
+NuGet API. The CLI and MCP server are thin adapters over it. Consumers never
+need more than the binary — or nothing at all, since an OKF bundle is just
+markdown.
 
 ```mermaid
 flowchart LR
@@ -372,8 +373,9 @@ project` writes the identical pair.
 
 **1.0.0.** What is built and gated in CI:
 
-- **`Okf.Core`** — parse, validate, trust, staleness, index, search, bundle,
-  site. Its public API was frozen by the 1.0.0 review.
+- **`Okf.Core`** — the internal library layer for parse, validate, trust, staleness,
+  index, search, bundle, and site. It is explicitly non-packable; no NuGet API is
+  distributed.
 - **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `register`,
   `unregister`, `registry`, `inbox`, `verify`, `capture`, `generated`, `bundle`,
   `site`, `skills`, `completion`, `upgrade`, `mcp`, plus `help` and `version`.
@@ -417,10 +419,11 @@ control; `mise run site` renders the identical output locally, openable from
 `file://`.
 
 1.0.0 is the first stable version, cut from the whole history when `main`
-became a release branch. Nothing about the code changed at that moment — what
-changed is the promise: the public API frozen by the 1.0.0 review, the CLI
-surface and the diagnostic identifiers are now things that move by semver
-rather than by merge. As of 2026-08-17, work on `dev` is published as
+became a release branch. The CLI surface and diagnostic identifiers are now
+things that move by semver rather than by merge. `Okf.Core` remains an internal,
+non-packable library layer rather than a distributed NuGet API; the #59 namespace
+move and #13 dead-member removals are accepted because no external consumer or
+library artifact exists. As of 2026-08-17, work on `dev` is published as
 `v1.1.0-rc.N`; promotion still requires Ringo's explicit instruction.
 
 ## Documentation

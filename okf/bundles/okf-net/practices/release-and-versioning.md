@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, every tag publishes a self-describing three-platform release the installers can verify, and the installed binary upgrades itself from the same manifest.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: "openai/gpt-5.4", at: 2026-08-17T18:14:37Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -299,9 +299,10 @@ already there rather than posting blindly and swallowing the error — a rerun o
 a tag pipeline is a normal thing to do, and every asset added since goes
 through the same loop as the first two.
 
-Still open from PRD Q10: `Okf.Core` as a NuGet package on the instance's
-built-in registry; NativeAOT for macOS and Windows, which needs a runner on
-each; code signing and notarisation; and `brew`/`winget` formulas, which want
+`Okf.Core` is explicitly non-packable and has no distributed NuGet artifact
+(work item #65). Still open from PRD Q10: NativeAOT for macOS and Windows,
+which needs a runner on each; code signing and notarisation; and `brew`/`winget`
+formulas, which want
 both a public download URL and a signed artifact. An `osx-x64`, musl or
 `linux-arm64` asset is one line in the publish job and one case label in the
 installer, and is not built on speculation.

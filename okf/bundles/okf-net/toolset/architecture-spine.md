@@ -4,7 +4,7 @@ title: The Architecture Spine
 description: A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
 tags: [okf-net, architecture, layering, governance]
-generated: { by: "claude-fable/5", at: 2026-08-16T05:54:46Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
 sources:
   - id: spine
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
@@ -24,6 +24,10 @@ measurement taken, every ruling dated. `prd.md` is the requirement-shaped
 **what**, numbered and testable. The **architecture spine** is neither: it is
 the consistency contract in between, holding only the calls two
 independently-built units could otherwise make incompatibly.[^spine]
+
+The spine's `Okf.Core` is an internal library layer behind the executable, not a
+distributed NuGet API. It is explicitly non-packable; releases ship executable
+binaries and knowledge and skills archives, not a library artifact.
 
 The test for what belongs is a single question. *If two units one level down
 were built independently, could they choose incompatibly?* Fix it in the spine
