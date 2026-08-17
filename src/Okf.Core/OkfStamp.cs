@@ -1,4 +1,3 @@
-
 namespace Okf.Core;
 
 /// <summary>

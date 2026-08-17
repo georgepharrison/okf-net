@@ -3665,7 +3665,7 @@ unprefixed convention the other internal helpers in `Okf.Core` already use
 | `CaptureCommand`'s JSON writer | It pins `NewLine = "\n"`; the shared setup does not. Folding it in would change its bytes on a Windows host. **This exposes a real inconsistency** — every other `--json` writer, in both projects, takes the platform's line ending — but fixing it is a behaviour change and belongs in its own decision |
 | `BundleArguments.ParseInstant` vs `CliArguments.ParseInstant` | Same name, different rule: `--generated-at` accepts any readable RFC 3339 spelling, `--at` accepts only the canonical form (AD-24). Unifying would silently widen or narrow one of them |
 | The three path-containment resolvers (`OkfBundle.TryResolve`, `OkfLinter.TryResolveRawPath`, `LintText.TryResolveLink`) | Same shape, three refusal sets: the bundle primitive refuses backslashes and walks symlinks (MCP-5), the manifest resolver refuses the root itself, the link classifier URL-decodes and treats a leading `/` as bundle-relative. Only the innermost "is this under that" predicate is shared, and lifting it would leave three callers each needing a different wrapper |
-| `okf lint`'s and `okf search`'s corpus walks | The same walk, but `okf search` honours an injected reader and `okf inbox` always reads from disk. Unifying them would change which of the two behaves differently — a decision about the injected reader, not a refactor |
+| `okf search`'s and `okf inbox`'s corpus walks | The same walk — every bundle, every markdown file, skip the reserved ones, count what does not parse — but `okf search` honours an injected reader and `okf inbox` always reads from disk. Unifying them settles that difference one way or the other, which is a decision about the injected reader rather than a refactor |
 | `OkfSearchEngine.Concept` re-deriving id, title, type and tags | It is `OkfConcept` plus BM25's `Weighted` and `Length`. Unifying is a real refactor of the search corpus, not a DRY pass, and `OkfIndex.Title` beside it is deliberately *not* the same rule (it flattens and rewrites `[`/`]` for §8 link labels) |
 | The command `Execute` skeleton (parse-failure block, `--help` block, the three trailing `catch`es) across eleven verbs | Genuinely repeated, and genuinely not identical: `okf capture` and `okf generated` route IO failures through their own `Usage` helper and so print an extra "Run `okf X --help`" line. Unifying would either preserve the divergence in a parameter or erase it silently; which of the two families is right is a decision |
 | The "option given more than once" refusals | One rule, three wordings ("given twice", "given twice ('a' and 'b')", "given more than once"). Unifying changes stderr text, so it is a consistency fix, not a behaviour-preserving one |
@@ -3678,7 +3678,15 @@ both nouns now. The test that pinned the old literal was updated first and shown
 a second test resolves two bundles out of one registered vault so neither noun can be
 pluralizing on the other's number.
 
-**Open for Ringo.** Two of the "left alone" rows are asking for a ruling rather than
+**Open for Ringo.** Three of the "left alone" rows are asking for a ruling rather than
 recording one: whether `--json` output should pin `\n` everywhere (today only `okf
-capture` does), and whether an IO failure should print the "Run `okf X --help`" line
-(today two verbs do and nine do not).
+capture` does), whether an IO failure should print the "Run `okf X --help`" line (today
+two verbs do and nine do not), and whether `okf inbox` should honour an injected reader
+the way `okf search` does.
+
+**One widening, recorded because it is invisible.** `FileText.WriteAtomic` resolves its
+path with `Path.GetFullPath`, which `OkfRegistry.Save` did not. A bare relative filename
+used to reach `Directory.CreateDirectory("")` and escape as a raw `ArgumentException`
+past the `catch` that wraps IO failures; it now resolves against the working directory
+and succeeds. No caller can reach it — all three pass `OkfRegistry.PathFor`, which is
+absolute — and the failure it replaces was not a behaviour anything wanted.
