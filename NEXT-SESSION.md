@@ -1,6 +1,6 @@
 # NEXT-SESSION.md — handoff prompt for the okf-net orchestrator
 
-> Paste the **Prompt** section below as the first message of a new Claude Code
+> Paste the **Prompt** section below as the first message of a new orchestration
 > session started in this repo. Everything above it is context for humans.
 
 ## Why this file exists
@@ -10,54 +10,34 @@ to the edge of 1.0.0. That thread grew so long that every turn re-read a full
 day of build logs; a fresh session with this file is far cheaper. All state
 lives in git, GitLab, and these docs — nothing depends on the old thread.
 
-## Where things stand (2026-08-16 polish day, end of session)
+## Where things stand (2026-08-17 polish close-out)
 
-- **`v1.0.0` shipped 2026-08-16.** `main` is the **stable** release branch,
-  `dev` the `rc` prerelease channel; every MR targets `dev`. `dev` is
-  promoted to `main` only on Ringo's explicit word — it has **not** been
-  promoted yet, and `dev` is now ~40 MRs ahead, cutting `v1.1.0-rc.N`. **Ask
-  Ringo at session start whether to promote.**
-- Merged on `dev` since 1.0.0 (features): #53 bare release versions, #44
-  write bookkeeping, #43 registry + `--scope`, #23 `okf upgrade`, #56
-  AGENTS.md context pointer, #51 shell completions.
-- Also merged: the polish plan, steps A–G:
-  - **A** — analyzers on `latest-all` + `.editorconfig`; #31 both halves,
-    including `_camelCase`/no `var` enforced as build errors.
-  - **B** — a trim-check CI job, a per-MR AOT-trimming proxy.
-  - **C** — mutation baseline: 73.23%
-    (`docs/spikes/2026-08-16-mutation-baseline.md`).
-  - **D+E** — dead code + test-gap sweep across six packages; #13 closed;
-    package scores now 82–91%.
-  - **F** — contextual DRY: 8 unifications; three rows left "open for
-    Ringo" in `docs/decisions.md`.
-  - **G** — #59 vertical slices: namespaces follow folders, `IDE0130` on.
-  - A commit guard now refuses `!`/`BREAKING CHANGE` (the project stays 1.x
-    forever); fixes #52 and #61 also landed.
-- **IN PROGRESS: #14 composed method.** H1 (Core Documents+Lint) and H2
-  (Core Index/Search/Trust) are merged. **H3 (Core Vault/Capture/Bundle/
-  Site/Skills/Upgrade) has not started beyond a baseline measurement —
-  resume it next.** Then H4 (`Okf.Cli`), then #15 (SOLID/DI/boundaries —
-  audit-first proposal in `docs/decisions.md`, no DI container, AOT stays a
-  constraint), then close-out: a fresh `mise run mutate` (~22 min), a docs
-  truth pass, Ringo runs `/ultrareview` from a **local** session on `dev`,
-  fix findings, then promote. The captain-brief pattern for H lanes: one
-  Opus captain per area spawns one Opus reviewer, orchestrator merges on
-  green, lanes run sequentially, and per-file Stryker scores are measured
-  before/after. The inventory and lessons live in
-  `docs/spikes/2026-08-16-composed-method.md`.
+- **`main` is stable `v1.0.0`.** Never promote `dev` without Ringo's explicit
+  instruction. This close-out session was explicitly told not to promote.
+  Merge requests still target `dev`, the `rc` prerelease channel; nothing
+  else writes to `main`.
+- `dev` contains the feature work after 1.0.0 and polish steps A–G: analyzers,
+  trim checking, the mutation baseline and test-gap sweep, contextual DRY,
+  vertical slices, and the 1.x commit guard. The three unresolved contextual
+  DRY rows remain in `docs/decisions.md`.
+- **Polish #14 and #15 are complete and closed.** All four composed-method
+  lanes are merged: H1/H2 first, H3 in !51, and H4 in !52. The audit-first
+  SOLID/DI/boundaries pass is merged in !53; it kept the no-DI-container and
+  NativeAOT constraints.
+- Close-out has two sibling lanes: the full mutation rerun on
+  `polish-mutate-2026-08-17`, and this docs truth pass. After both merge,
+  Ringo runs `/ultrareview` from a **local** session on `dev`; findings are
+  fixed before feature work resumes in this order: #45 → #46 → #49.
 - Open decisions waiting on Ringo: #54 (register locking), #55 (source-pin
   policy), #57 (`okf concept move`), #58 (`okf bundle add`), #60 (stamp
-  fallback drops YAML comments), #62 (bare-CR splitting), #50 (spike), plus
-  the three DRY rows noted above. Next feature work after polish, in order:
-  #45 → #46 → #49.
-- Operating notes: issues don't auto-close on `dev` merges — close by hand
-  with a note; never hand-type `generated.at`, use `mise run cli --
-  generated stamp <concept> --by <actor>`; SSH needs Ringo's hardware-key
-  touch (`ssh -T git@gitlab.tychostation.dev -p 2222`), HTTPS fallback via
-  an explicit URL plus the `glab` credential helper; tycho artifact-host
-  redeploys need Dockhand's "build" toggled on for the sync image; Ringo
-  prefers sequential lanes over parallel ones when the usage budget is
-  tight.
+  fallback drops YAML comments), #62 (bare-CR splitting), #50 (guided setup
+  spike), and the three open DRY rows: JSON newline pinning, the extra help
+  line on IO failure, and an injected reader for inbox.
+- The operating model is unchanged: adversarial review before push, merge
+  requests to `dev`, no writes or promotions to `main` without Ringo. Issues
+  do not auto-close on `dev`; close them by hand after merge and clear stale
+  board labels. Never hand-type `generated.at`; use `mise run cli -- generated
+  stamp <concept> --by <actor>`.
 
 ## Read these first (in this order)
 
@@ -85,20 +65,22 @@ model to review builds is now a standing practice (see #45).
 
 ## Operating model that worked
 
-- **Orchestrator delegates; it does not do leaf work.** One `Agent` per work
-  item: branch → build → adversarial review (a *second* agent) → push →
-  pipeline → MR "Closes #N" → merge → close → next.
-- **Model choice:** Sonnet for well-specified/mechanical work (docs passes,
-  config, small fixes, renames, CI YAML); Opus for builds with design freedom,
-  ALL reviews, anything touching Okf.Core semantics or security. Fable
-  (the orchestrator) writes prompts, merges, resolves conflicts, talks to Ringo.
+- **Orchestrator delegates; it does not do leaf work.** One agent per work
+  item: branch → build → adversarial review by a second agent → push →
+  pipeline → MR to `dev` → merge → close the issue by hand → next.
+- **Model choice follows the work, not this handoff.** Use an economical agent
+  for well-specified mechanical changes and the strongest available agent for
+  design-heavy builds, every review, and anything touching core semantics or
+  security. The orchestrator writes prompts, merges, resolves conflicts, and
+  talks to Ringo.
 - Parallel lanes only when files are disjoint; use `isolation: worktree` or a
   manual worktree per lane; serialize merges through the orchestrator; expect
   `docs/decisions.md`/`docs/architecture.md` tail-append conflicts (keep
   both, `dev`'s first; AD ids ascend).
-- Every builder: conventional commits, the two trailers, never `--no-verify`,
-  never merge, report back. Every reviewer: fix real defects, don't restyle,
-  mutation-spot-check claims, verify claims against the code not the report.
+- Every builder: conventional commits, the task's required trailers, never
+  `--no-verify`, never merge, report back. Every reviewer: fix real defects,
+  don't restyle, mutation-spot-check claims, and verify claims against the code
+  rather than the report.
 - Board hygiene: `status:in-progress` on start, unlabel on close;
   `status:blocked` + a note when a human is needed; new items via
   `glab issue create` with the source of the ask.
@@ -113,39 +95,28 @@ model to review builds is now a standing practice (see #45).
 
 ## Prompt
 
-Continue the okf-net project as ORCHESTRATOR — this handoff is
-**model-agnostic**: any orchestrating model (Fable, GPT/Grok via Pi, etc.)
-can run it with `glab`, `mise`, dotnet 10, and the same review-before-push
-discipline below. Read NEXT-SESSION.md, then AGENTS.md, docs/architecture.md,
-the last two sections of docs/decisions.md, docs/lessons.md,
-docs/spikes/2026-08-16-composed-method.md, and the GitLab board. Do not do
-leaf work yourself: delegate every build to a subagent (Sonnet for
-mechanical/well-specified work, Opus for design-heavy builds and for EVERY
-review), run an adversarial review agent before every push, merge only on a
-green pipeline, keep board labels current, and record decisions in
-docs/decisions.md as proposals when a call is small. `mise run lint`
-(markdownlint over docs/) must stay clean throughout.
+Continue the okf-net project as ORCHESTRATOR. This handoff is model-agnostic:
+use the available coding agents with `glab`, `mise`, dotnet 10, and the same
+review-before-push discipline. Read NEXT-SESSION.md, then AGENTS.md,
+docs/architecture.md, the last two sections of docs/decisions.md,
+docs/lessons.md, and the GitLab board. Do not redo #14 or #15; both are
+complete and closed on `dev`.
 
-First, ask Ringo whether `dev` (now ~40 MRs ahead, cutting `v1.1.0-rc.N`)
-should be promoted to `main` — raise this at session start, not as a default.
+First reconcile the two polish close-out lanes: the mutation rerun MR from
+`polish-mutate-2026-08-17` and the docs truth-pass MR. Merge requests target
+`dev`; run an adversarial review before every push, merge only on a green
+pipeline, and keep board labels current. After both close-out MRs merge, ask
+Ringo to run `/ultrareview` from a **local** session on `dev`, then delegate
+and review any findings. `mise run lint` must stay clean throughout.
 
-Then resume #14 composed method: H3 (Core Vault/Capture/Bundle/Site/Skills/
-Upgrade) has not started beyond a baseline — follow
-`docs/process/composed-method-lane-brief.md` verbatim for H3 and H4 (one Opus
-captain per area, one Opus reviewer, sequential lanes, before/after Stryker
-per file), merging on green. Then #15 (SOLID/DI/boundaries — audit-first
-proposal already in `docs/decisions.md`; no DI container, AOT stays a
-constraint). Then close out the polish phase: a fresh `mise run mutate`
-(~22 min), a docs truth pass, and ask Ringo to run `/ultrareview` from a
-local session on `dev`; fix what it finds, then ask again about promoting.
+Do not promote or write to `main`. `main` remains stable `v1.0.0`, and only
+Ringo may explicitly authorize a promotion. After the close-out and local
+review, feature order is #45 → #46 → #49.
 
-Raise #54, #55, #57, #58, #60, #62, #50, and the three open DRY rows in
-`docs/decisions.md` with Ringo as design calls when they come up. Next
-feature work after polish, in order: #45 → #46 → #49.
-
-Close issues by hand on merge (`dev` merges do not auto-close them) and stamp
-generated concepts with `mise run cli -- generated stamp`, never by hand.
-Prefer sequential lanes over parallel when the usage budget is tight. Stop
-and ask when a decision, a credential, a GitLab setting, or a promotion of
-`dev` to `main` needs Ringo. Be economical: keep status messages short, batch
-questions, and never re-derive what the docs already record.
+Raise #54, #55, #57, #58, #60, #62, #50, and the three open contextual-DRY
+rows in docs/decisions.md only as Ringo design calls. Close issues by hand
+after `dev` merges, because they do not auto-close, and clear stale board
+labels. Stamp generated concepts with `mise run cli -- generated stamp`,
+never by hand. Prefer sequential lanes when the usage budget is tight. Stop
+and ask when a decision, credential, GitLab setting, or any action involving
+`main` needs Ringo.

@@ -153,6 +153,13 @@ future session (human or agent) relearns them. Newest first within sections.
 
 ## Testing
 
+- **Compare mutation survivor sets after composed-method extraction, not small
+  percentage changes.** Smaller methods weaken Stryker's block-already-covered
+  filter, so the same behavior can produce a larger denominator and a lower
+  score while exposing more real gaps. A `catch` whose only action is `return
+  default` also produces an equivalent block-removal mutant. The measured cases
+  and survivor classifications are in
+  [`2026-08-16-composed-method.md`](spikes/2026-08-16-composed-method.md).
 - **A local acceptance matrix can silently halve.** `tests/install-sh/run.sh`
   runs the installer under `sh` and, *if it is installed*, under `dash` — the
   shell that catches a bashism `sh` would forgive. Arch does not ship `dash`,
@@ -194,6 +201,9 @@ future session (human or agent) relearns them. Newest first within sections.
 
 ## Process / agents
 
+- **A merge to `dev` does not auto-close its issue.** Close the issue by hand
+  after merge and remove workflow labels such as `status:in-progress`; otherwise
+  the board continues to advertise completed work.
 - Every `feat:` commit got an adversarial Opus review before push; each
   review found real defects the builder missed (symlink walk, marker
   detection trusting any line of a file, scalar-resolution mismatches).

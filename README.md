@@ -4,6 +4,10 @@ A .NET toolset for the [Open Knowledge Format (OKF) v0.2](https://github.com/Goo
 — portable, human- and agent-friendly knowledge bundles built from plain
 markdown and YAML frontmatter.
 
+okf-net is a trustworthy, portable implementation of the LLM Wiki pattern,
+built on OKF — agents accumulate knowledge without humans surrendering
+provenance, review, portability, or control.
+
 ## What is OKF?
 
 OKF is Google's open, vendor-neutral format for representing knowledge: a
@@ -22,8 +26,8 @@ consume.
 
 - **`okf` CLI** — a single self-contained binary (no runtime to install):
   - `okf lint` — conformance checking with a Roslyn-style severity model:
-    only spec violations block by default; every other diagnostic is a
-    warning you can promote (up to `treatAllWarningsAsErrors`)
+    only spec violations block by default; every other diagnostic is
+    non-blocking unless you promote it
   - `okf index` — deterministic `index.md` generation for progressive
     disclosure
   - `okf search` — search your project bundle, ranked and links-first;
@@ -55,7 +59,7 @@ consume.
   - `okf completion <bash|zsh|fish|pwsh>` — prints a completion script
     generated from okf's own verb table, so tab completion never lags the
     binary; the installers place it for you
-  - `okf mcp` — the same capabilities as an MCP server for agent hosts
+  - `okf mcp` — the same read capabilities as an MCP server for agent hosts
     (Claude Code, Cursor, and friends)
 - **Layered vaults** — a personal knowledge vault at `~/okf/` plus
   per-project bundles, joined through an explicit opt-in registry at
@@ -69,8 +73,8 @@ consume.
   same doctrine: `okf-capture` gets knowledge in, `okf-custodian` keeps it
   alive, and `okf-vault` gets it back out for an agent answering a question.
   They ship inside the binary and the installers place them for you
-- **Guardrails** — immutable `references/` evidence capture, provenance
-  citation discipline, and honest trust tiers (unverified →
+- **Guardrails** — hashed, immutable-after-ingestion evidence in `raw/`,
+  provenance citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)
 
 ## Install
@@ -234,20 +238,18 @@ never a failed install.
 > manifest is unsigned until then: the `sha256` check proves the bytes match
 > the manifest, and nothing yet proves the manifest came from us.
 >
-> **The publishing job is also still unproven.** `latest.json`, the binaries
-> and the installers are uploaded by a tag pipeline, and until a tag has run
-> one, the artifact host has nothing to serve. Until then, build from source:
-> `mise run publish-all` leaves all three binaries under `artifacts/<rid>/`
-> (`mise run publish-aot` still builds `linux-x64` alone into
-> `artifacts/aot/okf`).
+> The publishing path is proven by the stable `v1.0.0` release and subsequent
+> release candidates; successful tag pipelines publish all eight assets.
 
 ### What ships, and what it costs
 
+Sizes are a `v1.1.0-rc.23` snapshot from 2026-08-17.
+
 | Platform | Asset | Build | Size |
 | --- | --- | --- | --- |
-| Linux x86_64 | `okf-linux-x64` | NativeAOT | ~6.0 MB |
-| macOS Apple Silicon | `okf-osx-arm64` | trimmed self-contained | ~14.7 MB |
-| Windows x64 | `okf-win-x64.exe` | trimmed self-contained | ~14.0 MB |
+| Linux x86_64 | `okf-linux-x64` | NativeAOT | 11.1 MB |
+| macOS Apple Silicon | `okf-osx-arm64` | trimmed self-contained | 17.3 MB |
+| Windows x64 | `okf-win-x64.exe` | trimmed self-contained | 16.6 MB |
 
 Beside the binaries each release carries `okf-net-knowledge.tar.gz` (this
 repository's own knowledge bundle), `okf-skills.tar.gz` (the three agent
@@ -346,8 +348,10 @@ violate OKF conformance):
 ```text
 <project>/okf/
   README.md          # repo-facing docs, outside any bundle root
+  okf.json           # committed project configuration
   bundles/<name>/    # one or many OKF bundle roots
   custodian/         # skill + config for the maintaining agent (never distributed)
+  raw/               # captured artifacts, outside every bundle root
 ```
 
 `okf init` also writes two files at the project root, deliberately outside
@@ -368,7 +372,7 @@ project` writes the identical pair.
   site. Its public API was frozen by the 1.0.0 review.
 - **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `register`,
   `unregister`, `registry`, `inbox`, `verify`, `capture`, `generated`, `bundle`,
-  `site`, `skills`, `mcp`, plus `help` and `version`.
+  `site`, `skills`, `completion`, `upgrade`, `mcp`, plus `help` and `version`.
 - **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
   `okf_search`, `okf_read`) over stdio.
 - **Three agent skills** — `okf-capture`, `okf-custodian`, `okf-vault`,
@@ -382,10 +386,11 @@ register` / `okf unregister` / `okf registry` and `--scope` — was the other
 entry here; it landed as the first 1.0.x item and is in the list above.)
 
 Every merge to `dev` cuts an `rc` tag and every promotion to `main` cuts a
-stable one, and that tag's pipeline publishes eight assets: three binaries — `okf-linux-x64` (NativeAOT, ~6 MB),
-`okf-osx-arm64` and `okf-win-x64.exe` (trim-safe self-contained, ~15 MB each,
-because NativeAOT compiles through the host's toolchain and the only runner
-here is Linux) — this repo's knowledge bundle as `okf-net-knowledge.tar.gz`,
+stable one, and that tag's pipeline publishes eight assets: three binaries —
+`okf-linux-x64` (NativeAOT), `okf-osx-arm64` and `okf-win-x64.exe` (trim-safe
+self-contained, because NativeAOT compiles through the host's toolchain and
+the only runner here is Linux) — this repo's knowledge bundle as
+`okf-net-knowledge.tar.gz`,
 the agent skills as `okf-skills.tar.gz`, the `latest.json` release manifest,
 and the two installers that read it:
 
@@ -400,10 +405,8 @@ irm https://get.okf.tychostation.dev/install.ps1 | iex
 Two caveats, both deliberate stopping points rather than oversights. The
 artifact host **resolves only inside Ringo's network** — public exposure needs
 auth, rate limiting and a signed manifest, tracked in
-[#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26) — and until a
-tag pipeline has actually run the publishing job it has nothing to serve; see
-[Install](#install), which says so plainly and gives the
-build-from-source path. The generated knowledge site publishes from `main` to
+[#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26). The generated
+knowledge site publishes from `main` to
 [okf-net-28dd30.pages.tychostation.dev](https://okf-net-28dd30.pages.tychostation.dev),
 which is on the same internal network and behind this project's access
 control; `mise run site` renders the identical output locally, openable from
@@ -413,8 +416,8 @@ control; `mise run site` renders the identical output locally, openable from
 became a release branch. Nothing about the code changed at that moment — what
 changed is the promise: the public API frozen by the 1.0.0 review, the CLI
 surface and the diagnostic identifiers are now things that move by semver
-rather than by merge. Work in progress lands on `dev` and ships as
-`1.0.1-rc.N` until it is promoted.
+rather than by merge. As of 2026-08-17, work on `dev` is published as
+`v1.1.0-rc.N`; promotion still requires Ringo's explicit instruction.
 
 ## Documentation
 
