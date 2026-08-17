@@ -46,7 +46,7 @@ internal static class RegistryCommand
         TextWriter error,
         Func<RegistryArguments, OkfEnvironment, TextWriter, TextWriter, int> action)
     {
-        if (Parse(args, verb, subcommands, error) is not { } parsed)
+        if (ParseArguments(() => RegistryArguments.Parse(args, verb, subcommands), verb, error) is not { } parsed)
         {
             return CliApplication.ExitUsage;
         }
@@ -74,11 +74,14 @@ internal static class RegistryCommand
         }
     }
 
-    private static RegistryArguments? Parse(string[] args, string verb, bool subcommands, TextWriter error)
+    private static RegistryArguments? ParseArguments(
+        Func<RegistryArguments> parse,
+        string verb,
+        TextWriter error)
     {
         try
         {
-            return RegistryArguments.Parse(args, verb, subcommands);
+            return parse();
         }
         catch (OkfConfigException exception)
         {

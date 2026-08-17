@@ -49,15 +49,19 @@ internal sealed record ScopeSettings(OkfScopeKind Scope, string Layer)
     /// </summary>
     private static OkfConfig? ProjectConfig(OkfEnvironment environment)
     {
+        OkfConfig? project = null;
         try
         {
-            return OkfDiscovery.Resolve(null, environment).ProjectConfigPath is { } path
-                ? OkfConfig.TryLoad(path)
-                : null;
+            if (OkfDiscovery.Resolve(null, environment).ProjectConfigPath is { } path)
+            {
+                project = OkfConfig.TryLoad(path);
+            }
         }
         catch (OkfDiscoveryException)
         {
-            return null;
+            // No project vault; the global layer and the default still apply.
         }
+
+        return project;
     }
 }
