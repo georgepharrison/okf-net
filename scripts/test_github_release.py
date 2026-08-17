@@ -185,6 +185,24 @@ class GitHubReleaseTests(unittest.TestCase):
                     api, REPOSITORY, "v2.3.0-rc.1-extra", COMMIT, paths, attempts=1, interval=0
                 )
 
+    def test_refuses_a_download_url_outside_the_matching_github_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, _ = make_release_tree(Path(directory))
+            manifest_path = next(asset.path for asset in paths if asset.name == "latest.json")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["assets"]["okf-linux-x64"]["downloadUrl"] = (
+                "https://downloads.example.com/okf-linux-x64"
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            api = FakeApi({}, tag_sha=COMMIT)
+
+            with self.assertRaisesRegex(RuntimeError, "downloadUrl for okf-linux-x64"):
+                publish_github_release.publish(
+                    api, REPOSITORY, TAG, COMMIT, paths, attempts=1, interval=0
+                )
+
+            self.assertNotIn(("GET", f"/repos/{REPOSITORY}/git/ref/tags/{TAG}"), api.calls)
+
     def test_refuses_a_tag_that_points_at_a_different_commit_before_release_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, _ = make_release_tree(Path(directory))

@@ -167,6 +167,10 @@ def repository_path(repository: str, suffix: str) -> str:
     return f"/repos/{repository}{suffix}"
 
 
+def public_asset_url(repository: str, tag: str, name: str) -> str:
+    return f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}/{quote(name, safe='')}"
+
+
 def resolve_tag(api: GitHubApi, repository: str, tag: str) -> str:
     """Resolve a lightweight or annotated Git tag to its commit SHA."""
     reference = api.request(
@@ -227,7 +231,9 @@ def wait_for_mirrored_tag(
     raise RuntimeError(f"GitHub tag {tag} did not appear after {attempts} attempts: {last_error}")
 
 
-def read_local_assets(paths: list[LocalAsset], tag: str) -> tuple[dict[str, LocalAsset], dict[str, Any]]:
+def read_local_assets(
+    paths: list[LocalAsset], repository: str, tag: str
+) -> tuple[dict[str, LocalAsset], dict[str, Any]]:
     by_name = {asset.name: asset for asset in paths}
     missing = [name for name in EXPECTED_ASSETS if name not in by_name]
     extra = [name for name in by_name if name not in EXPECTED_ASSETS]
@@ -257,8 +263,9 @@ def read_local_assets(paths: list[LocalAsset], tag: str) -> tuple[dict[str, Loca
         if entry.get("size") != by_name[name].path.stat().st_size:
             raise RuntimeError(f"local {name} does not match latest.json size")
         public_url = entry.get("downloadUrl")
-        if not isinstance(public_url, str) or not is_public_download_url(public_url):
-            raise RuntimeError(f"latest.json has no validated HTTPS downloadUrl for {name}")
+        expected_url = public_asset_url(repository, tag, name)
+        if public_url != expected_url or not is_public_download_url(public_url):
+            raise RuntimeError(f"latest.json downloadUrl for {name} is not {expected_url}")
     return by_name, manifest
 
 
@@ -368,7 +375,7 @@ def publish(
     interval: float = 15.0,
 ) -> None:
     is_release_candidate(tag)
-    local, _ = read_local_assets(assets, tag)
+    local, _ = read_local_assets(assets, repository, tag)
     wait_for_mirrored_tag(api, repository, tag, commit_sha, attempts, interval)
     release = release_for_tag(api, repository, tag, commit_sha)
     verify_release_assets(api, release, local)

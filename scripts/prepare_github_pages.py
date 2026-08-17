@@ -14,9 +14,13 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from urllib.parse import quote
-
-from publish_github_release import ApiError, GitHubApi, is_public_download_url, repository_path
+from publish_github_release import (
+    ApiError,
+    GitHubApi,
+    is_public_download_url,
+    public_asset_url,
+    repository_path,
+)
 
 
 STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -32,10 +36,6 @@ def version_key(tag: str) -> tuple[int, ...] | None:
     if rc:
         return tuple(int(value) for value in rc.groups()[:3]) + (0, int(rc.group(4)))
     return None
-
-
-def public_asset_url(repository: str, tag: str, name: str) -> str:
-    return f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}/{quote(name, safe='')}"
 
 
 def listed_assets(release: dict) -> dict[str, dict]:
