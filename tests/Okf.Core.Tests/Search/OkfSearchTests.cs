@@ -784,6 +784,28 @@ public class OkfSearchTests
         Assert.True(outcome.Truncated);
     }
 
+    [Fact]
+    public void SuppliedTextIsSearchedInsteadOfTheFileOnDisk()
+    {
+        // The seam a caller holding a warm cache uses (the MCP server, a future incremental
+        // index): what `ReadText` returns is the concept, and the file is not read again.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("Reference", "Orders", "On disk."));
+
+        var read = new List<string>();
+        var options = Options();
+        options.ReadText = path =>
+        {
+            read.Add(path);
+            return Concept("Reference", "Orders", "Supplied, and phlogiston is only here.");
+        };
+
+        var outcome = OkfSearchEngine.Search([bundle.Bundle], OkfSearchQuery.Parse("phlogiston"), options);
+
+        Assert.NotEmpty(read);
+        Assert.Equal("orders.md", Assert.Single(outcome.Results).Path);
+    }
+
     private static OkfSearchOutcome Search(TempBundle bundle, string query) =>
         OkfSearchEngine.Search([bundle.Bundle], OkfSearchQuery.Parse(query), Options());
 

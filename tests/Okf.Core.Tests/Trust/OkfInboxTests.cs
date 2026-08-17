@@ -381,6 +381,21 @@ public class OkfInboxTests
         Assert.Equal(0, result.SkippedCount);
     }
 
+    [Fact]
+    public void AScanJudgesStalenessAgainstTheSuppliedDateAndNotTheClock()
+    {
+        // PRD CORE-7: the date is injected so a scan is deterministic. A scanner that read
+        // the clock instead would call both of these stale, because both `stale_after`
+        // dates are in the past by now and only one of them is in the past on 2026-08-15.
+        using var bundle = new TempBundle();
+        bundle.Add("expired.md", Document("type: Concept\nstale_after: 2026-08-14"))
+            .Add("current.md", Document("type: Concept\nstale_after: 2026-08-16"));
+
+        var result = OkfInboxScanner.Scan([bundle.Bundle], new OkfInboxOptions { Today = Today });
+
+        Assert.Equal(["expired.md"], result.For(OkfInboxReason.Stale).Select(item => item.Concept.Path));
+    }
+
     private static OkfInboxItem? Classify(string frontmatter)
     {
         var document = OkfDocument.Parse(Document(frontmatter));
