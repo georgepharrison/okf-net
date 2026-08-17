@@ -763,51 +763,58 @@ beside percentages rather than treating percentage alone as the contract.
 
 | File | Killed, before → after | Survived, before → after | Score, before → after |
 | --- | --- | --- | --- |
-| `Bundle/BundleArguments.cs` | 66 → 70 | 9 → 9 | 80.49% → 81.40% |
-| `Bundle/BundleCommand.cs` | 81 → 91 | 22 → 22 | 72.97% → 77.78% |
+| `Bundle/BundleArguments.cs` | 66 → 72 | 9 → 7 | 80.49% → 83.72% |
+| `Bundle/BundleCommand.cs` | 81 → 93 | 22 → 20 | 72.97% → 79.49% |
 | `Capture/CaptureArguments.cs` | 38 → 44 | 8 → 8 | 80.85% → 81.48% |
-| `Capture/CaptureCommand.cs` | 77 → 90 | 21 → 21 | 75.49% → 77.59% |
+| `Capture/CaptureCommand.cs` | 77 → 94 | 21 → 17 | 75.49% → 81.03% |
 | `Completion/CompletionCommand.cs` | 628 → 658 | 16 → 17 | 96.32% → 96.34% |
-| `Generated/GeneratedArguments.cs` | 22 → 28 | 2 → 2 | 88.00% → 87.50% |
-| `Generated/GeneratedCommand.cs` | 38 → 51 | 9 → 10 | 80.85% → 82.26% |
+| `Generated/GeneratedArguments.cs` | 22 → 30 | 2 → 2 | 88.00% → 93.75% |
+| `Generated/GeneratedCommand.cs` | 38 → 52 | 9 → 9 | 80.85% → 83.87% |
 | `Inbox/InboxArguments.cs` | 23 → 27 | 2 → 2 | 92.31% → 93.10% |
 | `Inbox/InboxCommand.cs` | 78 → 86 | 11 → 11 | 80.41% → 85.15% |
 | `Inbox/InboxJson.cs` | 55 → 60 | 0 → 0 | 100.00% → 100.00% |
 | `Index/IndexArguments.cs` | 23 → 27 | 2 → 2 | 92.31% → 93.10% |
 | `Index/IndexCommand.cs` | 83 → 90 | 6 → 6 | 83.00% → 87.38% |
 | `Init/InitArguments.cs` | 31 → 37 | 3 → 3 | 91.18% → 92.50% |
-| `Init/InitCommand.cs` | 44 → 50 | 12 → 13 | 72.13% → 78.12% |
+| `Init/InitCommand.cs` | 44 → 51 | 12 → 12 | 72.13% → 79.69% |
 | `Lint/LintArguments.cs` | 37 → 32 | 5 → 4 | 86.05% → 86.49% |
-| `Lint/LintCommand.cs` | 72 → 77 | 9 → 9 | 80.00% → 84.62% |
-| `Mcp/McpCommand.cs` | 53 → 59 | 11 → 14 | 74.65% → 73.75% |
-| `Mcp/McpServer.cs` | 79 → 89 | 11 → 14 | 86.81% → 85.58% |
-| `Mcp/McpToolset.cs` | 220 → 248 | 23 → 29 | 88.71% → 87.63% |
-| `Registry/RegistryArguments.cs` | 40 → 42 | 5 → 4 | 89.13% → 87.50% |
+| `Lint/LintCommand.cs` | 72 → 79 | 9 → 7 | 80.00% → 86.81% |
+| `Mcp/McpCommand.cs` | 53 → 66 | 11 → 12 | 74.65% → 82.50% |
+| `Mcp/McpServer.cs` | 79 → 94 | 11 → 9 | 86.81% → 90.38% |
+| `Mcp/McpToolset.cs` | 220 → 252 | 23 → 25 | 88.71% → 89.05% |
+| `Registry/RegistryArguments.cs` | 40 → 45 | 5 → 3 | 89.13% → 93.75% |
 | `Registry/RegistryCommand.cs` | 89 → 91 | 17 → 17 | 83.18% → 83.49% |
 | `Search/SearchArguments.cs` | 40 → 47 | 5 → 5 | 88.89% → 90.38% |
-| `Search/SearchCommand.cs` | 81 → 88 | 11 → 12 | 83.51% → 87.13% |
+| `Search/SearchCommand.cs` | 81 → 90 | 11 → 10 | 83.51% → 89.11% |
 | `Search/SearchJson.cs` | 40 → 43 | 1 → 1 | 95.24% → 95.56% |
 | `Shared/CliApplication.cs` | 47 → 50 | 5 → 4 | 88.68% → 90.91% |
 | `Shared/DiagnosticWriter.cs` | 44 → 48 | 2 → 2 | 89.80% → 90.57% |
-| `Shared/ScopeSettings.cs` | 5 → 2 | 1 → 2 | 83.33% → 50.00% |
+| `Shared/ScopeSettings.cs` | 5 → 3 | 1 → 0 | 83.33% → 100.00% |
 | `Site/SiteArguments.cs` | 43 → 49 | 3 → 3 | 93.48% → 94.23% |
 | `Site/SiteCommand.cs` | 72 → 79 | 13 → 13 | 77.42% → 81.44% |
-| `Skills/SkillsArguments.cs` | 77 → 87 | 5 → 5 | 92.77% → 92.55% |
+| `Skills/SkillsArguments.cs` | 77 → 89 | 5 → 5 | 92.77% → 94.68% |
 | `Skills/SkillsCommand.cs` | 41 → 44 | 7 → 7 | 75.93% → 78.57% |
-| `Upgrade/UpgradeArguments.cs` | 32 → 36 | 3 → 2 | 84.21% → 81.82% |
+| `Upgrade/UpgradeArguments.cs` | 32 → 43 | 3 → 1 | 84.21% → 97.73% |
 | `Upgrade/UpgradeCommand.cs` | 65 → 83 | 19 → 19 | 77.38% → 79.81% |
 | `Verify/VerifyArguments.cs` | 24 → 28 | 3 → 3 | 88.89% → 90.32% |
 | `Verify/VerifyCommand.cs` | 46 → 53 | 12 → 12 | 73.02% → 80.30% |
-| **Area (scoped run)** | **2,773 → 3,023** | **308 → 322** | **86.89% → 87.95%** |
+| **Area (scoped run)** | **2,773 → 3,068** | **308 → 293** | **86.89% → 89.29%** |
 
-The run tested 3,196 → 3,437 mutants and killed 2,773 → 3,023. A source-text
-signature comparison carried 290 survivors directly, removed 18 selected signatures and
-selected 32 more after extraction. Several apparent additions are the same contract after a
-local was renamed or an initializer was laid out over several lines; the rest concentrate in
-newly isolated return guards and MCP request validation. `CompletionTable.cs`, which this
-lane did not touch, moved 16 → 17 survivors with the same 206-mutant denominator, the same
-untouched-file noise H3 recorded. The adversarial review classifies the newly selected
-locations rather than treating their 14-net increase as a behavioural regression.
+The run tested 3,196 → 3,436 mutants and killed 2,773 → 3,068. The adversarial
+review reproduced the captain's survivor-signature comparison — 290 carried directly, 18
+stopped being selected, and 32 became visible — then classified every newly selected
+location. Seventeen were real gaps and now have mutation-constraining tests: MCP request
+and path validation, malformed tool calls, unparseable reads, capture JSON bytes, config
+precedence, return guards and repeated or missing arguments. Every test was demonstrated
+red against its exact source mutation before restoration.
+
+Six were equivalent/default artifacts and eight were diagnostic text or repeated
+materialization of an already constrained plan. `ScopeSettings.ProjectConfig` had the H1
+nullable-default catch trap; returning once after the catch removed the equivalent mutant
+and moved the file from 83.33% to 100%. `CompletionTable.cs`, untouched in this lane,
+moved 16 → 17 survivors on the same 206-mutant denominator and was accepted as the same
+selection noise H3 recorded. Every touched source file finishes at or above its baseline
+score; the whole CLI rises 86.89% → 89.29%.
 
 ### What H4 deliberately left long
 
