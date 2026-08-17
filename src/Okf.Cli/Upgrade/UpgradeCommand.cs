@@ -96,18 +96,20 @@ internal static class UpgradeCommand
     private static OkfUpgradeOptions Options(
         UpgradeArguments parsed,
         OkfEnvironment environment,
-        UpgradeRuntime self) =>
-        new OkfUpgradeOptions
+        UpgradeRuntime self)
+    {
+        string? configured = environment.GetVariable(OkfUpgradeOptions.BaseUrlVariable);
+        return new OkfUpgradeOptions
         {
-            BaseUrl = environment.GetVariable(OkfUpgradeOptions.BaseUrlVariable) is { Length: > 0 } configured
-                ? configured
-                : OkfUpgradeOptions.DefaultBaseUrl,
+            BaseUrl = configured is not null ? configured : OkfUpgradeOptions.DefaultBaseUrl,
+            UsePublicDownloadUrl = configured is null,
             Version = parsed.Version,
             Channel = parsed.Channel,
             CurrentVersion = self.Version,
             ExecutablePath = self.ExecutablePath,
             UserAgent = $"okf/{self.Version}",
         };
+    }
 
     private static OkfUpgradePlan? Resolved(OkfUpgradeOptions options, UpgradeRuntime self, TextWriter error)
     {
@@ -307,7 +309,7 @@ internal static class UpgradeCommand
         writer.WriteLine("""
             okf upgrade [options]
 
-            Replace this binary with a release from the artifact host. The release manifest
+            Replace this binary with a release from the public GitHub release host. The release manifest
             is read, the asset for this machine is downloaded beside the running binary,
             its sha256 is checked against the manifest, and only then is it renamed into
             place — so okf is either the old binary or the new one, never a partial file.
@@ -330,9 +332,12 @@ internal static class UpgradeCommand
 
             Environment:
               OKF_INSTALL_URL        Base URL to upgrade from (default
-                                     https://get.okf.tychostation.dev). The same variable
-                                     install.sh and install.ps1 read. An https base URL is
-                                     followed only to https, on every redirect; plain http
+                                     https://georgepharrison.github.io/okf-net). The same variable
+                                     install.sh and install.ps1 read. With no explicit
+                                     OKF_INSTALL_URL, assets use a validated absolute HTTPS
+                                     downloadUrl from the public manifest. An explicit base
+                                     always uses its contained relative path. An https base URL
+                                     is followed only to https, on every redirect; plain http
                                      is accepted for loopback only.
 
             Exit codes:

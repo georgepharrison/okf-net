@@ -158,7 +158,8 @@ test:
     # and loading it under a real compinit, and those tests skip themselves when no zsh is
     # on PATH. Without this the one guard against a description that breaks zsh's quoting
     # never runs in the pipeline, and a skipped test looks exactly like a passing one.
-    - apt-get update -qq && apt-get install -y -qq git zsh >/dev/null
+    - apt-get update -qq && apt-get install -y -qq git zsh python3 >/dev/null
+    - python3 scripts/test_github_release.py
     - git clone --depth 1 https://github.com/GoogleCloudPlatform/knowledge-catalog.git .reference/knowledge-catalog
     - dotnet test Okf.sln --configuration Release
 
@@ -423,6 +424,7 @@ publish:
       OKF_INSTALLER_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_FILE}"
       OKF_INSTALLER_PS_URL="${OKF_PACKAGE_BASE}/${OKF_INSTALLER_PS_FILE}"
       OKF_RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}"
+      OKF_GITHUB_RELEASE_BASE="https://github.com/georgepharrison/okf-net/releases/download/${CI_COMMIT_TAG}"
       # The job token authenticates both APIs. If the instance ever refuses it
       # for release asset links, set a project CI variable RELEASE_API_TOKEN
       # (masked, `api` scope) and this switches over with no other change.
@@ -450,7 +452,7 @@ publish:
       # prerequisite: `apt-get install clang zlib1g-dev`.
       echo "==> installing the NativeAOT toolchain (clang, zlib1g-dev)"
       apt-get update -qq
-      apt-get install -y -qq --no-install-recommends clang zlib1g-dev >/dev/null
+      apt-get install -y -qq --no-install-recommends clang zlib1g-dev python3 >/dev/null
 
     - |
       # `-p:IncludeSourceRevisionInInformationalVersion=false` (issue #53): a tag
@@ -645,13 +647,12 @@ publish:
       # two archives and two installers are more entries, not a new shape. install.sh reads
       # exactly the one it selected; sync.sh reads the ones it is told to.
       #
-      # Two locations per asset, because there are two kinds of consumer:
-      #   path — relative to whatever base URL the installer was given. This is the one
-      #          install.sh uses, and it is what lets the same manifest describe the
-      #          release from the artifact host, from a laptop, or from wherever
-      #          issue #26 lands, without a rewrite.
-      #   url  — the canonical package-registry URL. Authenticated (the project is
-      #          private), and the thing the artifact host's sync.sh pulls from.
+      # Three locations per asset, because there are three consumers:
+      #   path — relative to whatever base URL an explicit mirror or fixture provides.
+      #   url  — the unchanged authenticated package-registry URL the internal sync host
+      #          pulls from.
+      #   downloadUrl — the validated public GitHub Release URL used only when no
+      #          OKF_INSTALL_URL escape hatch was supplied.
       #
       # `generatedAt` is the commit's timestamp normalised to UTC `Z`, NOT the job's
       # clock — the same rule the bundler follows, and for the same reason: it is the
@@ -690,43 +691,50 @@ publish:
             "path": "v${OKF_VERSION}/${OKF_LINUX_FILE}",
             "size": ${OKF_LINUX_SIZE},
             "sha256": "${OKF_LINUX_SHA}",
-            "url": "${OKF_LINUX_URL}"
+            "url": "${OKF_LINUX_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_LINUX_FILE}"
           },
           "${OKF_OSX_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_OSX_FILE}",
             "size": ${OKF_OSX_SIZE},
             "sha256": "${OKF_OSX_SHA}",
-            "url": "${OKF_OSX_URL}"
+            "url": "${OKF_OSX_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_OSX_FILE}"
           },
           "${OKF_WIN_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_WIN_FILE}",
             "size": ${OKF_WIN_SIZE},
             "sha256": "${OKF_WIN_SHA}",
-            "url": "${OKF_WIN_URL}"
+            "url": "${OKF_WIN_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_WIN_FILE}"
           },
           "${OKF_KNOWLEDGE_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_KNOWLEDGE_FILE}",
             "size": ${OKF_KNOWLEDGE_SIZE},
             "sha256": "${OKF_KNOWLEDGE_SHA}",
-            "url": "${OKF_KNOWLEDGE_URL}"
+            "url": "${OKF_KNOWLEDGE_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_KNOWLEDGE_FILE}"
           },
           "${OKF_SKILLS_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_SKILLS_FILE}",
             "size": ${OKF_SKILLS_SIZE},
             "sha256": "${OKF_SKILLS_SHA}",
-            "url": "${OKF_SKILLS_URL}"
+            "url": "${OKF_SKILLS_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_SKILLS_FILE}"
           },
           "${OKF_INSTALLER_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_INSTALLER_FILE}",
             "size": ${OKF_INSTALLER_SIZE},
             "sha256": "${OKF_INSTALLER_SHA}",
-            "url": "${OKF_INSTALLER_URL}"
+            "url": "${OKF_INSTALLER_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_INSTALLER_FILE}"
           },
           "${OKF_INSTALLER_PS_FILE}": {
             "path": "v${OKF_VERSION}/${OKF_INSTALLER_PS_FILE}",
             "size": ${OKF_INSTALLER_PS_SIZE},
             "sha256": "${OKF_INSTALLER_PS_SHA}",
-            "url": "${OKF_INSTALLER_PS_URL}"
+            "url": "${OKF_INSTALLER_PS_URL}",
+            "downloadUrl": "${OKF_GITHUB_RELEASE_BASE}/${OKF_INSTALLER_PS_FILE}"
           }
         }
       }
@@ -803,6 +811,26 @@ publish:
           echo
         fi
       done
+
+    - |
+      # GitLab remains the builder and source of truth for all eight bytes. The helper
+      # waits for the downstream mirror's tag, refuses a tag at any other commit, uses a
+      # draft release on first publication, and verifies every GitHub byte after upload.
+      # It never creates a missing tag and never replaces a differing existing asset.
+      # OKF_GITHUB_TOKEN is a protected, masked project variable (issue #66).
+      echo "==> publishing the exact eight assets to GitHub Releases"
+      python3 scripts/publish_github_release.py \
+        --repository georgepharrison/okf-net \
+        --tag "${CI_COMMIT_TAG}" \
+        --commit "${CI_COMMIT_SHA}" \
+        --asset "${OKF_LINUX_FILE}=artifacts/aot/okf" \
+        --asset "${OKF_OSX_FILE}=artifacts/osx-arm64/okf" \
+        --asset "${OKF_WIN_FILE}=artifacts/win-x64/okf.exe" \
+        --asset "${OKF_KNOWLEDGE_FILE}=artifacts/${OKF_KNOWLEDGE_FILE}" \
+        --asset "${OKF_SKILLS_FILE}=artifacts/${OKF_SKILLS_FILE}" \
+        --asset "${OKF_MANIFEST_FILE}=artifacts/${OKF_MANIFEST_FILE}" \
+        --asset "${OKF_INSTALLER_FILE}=${OKF_INSTALLER_FILE}" \
+        --asset "${OKF_INSTALLER_PS_FILE}=${OKF_INSTALLER_PS_FILE}"
   artifacts:
     # Every asset is already in the package registry; these copies exist so a
     # failed link step can be diagnosed (and the artifacts retrieved) from the
@@ -822,6 +850,8 @@ publish:
       - artifacts/okf-net-knowledge.tar.gz
       - artifacts/okf-skills.tar.gz
       - artifacts/latest.json
+      - install.sh
+      - install.ps1
 
 # ============================================================================
 # The custodian's scheduled inbox (issue #7). `okf inbox` derives, per concept,

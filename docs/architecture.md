@@ -76,6 +76,8 @@ archives, timestamps, site output, all byte-identical on every machine and on ev
 rerun — while **prose is written by an agent and reviewed by a person**, which is exactly
 what the trust, staleness and acknowledgment families exist to track. The binary is a
 NativeAOT single file, so the implementation language never leaks to a consumer.
+GitLab remains the canonical release builder; GitHub is the public downstream release and
+Pages host until the separate canonical-home decision in issue #40.
 
 ## Inherited Invariants
 
@@ -111,7 +113,7 @@ section numbers below are that document's.
 
 ## Invariants & Rules
 
-Fifty-four numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
+Fifty-five numbered decisions, distilled from [decisions.md](decisions.md). Identifiers are
 stable, ascend, and are never reused. Each **Source** link is the decisions.md entry that
 argued it.
 
@@ -678,7 +680,7 @@ flowchart TB
   scripting off. The stylesheet and client script stay editable files under
   `src/Okf.Core/Assets/`, embedded as manifest resources — data in the image, not a type
   the trimmer must be told to keep. Every link is relative, so the site works identically
-  from GitLab Pages and from `file://`.
+  from GitHub Pages and from `file://`.
 - **Source:** [site milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-static-site-milestone-work-item-6-2026-08-15)
 
 ### AD-40 — Shape says what can be clicked, and the site never writes into what it renders
@@ -988,6 +990,24 @@ flowchart TB
   concept paths, tags — are deliberately not completed.
 - **Source:** [shell completions](decisions.md#proposed-decisions-shell-completions-work-item-51-2026-08-16)
 
+### AD-55 — GitLab builds exact releases; GitHub publishes and serves the public edge
+
+- **Binds:** the tag `publish` job, `latest.json`, both installers, GitHub Releases, GitHub Pages
+- **Prevents:** a public release whose bytes differ from GitLab's verified build, a tag
+  created by a downstream publisher, API-order channel drift, or binaries leaking into Pages.
+- **Rule:** GitLab is the sole builder of eight assets. The tag job waits for the mirrored
+  tag and resolves it to exactly `CI_COMMIT_SHA`, never creates a tag, then uses a draft
+  GitHub Release to upload and byte-verify all eight assets, refusing differing bytes on
+  reruns before publishing stable tags as releases and strict `-rc.N` tags as prereleases.
+  It dispatches Pages only after publication. GitHub Actions checks out mirrored `main`,
+  renders the dogfood site, and stages only `latest.json`, `install.sh`, and `install.ps1`
+  in numeric-semver-selected `stable/`, `dev/`, and `v<version>/` directories plus the
+  stable root aliases. An optional manifest `downloadUrl` is used only as a validated
+  absolute HTTPS public default; an explicit `OKF_INSTALL_URL` always resolves the
+  contained relative `path`, leaving the existing authenticated GitLab `url` unchanged.
+- **Source:** [GitHub public downstream release and Pages publication](decisions.md#github-public-downstream-release-and-pages-publication-work-item-66-2026-08-18),
+  [issue #40](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/40)
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -1024,9 +1044,11 @@ row set once it exists.
 | cyclonedx | 6.2.0 | Apache-2.0 | SBOM generation for the license gate; local tool, so its own license is checked by hand (AD-43) |
 | markdownlint-cli2 | latest (mise-managed) | — | `mise run lint` |
 | semantic-release | 25.0.9 + 3 plugins + the `conventionalcommits` preset, all pinned exactly in the `release` job | — | Cuts `vX.Y.Z` from `main` and `vX.Y.Z-rc.N` from `dev`, and creates the GitLab Release |
-| GitLab (self-hosted) | CE 19.0.1 | — | Repository, CI, Pages, generic package registry |
+| GitLab (self-hosted) | CE 19.0.1 | — | Canonical repository, CI, tags, GitLab Release and generic package registry |
+| GitHub Actions | checkout 4.2.2 · setup-dotnet 4.3.1 · configure-pages 5.0.0 · upload-pages-artifact 3.0.1 · deploy-pages 4.0.5 (full SHAs pinned in workflow) | MIT | Pages-only render and deployment |
+| GitHub Pages | Pages deployment API v1 | — | `https://georgepharrison.github.io/okf-net` public site, installers and manifests |
 | CI images | node:22-slim · mcr.microsoft.com/dotnet/sdk:10.0 · python:3.12-slim | — | Default · `.dotnet` template · `test-install` |
-| Artifact host | nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www` | — | `get.okf.tychostation.dev` (internal only) |
+| Artifact host | nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www` | — | `get.okf.tychostation.dev` (internal compatibility mirror) |
 
 ## Structural Seed
 
@@ -1046,7 +1068,7 @@ flowchart TB
     mcp --> core
     core --> vault[("vault<br/>bundles · raw · custodian")]
     core --> dist["distribution<br/>tar.gz · zip · dir"]
-    core --> site["static site<br/>GitLab Pages · file://"]
+    core --> site["static site<br/>GitHub Pages · file://"]
 ```
 
 ### Lint pipeline
@@ -1091,10 +1113,14 @@ flowchart TB
     build --> gate{"okf version matches tag,<br/>--verbose names the commit?"}
     gate -- no --> stop["fail · upload nothing"]
     gate -- yes --> reg["generic package registry<br/>okf/VERSION · 8 assets<br/>3 binaries · knowledge bundle<br/>skills archive"]
-    reg --> man["latest.json<br/>per asset: path · size · sha256 · url"]
-    man --> sync["sync.sh on the host<br/>pull · re-verify · rename"]
+    reg --> man["latest.json<br/>per asset: path · size · sha256 · url · downloadUrl"]
+    man --> github["GitHub Release<br/>draft · upload · byte-verify · publish"]
+    github --> pages["Pages workflow<br/>render mirrored main · stage small files"]
+    pages --> public["georgepharrison.github.io/okf-net<br/>stable · dev · v<version> only installers/manifests"]
+    man --> sync["internal sync.sh<br/>pull GitLab url · re-verify · rename"]
     sync --> host["get.okf.tychostation.dev"]
-    host --> inst["install.sh (Linux · macOS)<br/>install.ps1 (Windows)<br/>read latest.json · sha256 · atomic mv"]
+    public --> inst["installers<br/>public downloadUrl or explicit path"]
+    host --> inst
 ```
 
 ### Search and MCP request path
@@ -1124,7 +1150,7 @@ flowchart TB
     mdown --> gen["OkfSiteGenerator"]
     gen --> multi["one page per markdown file<br/>+ landing · dashboard · graph"]
     gen --> one["--single-file<br/>one fragment-routed page"]
-    multi --> pages["pages job<br/>default branch only"]
+    multi --> pages["GitHub Pages workflow<br/>mirrored main only"]
     multi --> local["file:// · no network"]
 ```
 
@@ -1140,12 +1166,12 @@ flowchart TB
 | `okf capture` / `okf generated` | `OkfCaptureWriter`, `OkfCaptureManifest`, `OkfStamp`; `CaptureCommand` + `GeneratedCommand` render | AD-16, AD-18, AD-19, AD-21, AD-23, AD-24, AD-30, AD-52 | SKILL-3, ACC-5 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
-| `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/` | AD-27, AD-38, AD-39, AD-40, AD-49 | PRD §5 (post-MVP roadmap) |
+| `okf site` | `OkfSiteBuilder`, `OkfSiteModel`, `OkfSiteMarkdown`, `OkfSiteHtml`, `OkfSiteGenerator`, `Assets/`; Pages staging in `scripts/prepare_github_pages.py` and `.github/workflows/pages.yml` | AD-27, AD-38, AD-39, AD-40, AD-49, AD-55 | PRD §5 (post-MVP roadmap) |
 | Skills | `skills/okf-capture`, `skills/okf-custodian`, `skills/okf-vault` — prose that calls the CLI, embedded in the binary | AD-1, AD-6, AD-16, AD-18, AD-20, AD-50, AD-52 | SKILL-1 … SKILL-8 |
 | `okf skills` | `OkfSkills`, `OkfSkillInstaller`; `SkillsCommand` + `SkillsArguments` render | AD-6, AD-7, AD-50 | SKILL-1 … SKILL-8, CLI-14 |
 | `okf completion` | `CompletionTable`, `CompletionCommand`; the dispatch table in `CliApplication` and each `*Arguments.Flags` are what it is held to | AD-6, AD-7, AD-9, AD-44, AD-54 | CLI-14, PRD §3 |
 | Custodian | `okf/custodian/` (`recipe.json`, `check-manifest.py`), the two producer skills, the scheduled `custodian-inbox` job | AD-17, AD-18, AD-21, AD-32, AD-52 | SKILL-7, ACC-5, ACC-6 |
-| Install and release | `.releaserc.yml`, the `publish` job, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50, AD-54 | CLI-17, Q10 |
+| Install and release | `.releaserc.yml`, the GitLab `publish` job, `scripts/publish_github_release.py`, `latest.json`, `install.sh`, `install.ps1`, `tests/install-sh/` | AD-19, AD-41, AD-42, AD-43, AD-50, AD-54, AD-55 | CLI-17, Q10 |
 | `okf upgrade` | `OkfUpgrade` (the only network path), `OkfUpgradeManifest`, `OkfUpgradeVersion`, `OkfUpgradePlan`; `UpgradeCommand` + `UpgradeArguments` render | AD-5, AD-6, AD-7, AD-9, AD-19, AD-41, AD-42, AD-53 | CLI-14, CLI-17 |
 | Vault resolution and config | `OkfDiscovery`, `OkfWorkingSet`, `OkfConfig`, `OkfEnvironment` | AD-2, AD-31, AD-32 | CORE-13, CLI-1, CLI-4 |
 | Registry and scope | `OkfRegistry`, `OkfScope`; `RegistryCommand`, `RegistryArguments`, `ScopeSettings` render and layer | AD-7, AD-26, AD-30, AD-31, AD-51 | CLI-2, CLI-3, MCP-3 |
@@ -1168,7 +1194,7 @@ not fix. Board:
 | [#33](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/33) — remote MCP bridge for claude.ai | A non-stdio transport is one of the things AD-29 named as the trigger to revisit the hand-rolled loop; it also depends on #26. |
 | [#34](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/34) — advisory on excessive prose in `index.md` | A new hygiene diagnostic with a configurable threshold; the range is fixed (AD-11) but the threshold's default needs real bundles to calibrate against. |
 | [#35](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/35) — spike: what okf-net should learn from BMAD's skills | A talk-first study of how a workflow can make a document's *shape* deterministic while its prose is not — this spine is the first instance. What it changes about `skills/` is the spike's output, not an input. |
-| [#40](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/40) — move the public home to GitHub after alpha | GitHub as the public surface with GitLab kept as the build factory changes remotes, release uploads, issue ownership and possibly the artifact host; timing waits on alpha feedback. |
+| [#40](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/40) — decide the canonical public home | #66 makes GitHub the interim public downstream release and Pages surface while GitLab stays the builder; deciding whether GitHub becomes canonical still requires a separate call about remotes, issues and governance. |
 | [#47](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/47) — semantic audit and affected-concept planning | Structural lint cannot decide contradictions, unsupported claims or which neighboring concepts an ingestion should revisit. The deterministic candidate set and the reviewing skill need to be designed together without making silent rewrites. |
 | [#48](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/48) — personal-vault privacy and concurrent agents | Personal vaults need an explicit policy for secrets, raw evidence, syncing and backups; concurrent writers need branch ownership and review rules that preserve actor identity and never cross-verify automatically. |
 | [#50](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/50) — guided first-run spike | Ringo's talk-first question is where guided onboarding ends and an agentic application begins. Any answer must keep every operation available non-interactively for CI and agents. |
@@ -1179,6 +1205,10 @@ not fix. Board:
 | [#60](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/60) — stamping fallback drops YAML comments | The emitter fallback can erase frontmatter comments, defeating AD-23's narrow-diff purpose. Ringo must choose wider text surgery or explicitly accept and record the loss. |
 | [#62](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/62) — bare-CR line splitting | `FileLayout` and `OkfDocument` disagree on whether a bare carriage return is a line ending. The shared rule needs a decision before the two paths can be unified without changing round-trip behavior accidentally. |
 | [#18](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/18) — site UX polish | Client-side search, provenance panel, staleness badges, a `log.md` timeline; none changes an invariant. |
+| [#67](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/67) — completion-test CPU leak | Full/completion tests can leave CPU-bound orphan processes matching `^bash -c source /tmp/okf-tests/`; unrelated to release and Pages publication. |
+| [#68](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/68) — GitLab Free SAST | GitLab Free does not provide the Ultimate SAST feature; choose a Free-compatible scanner and policy separately. |
+| [#69](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/69) — GitLab Free pipeline secret detection | GitLab Free does not provide the Ultimate secret-detection pipeline feature; choose a Free-compatible detector separately. |
+| [#70](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/70) — GitLab Free dependency-vulnerability gate | GitLab Dependency Scanning is Ultimate-only here; choose a Free-compatible vulnerability gate separately. |
 | Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35), and `okf upgrade` inherits the same gap (AD-53). |
 | An on-disk search index | Every search walks the resolved bundles and reads them; four reference bundles is milliseconds. When it stops being, the generated artifact is #24's, and a bundle must stay complete without it. |
 | Phrase queries, negation, field-qualified free text | Each is a new grammar to freeze in the JSON contract (AD-28), and none is needed by the capture skill's search-before-create loop. |

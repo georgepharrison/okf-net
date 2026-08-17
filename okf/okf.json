@@ -126,6 +126,7 @@
       "distribution",
       "drift",
       "generation",
+      "github",
       "index",
       "layering",
       "lint",
@@ -146,6 +147,7 @@
       "dependencies",
       "licensing",
       "process",
+      "pages",
       "release",
       "semantic-release",
       "versioning"

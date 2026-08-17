@@ -116,12 +116,12 @@ public sealed class OkfUpgradeTests
     /// same environment variable and may not disagree about what it means.
     /// </summary>
     [Theory]
-    [InlineData("https://get.okf.tychostation.dev")]
-    [InlineData("https://get.okf.tychostation.dev/")]
-    [InlineData("https://get.okf.tychostation.dev///")]
+    [InlineData("https://georgepharrison.github.io/okf-net")]
+    [InlineData("https://georgepharrison.github.io/okf-net/")]
+    [InlineData("https://georgepharrison.github.io/okf-net///")]
     public void TrimsEveryTrailingSlashFromTheBaseUrl(string baseUrl) =>
         Assert.Equal(
-            "https://get.okf.tychostation.dev/stable/latest.json",
+            "https://georgepharrison.github.io/okf-net/stable/latest.json",
             OkfUpgrade.ManifestUri(
                 OkfUpgrade.BaseUri(baseUrl),
                 null,
@@ -132,11 +132,11 @@ public sealed class OkfUpgradeTests
     /// release keeps one shared immutable path outside either channel tree.
     /// </summary>
     [Theory]
-    [InlineData(null, OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/stable/latest.json")]
-    [InlineData(null, OkfUpgradeChannel.Rc, "https://get.okf.tychostation.dev/dev/latest.json")]
-    [InlineData("1.0.0", OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
-    [InlineData("1.1.0-rc.1", OkfUpgradeChannel.Rc, "https://get.okf.tychostation.dev/v1.1.0-rc.1/latest.json")]
-    [InlineData("v1.0.0", OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
+    [InlineData(null, OkfUpgradeChannel.Stable, "https://georgepharrison.github.io/okf-net/stable/latest.json")]
+    [InlineData(null, OkfUpgradeChannel.Rc, "https://georgepharrison.github.io/okf-net/dev/latest.json")]
+    [InlineData("1.0.0", OkfUpgradeChannel.Stable, "https://georgepharrison.github.io/okf-net/v1.0.0/latest.json")]
+    [InlineData("1.1.0-rc.1", OkfUpgradeChannel.Rc, "https://georgepharrison.github.io/okf-net/v1.1.0-rc.1/latest.json")]
+    [InlineData("v1.0.0", OkfUpgradeChannel.Stable, "https://georgepharrison.github.io/okf-net/v1.0.0/latest.json")]
     public void BuildsTheManifestUrlTheHostServes(
         string? version,
         OkfUpgradeChannel channel,
@@ -147,6 +147,47 @@ public sealed class OkfUpgradeTests
                 OkfUpgrade.BaseUri(OkfUpgradeOptions.DefaultBaseUrl),
                 version,
                 channel).ToString());
+
+    [Fact]
+    public void UsesTheValidatedPublicDownloadUrlOnlyForThePublicDefault()
+    {
+        var asset = new OkfUpgradeAsset(
+            "okf-linux-x64",
+            "v1.0.0/okf-linux-x64",
+            new string('a', 64),
+            1,
+            "https://gitlab.tychostation.dev/registry/okf-linux-x64",
+            "https://github.com/georgepharrison/okf-net/releases/download/v1.0.0/okf-linux-x64");
+
+        Assert.Equal(
+            asset.DownloadUrl,
+            OkfUpgrade.AssetUri(
+                OkfUpgrade.BaseUri(OkfUpgradeOptions.DefaultBaseUrl),
+                asset,
+                usePublicDownloadUrl: true).ToString());
+        Assert.Equal(
+            "https://mirror.example/okf/v1.0.0/okf-linux-x64",
+            OkfUpgrade.AssetUri(
+                OkfUpgrade.BaseUri("https://mirror.example/okf"),
+                asset,
+                usePublicDownloadUrl: false).ToString());
+    }
+
+    [Theory]
+    [InlineData("http://github.com/georgepharrison/okf-net/releases/download/v1.0.0/okf-linux-x64")]
+    [InlineData("/relative/asset")]
+    [InlineData("https://user:password@github.com/okf")]
+    public void RefusesAnUnvalidatedPublicDownloadUrl(string downloadUrl)
+    {
+        var asset = new OkfUpgradeAsset("okf-linux-x64", "v1.0.0/okf-linux-x64", new string('a', 64), 1, null, downloadUrl);
+
+        var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.AssetUri(
+            OkfUpgrade.BaseUri(OkfUpgradeOptions.DefaultBaseUrl),
+            asset,
+            usePublicDownloadUrl: true));
+
+        Assert.Contains("validated absolute HTTPS downloadUrl", refusal.Message, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void ResolvesAnAssetAgainstTheBaseUrlAndNotTheRegistry()

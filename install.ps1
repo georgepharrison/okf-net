@@ -28,13 +28,13 @@
     Report what would be downloaded and installed. Write nothing.
 
 .EXAMPLE
-    irm https://get.okf.tychostation.dev/install.ps1 | iex
+    irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
 
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Channel rc
+    & ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/install.ps1))) -Channel rc
 
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
+    & ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/install.ps1))) -DryRun
 
     The one-liner idiom cannot pass arguments - "iex" gets a string, not a command - so
     arguments go through a script block. This is the same shape rustup and pnpm use.
@@ -42,7 +42,7 @@
 .NOTES
     Requires Windows PowerShell 5.1 or PowerShell 7+.
 
-    OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
+    OKF_INSTALL_URL   mirror/fixture base URL (default https://georgepharrison.github.io/okf-net)
     OKF_SKIP_SKILLS   set to 1 to install okf.exe only, no agent skills
     OKF_SKIP_COMPLETIONS  set to 1 to leave the PowerShell profile alone
 
@@ -111,7 +111,7 @@ $onWindows = (-not $PSVersionTable.ContainsKey('Platform')) -or ($PSVersionTable
 if (-not $onWindows) {
     Write-Failure @'
 this installer is for Windows. On Linux and macOS, use install.sh:
-    curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
+    curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh
 '@
 }
 
@@ -133,7 +133,8 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 # Configuration
 # ---------------------------------------------------------------------------
 
-$baseUrl = if ($env:OKF_INSTALL_URL) { $env:OKF_INSTALL_URL } else { 'https://get.okf.tychostation.dev' }
+$usePublicDownloadUrl = $null -eq $env:OKF_INSTALL_URL
+$baseUrl = if ($usePublicDownloadUrl) { 'https://georgepharrison.github.io/okf-net' } else { $env:OKF_INSTALL_URL }
 $baseUrl = $baseUrl.TrimEnd('/')
 
 # HTTPS, with one exception that is not a loophole: a loopback address, which is what an
@@ -212,8 +213,8 @@ try {
     Write-Failure @"
 could not fetch $manifestUrl
     $($_.Exception.Message)
-    If this cannot resolve, note that get.okf.tychostation.dev resolves only inside
-    Ringo's network today - see ringo/okf-net#26.
+    If this cannot resolve, check the public GitHub Pages site or set
+    OKF_INSTALL_URL to a mirror or fixture.
 "@
 }
 
@@ -239,8 +240,26 @@ $assetPath = Get-JsonProperty -Object $entry -Name 'path'
 $assetSha = Get-JsonProperty -Object $entry -Name 'sha256'
 if (-not $assetPath) { Write-Failure "the manifest for $resolved lists no $asset path" }
 if (-not $assetSha) { Write-Failure "the manifest for $resolved lists no $asset sha256" }
+if ($assetPath -match '^(?:[\\/]|[A-Za-z]:)' -or
+    $assetPath -match '(^|[\\/])\.\.(?:[\\/]|$)') {
+    Write-Failure "the manifest for $resolved names an asset path outside the install base"
+}
 
-$assetUrl = "$baseUrl/$assetPath"
+if ($usePublicDownloadUrl) {
+    $downloadUrl = Get-JsonProperty -Object $entry -Name 'downloadUrl'
+    $downloadUri = $null
+    if (-not $downloadUrl -or
+        -not [Uri]::TryCreate([string] $downloadUrl, [UriKind]::Absolute, [ref] $downloadUri) -or
+        $downloadUri.Scheme -ne 'https' -or
+        -not $downloadUri.Host -or
+        $downloadUri.UserInfo -or
+        $downloadUri.Fragment) {
+        Write-Failure "the manifest for $resolved has no validated absolute HTTPS downloadUrl for $asset"
+    }
+    $assetUrl = [string] $downloadUri
+} else {
+    $assetUrl = "$baseUrl/$assetPath"
+}
 
 Write-Note "    version:  $resolved"
 Write-Note "    binary:   $assetUrl"
