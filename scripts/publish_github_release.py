@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 
 STABLE_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
@@ -49,6 +49,34 @@ class ApiError(RuntimeError):
         super().__init__(f"GitHub API HTTP {status}: {message}")
         self.status = status
         self.body = body
+
+
+def is_github_download_host(host: str | None) -> bool:
+    return host == "github.com" or (host is not None and host.endswith(".githubusercontent.com"))
+
+
+class SafeDownloadRedirectHandler(HTTPRedirectHandler):
+    """Follow GitHub asset redirects without forwarding the API token cross-origin."""
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        redirected = super().redirect_request(request, file_pointer, code, message, headers, new_url)
+        if redirected is None:
+            return None
+        source = urlparse(request.full_url)
+        target = urlparse(redirected.full_url)
+        source_origin = (source.scheme.lower(), source.hostname, source.port)
+        target_origin = (target.scheme.lower(), target.hostname, target.port)
+        if source_origin == target_origin:
+            return redirected
+        if (
+            target.scheme.lower() != "https"
+            or target.username is not None
+            or target.password is not None
+            or not is_github_download_host(target.hostname)
+        ):
+            raise RuntimeError(f"GitHub asset download redirected to untrusted URL {redirected.full_url}")
+        redirected.remove_header("Authorization")
+        return redirected
 
 
 class GitHubApi:
@@ -119,7 +147,10 @@ class GitHubApi:
             },
         )
         try:
-            with urlopen(request, timeout=120) as response:
+            # The asset API redirects to a signed githubusercontent.com URL. urllib
+            # otherwise copies Authorization to that second origin; the redirect handler
+            # strips the PAT and refuses every non-GitHub or HTTPS downgrade destination.
+            with build_opener(SafeDownloadRedirectHandler()).open(request, timeout=120) as response:
                 return response.read()
         except (HTTPError, URLError) as error:
             status = getattr(error, "code", 0)

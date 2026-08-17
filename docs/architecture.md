@@ -1045,7 +1045,7 @@ row set once it exists.
 | markdownlint-cli2 | latest (mise-managed) | — | `mise run lint` |
 | semantic-release | 25.0.9 + 3 plugins + the `conventionalcommits` preset, all pinned exactly in the `release` job | — | Cuts `vX.Y.Z` from `main` and `vX.Y.Z-rc.N` from `dev`, and creates the GitLab Release |
 | GitLab (self-hosted) | CE 19.0.1 | — | Canonical repository, CI, tags, GitLab Release and generic package registry |
-| GitHub Actions | checkout 4.2.2 · setup-dotnet 4.3.1 · configure-pages 5.0.0 · upload-pages-artifact 3.0.1 · deploy-pages 4.0.5 (full SHAs pinned in workflow) | MIT | Pages-only render and deployment |
+| GitHub Actions | checkout 4.4.0 · setup-dotnet 4.3.1 · configure-pages 5.0.0 · upload-pages-artifact 3.0.1 · deploy-pages 4.0.5 (full SHAs pinned in workflow) | MIT | Pages-only render and deployment |
 | GitHub Pages | Pages deployment API v1 | — | `https://georgepharrison.github.io/okf-net` public site, installers and manifests |
 | CI images | node:22-slim · mcr.microsoft.com/dotnet/sdk:10.0 · python:3.12-slim | — | Default · `.dotnet` template · `test-install` |
 | Artifact host | nginx behind caddy-tycho, serving `/opt/stacks/okf-artifacts/www` | — | `get.okf.tychostation.dev` (internal compatibility mirror) |
@@ -1206,8 +1206,8 @@ not fix. Board:
 | [#62](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/62) — bare-CR line splitting | `FileLayout` and `OkfDocument` disagree on whether a bare carriage return is a line ending. The shared rule needs a decision before the two paths can be unified without changing round-trip behavior accidentally. |
 | [#18](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/18) — site UX polish | Client-side search, provenance panel, staleness badges, a `log.md` timeline; none changes an invariant. |
 | [#67](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/67) — completion-test CPU leak | Full/completion tests can leave CPU-bound orphan processes matching `^bash -c source /tmp/okf-tests/`; unrelated to release and Pages publication. |
-| [#68](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/68) — GitLab Free SAST | GitLab Free does not provide the Ultimate SAST feature; choose a Free-compatible scanner and policy separately. |
-| [#69](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/69) — GitLab Free pipeline secret detection | GitLab Free does not provide the Ultimate secret-detection pipeline feature; choose a Free-compatible detector separately. |
+| [#68](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/68) — GitLab Free SAST | Basic open-source analyzers and the downloadable SAST JSON report are Free; the story must define a gate that does not depend on Ultimate-only MR widgets or vulnerability management. |
+| [#69](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/69) — GitLab Free pipeline secret detection | Pipeline scanning and its downloadable JSON report are Free; the story must make findings visible without Ultimate-only security UI and vulnerability management. |
 | [#70](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/70) — GitLab Free dependency-vulnerability gate | GitLab Dependency Scanning is Ultimate-only here; choose a Free-compatible vulnerability gate separately. |
 | Signing | Hashes are integrity, not authenticity. A signature needs a key, a distribution channel for the public half, and a rotation policy — none of which exists. `okf-bundle.json`'s shape leaves room for a detached signature (AD-35), and `okf upgrade` inherits the same gap (AD-53). |
 | An on-disk search index | Every search walks the resolved bundles and reads them; four reference bundles is milliseconds. When it stops being, the generated artifact is #24's, and a bundle must stay complete without it. |

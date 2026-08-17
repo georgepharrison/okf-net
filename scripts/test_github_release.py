@@ -101,6 +101,45 @@ def release_for(tag: str, assets: dict[str, bytes], draft: bool = True) -> dict:
     }
 
 
+class GitHubApiTests(unittest.TestCase):
+    def test_asset_redirects_strip_authorization_and_refuse_untrusted_destinations(self):
+        handler = publish_github_release.SafeDownloadRedirectHandler()
+        request = publish_github_release.Request(
+            "https://api.github.com/repos/example/releases/assets/7",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        redirected = handler.redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            {},
+            "https://release-assets.githubusercontent.com/signed-asset",
+        )
+
+        self.assertIsNotNone(redirected)
+        self.assertIsNone(redirected.get_header("Authorization"))
+        with self.assertRaisesRegex(RuntimeError, "untrusted URL"):
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "https://downloads.example.com/capture-token",
+            )
+        with self.assertRaisesRegex(RuntimeError, "untrusted URL"):
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "http://release-assets.githubusercontent.com/downgrade",
+            )
+
+
 class GitHubReleaseTests(unittest.TestCase):
     def test_publish_waits_for_matching_tag_verifies_all_bytes_and_dispatches_pages(self):
         with tempfile.TemporaryDirectory() as directory:
