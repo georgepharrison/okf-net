@@ -1,9 +1,9 @@
 ---
 type: Playbook
 title: Release and Versioning
-description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, every tag publishes a self-describing three-platform release the installers can verify, and the installed binary upgrades itself from the same manifest.
+description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, GitLab publishes every verified asset to GitHub Releases, and GitHub Pages carries the public installers and manifests.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-18T00:00:00Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -105,9 +105,9 @@ successful release, which is how a team learns to stop reading them.
 The `publish` job produces eight artifacts under one package version, and the
 release gains an asset link per artifact.
 
-Three are binaries, of the kind described in [library, CLI, MCP
-layering](../toolset/library-cli-mcp-layering.md), and they are not built the
-same way. `okf-linux-x64` is NativeAOT, about 6 MB. `okf-osx-arm64` and
+GitLab remains the sole builder. Three assets are binaries, of the kind described
+in [library, CLI, MCP layering](../toolset/library-cli-mcp-layering.md), and they
+are not built the same way. `okf-linux-x64` is NativeAOT, about 6 MB. `okf-osx-arm64` and
 `okf-win-x64.exe` are trim-safe self-contained single files, about 15 MB each.
 The split is forced by where the runner is: NativeAOT compiles through the
 **host's** native toolchain, so a Linux runner cannot produce a Mach-O or a PE
@@ -133,10 +133,10 @@ binary — an agent host okf-net does not know about, or a project vendoring the
 files under its own `skills/`.
 
 The last three make a release **self-describing**. `latest.json` names the
-version and, per asset, a relative path, a size and a `sha256` computed in the
-job from the exact bytes it uploaded; it has been a map keyed by asset name
-from the start, so three platforms and a second archive were more entries
-rather than a new shape.
+version and, per asset, the unchanged relative `path`, authenticated GitLab
+`url`, optional public `downloadUrl`, size and `sha256` computed from the exact
+bytes uploaded. The additive URL lets public consumers use GitHub without
+breaking old manifests, mirrors or the internal host.
 `install.sh` and `install.ps1` are the installers that read it, uploaded from
 the repository so that the installer a release hands you is the one that
 release was cut with, rather than whatever is on `main` today. Both are
@@ -153,10 +153,12 @@ into a green log and reaches a tester's machine.
 
 # Installing
 
-`curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` covers Linux and
-macOS; `irm https://get.okf.tychostation.dev/install.ps1 | iex` covers Windows.
+`curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh` covers Linux and
+macOS; `irm https://georgepharrison.github.io/okf-net/install.ps1 | iex` covers Windows.
 Each reads `stable/latest.json` by default, or `dev/latest.json` when explicitly
-pointed at the `rc` channel, selects the asset for the machine it is running on,
+pointed at the `rc` channel, selects the asset for the machine it is running on, and
+uses its validated absolute HTTPS `downloadUrl` by default. An explicit
+`OKF_INSTALL_URL` instead selects the contained relative `path` for a mirror or fixture.
 verifies it against the digest in the manifest, and installs atomically — to
 `~/.local/bin/okf`, or to `%LOCALAPPDATA%\okf\bin\okf.exe` with the user
 `PATH` updated. Neither needs root or Administrator. Pinning a version,
@@ -184,12 +186,11 @@ both the binary and the digest it is checked against. `install.ps1` cannot make
 that promise: PowerShell has no equivalent of curl's `--proto-redir`. It
 requires an `https` base URL and says so in the file.
 
-The host it names is an internal nginx that pulls each release from the
-package registry and serves it read-only. **It resolves only inside Ringo's
-network**, and that is a deliberate stopping point rather than an oversight: an
-unauthenticated host serving a script people pipe into `sh` needs auth, rate
-limiting and a signed manifest before it faces the internet, and none of those
-exist yet.
+The public host is GitHub Pages at `https://georgepharrison.github.io/okf-net`.
+GitHub Actions renders the dogfood site from mirrored `main` and stages only
+installers and manifests under `stable/`, `dev/`, and `v<version>/`; binaries and
+archives remain in GitHub Releases. The authenticated internal nginx remains
+compatible through `OKF_INSTALL_URL` and the manifest's unchanged GitLab `url`.
 
 The manifest is **unsigned** for now, which is the same deferral [bundling and
 distribution](../toolset/bundling-and-distribution.md) makes about
@@ -197,16 +198,19 @@ distribution](../toolset/bundling-and-distribution.md) makes about
 the manifest; it proves nothing about who wrote the manifest. Signing is key
 management, not hashing, and it is tracked with the public-exposure work.
 
-The sync runs on the **host**, pulling from the registry, rather than on the
-runner pushing to the host. A push needs a credential on the shared runner that
-can write to the artifact host's filesystem; a pull needs only a read-only
-registry token held by the host, and nothing needs inbound access to it at all.
+The GitLab tag pipeline republishes the exact eight verified bytes to a matching
+GitHub Release. It waits for the mirrored tag to resolve to `CI_COMMIT_SHA`, never
+creates a missing tag, prefers a draft while uploading, verifies every asset on
+reruns, refuses differing bytes, marks stable tags as releases and `-rc.N` tags as
+prereleases, then dispatches a Pages refresh.
 
 # Upgrading in place
 
 Once a binary is installed it replaces itself: `okf upgrade` reads
 `stable/latest.json` by default or `dev/latest.json` under `--channel rc`, from
-the same `OKF_INSTALL_URL`, selects the asset for the machine, downloads it
+the public Pages site unless `OKF_INSTALL_URL` is explicit. The public path uses a
+validated HTTPS `downloadUrl`; mirrors and fixtures use the contained relative `path`,
+then select the asset for the machine and download it
 **beside the binary being replaced**, checks the digest
 against the manifest and only then renames it into place. `okf upgrade --check`
 answers the cheaper question — what is installed against what is published —

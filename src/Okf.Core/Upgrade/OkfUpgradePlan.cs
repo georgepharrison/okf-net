@@ -35,8 +35,14 @@ public enum OkfUpgradeChannel
 /// <summary>What <c>okf upgrade</c> was asked to do, before anything is resolved.</summary>
 public sealed class OkfUpgradeOptions
 {
-    /// <summary>The base URL to read the release from — <c>OKF_INSTALL_URL</c>, else the artifact host.</summary>
+    /// <summary>The base URL to read the release from — <c>OKF_INSTALL_URL</c>, else the public Pages site.</summary>
     public string BaseUrl { get; init; } = DefaultBaseUrl;
+
+    /// <summary>
+    /// Whether a validated absolute HTTPS <c>downloadUrl</c> may be used for assets.
+    /// Explicit mirror and fixture installs leave this false and use <c>path</c>.
+    /// </summary>
+    public bool UsePublicDownloadUrl { get; init; }
 
     /// <summary>The version to pin to, without a leading <c>v</c>; unset means the newest.</summary>
     public string? Version { get; init; }
@@ -57,10 +63,10 @@ public sealed class OkfUpgradeOptions
     public string UserAgent { get; init; } = "okf";
 
     /// <summary>
-    /// The default artifact host, shared verbatim with <c>install.sh</c> and
+    /// The public Pages site, shared verbatim with <c>install.sh</c> and
     /// <c>install.ps1</c>.
     /// </summary>
-    public const string DefaultBaseUrl = "https://get.okf.tychostation.dev";
+    public const string DefaultBaseUrl = "https://georgepharrison.github.io/okf-net";
 
     /// <summary>The environment variable that moves the base URL, as both installers read it.</summary>
     public const string BaseUrlVariable = "OKF_INSTALL_URL";

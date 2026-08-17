@@ -11,5 +11,6 @@
 # Playbook
 
 * [The Dependency License Gate](dependency-license-gate.md) - Every dependency must be Apache-2.0-compatible, checked against an allowlist over a generated SBOM in CI.
-* [Release and Versioning](release-and-versioning.md) - Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, every tag publishes a self-describing three-platform release the installers can verify, and the installed binary upgrades itself from the same manifest.
+* [GitHub Public Releases and Pages](github-public-release-and-pages.md) - GitLab remains the release builder while the GitHub mirror hosts exact releases and a Pages site with only public installers and manifests.
+* [Release and Versioning](release-and-versioning.md) - Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, GitLab publishes every verified asset to GitHub Releases, and GitHub Pages carries the public installers and manifests.
 * [Tagging Discipline](tagging-discipline.md) - The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.

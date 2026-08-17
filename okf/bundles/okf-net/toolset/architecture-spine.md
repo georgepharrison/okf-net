@@ -4,7 +4,7 @@ title: The Architecture Spine
 description: A lean contract of numbered AD rules — the calls a future builder cannot read off compliant code — with decisions.md kept as the "why" log behind it.
 resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
 tags: [okf-net, architecture, layering, governance]
-generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-17T19:32:41Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-08-18T00:00:00Z }
 sources:
   - id: spine
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/80cd6fde76a4afb62adc2256141d130e5d186723/docs/architecture.md
@@ -66,7 +66,7 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The fifty-four rules cover layering and the offline contract — including the
+The fifty-five rules cover layering and the offline contract — including the
 single, bounded exception to it, the self-replacing `okf upgrade` — the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, which bookkeeping a verb writes rather than an agent,
@@ -74,7 +74,8 @@ trust derivation and acknowledgment, the canonical timestamp,
 configuration precedence, search determinism and its engine-agnostic result
 contract, MCP containment, the bundler's dangling-and-record answer, the
 site's untrusted-data posture, the single bundle walk every surface reads,
-release stamping, the license gate, the split between what a commit hook may
+release stamping, the exact-byte GitLab-built GitHub release and Pages boundary,
+the license gate, the split between what a commit hook may
 cost and what CI owes, the registry as the only way scope widens, and the rule
 that tests must be shown to constrain the code.
 
@@ -94,6 +95,9 @@ Three conventions make the spine safe to regenerate:
    that already holds them.[^decisions]
 
 # How it relates to the rest of the vault
+
+The public-release rule keeps GitLab as the builder while GitHub is the downstream
+public release and Pages host; issue #40 remains the future canonical-home decision.
 
 The spine is a repository document, not a bundle concept, for the same reason
 `decisions.md` and `prd.md` are: `docs/` holds frontmatter-less markdown and a

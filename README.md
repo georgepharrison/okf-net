@@ -82,42 +82,43 @@ consume.
 Two channels, one pipeline. `dev` ships **release candidates**: every merge
 there cuts a `vX.Y.Z-rc.N` tag. `main` ships **stable versions**: it is
 advanced by an explicit promotion of `dev`, and that merge cuts a plain
-`vX.Y.Z`. Either tag's pipeline publishes self-contained binaries for three
-platforms to this project's generic package registry, by the same code path —
+`vX.Y.Z`. GitLab's tag pipeline remains the sole builder and publishes the eight
+verified assets to its generic package registry and to the matching GitHub Release;
 the version is read out of the tag, so a candidate and a release are built and
 verified identically.
 
 **Linux and macOS:**
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh
 ```
 
 **Windows** (PowerShell 5.1 or 7+):
 
 ```powershell
-irm https://get.okf.tychostation.dev/install.ps1 | iex
+irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
 ```
 
-Either one fetches the stable channel's manifest by default, verifies its binary's
-`sha256` against it, and installs atomically — to `~/.local/bin/okf` on Linux
+Either one fetches the stable channel's manifest by default, follows its validated
+absolute HTTPS `downloadUrl` to GitHub Releases, verifies the binary's `sha256` against it,
+and installs atomically — to `~/.local/bin/okf` on Linux
 and macOS, to `%LOCALAPPDATA%\okf\bin\okf.exe` on Windows, where it also adds
 that directory to your user `PATH`. Neither needs root or Administrator. Pin a
 version, install somewhere else, or look before you leap:
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/dev/install.sh | sh -s -- --channel rc
-curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --version 1.0.0
-curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | sh -s -- --dry-run
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh -s -- --channel rc
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh -s -- --version 1.0.0
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | OKF_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh -s -- --dry-run
 ```
 
 ```powershell
 # `iex` is handed a string, not a command, so arguments need the script-block form.
-& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/dev/install.ps1))) -Channel rc
-& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Version 1.0.0
-& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -InstallDir C:\tools\okf
-& ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
+& ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/dev/install.ps1))) -Channel rc
+& ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/install.ps1))) -Version 1.0.0
+& ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/install.ps1))) -InstallDir C:\tools\okf
+& ([scriptblock]::Create((irm https://georgepharrison.github.io/okf-net/install.ps1))) -DryRun
 ```
 
 The scripts are [`install.sh`](install.sh) and [`install.ps1`](install.ps1) in
@@ -135,8 +136,10 @@ okf upgrade --channel rc      # follow release candidates from dev
 okf upgrade --version 1.0.0   # pin a release; downgrades too
 ```
 
-Stable reads `stable/latest.json`; `--channel rc` reads `dev/latest.json`. Both use the
-same `OKF_INSTALL_URL` as the installers, while a version pin reads the shared immutable
+Stable reads `stable/latest.json`; `--channel rc` reads `dev/latest.json`. With no
+`OKF_INSTALL_URL`, the public manifest's validated HTTPS `downloadUrl` points at the matching
+GitHub Release. Setting `OKF_INSTALL_URL` is the mirror/fixture escape hatch and selects the
+manifest's contained relative `path`; a version pin reads the shared immutable
 `v<version>/latest.json`. The upgrader downloads beside the binary, checks its digest against the
 manifest, and only then renames the file into place — so `okf` is either the old
 binary or the new one, never a partial download. Nothing outside that one
@@ -173,11 +176,11 @@ skip the step entirely — if you manage your agent's skill directories
 yourself — set `OKF_SKIP_SKILLS=1`:
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_SKIP_SKILLS=1 sh
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | OKF_SKIP_SKILLS=1 sh
 ```
 
 ```powershell
-$env:OKF_SKIP_SKILLS = '1'; irm https://get.okf.tychostation.dev/install.ps1 | iex
+$env:OKF_SKIP_SKILLS = '1'; irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
 ```
 
 If the step fails, the install does not: it warns and names the command to run
@@ -223,27 +226,25 @@ resolves a vault or walks a bundle, because the tab key has to be instant.
 To skip the step, set `OKF_SKIP_COMPLETIONS=1`:
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | OKF_SKIP_COMPLETIONS=1 sh
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | OKF_SKIP_COMPLETIONS=1 sh
 ```
 
 ```powershell
-$env:OKF_SKIP_COMPLETIONS = '1'; irm https://get.okf.tychostation.dev/install.ps1 | iex
+$env:OKF_SKIP_COMPLETIONS = '1'; irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
 ```
 
 A completion that fails to land is a warning naming the command to run by hand,
 never a failed install.
 
-> **`get.okf.tychostation.dev` resolves only inside Ringo's network today.** The
-> host is an internal nginx behind the internal Caddy; there is no public DNS
-> record and no public route, so the one-liners above will not resolve for
-> anyone else. Public availability — and the auth, rate limiting and
-> **manifest signing** that have to come with it — is tracked in
-> [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26). The
-> manifest is unsigned until then: the `sha256` check proves the bytes match
-> the manifest, and nothing yet proves the manifest came from us.
+> The public default is [GitHub Pages](https://georgepharrison.github.io/okf-net):
+> it stages only installers and manifests, while binaries and archives stay in
+> matching GitHub Releases. Existing internal mirrors and fixtures remain supported
+> by setting `OKF_INSTALL_URL`; that explicit path uses the manifest's contained
+> relative `path` and keeps the authenticated GitLab `url` unchanged.
 >
-> The publishing path is proven by the stable `v1.0.0` release and subsequent
-> release candidates; successful tag pipelines publish all eight assets.
+> The manifest is unsigned: `sha256` proves bytes match the manifest, not who wrote
+> it. Public signing and broader exposure hardening remain tracked separately in
+> [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26).
 
 ### What ships, and what it costs
 
@@ -401,22 +402,22 @@ the agent skills as `okf-skills.tar.gz`, the `latest.json` release manifest,
 and the two installers that read it:
 
 ```sh
-curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
+curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh
 ```
 
 ```powershell
-irm https://get.okf.tychostation.dev/install.ps1 | iex
+irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
 ```
 
 Two caveats, both deliberate stopping points rather than oversights. The
-artifact host **resolves only inside Ringo's network** — public exposure needs
+internal artifact host remains available through `OKF_INSTALL_URL`; public
+release downloads come from GitHub Releases and the Pages site carries no
+binaries or archives. Public exposure still needs
 auth, rate limiting and a signed manifest, tracked in
 [#26](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/26). The generated
-knowledge site publishes from `main` to
-[okf-net-28dd30.pages.tychostation.dev](https://okf-net-28dd30.pages.tychostation.dev),
-which is on the same internal network and behind this project's access
-control; `mise run site` renders the identical output locally, openable from
-`file://`.
+knowledge site publishes from mirrored `main` to
+[georgepharrison.github.io/okf-net](https://georgepharrison.github.io/okf-net);
+`mise run site` renders the same dogfood content locally, openable from `file://`.
 
 1.0.0 is the first stable version, cut from the whole history when `main`
 became a release branch. The CLI surface and diagnostic identifiers are now

@@ -4002,3 +4002,38 @@ and the removals in [work item #13](#proposed-decisions-two-unreferenced-public-
 1.x line because no library artifact or external consumer exists. Neither member is to be
 restored. The freeze remains an in-repository compatibility and analyzer constraint, not a
 promise of a NuGet API.
+
+### GitHub public downstream release and Pages publication (work item #66, 2026-08-18)
+
+The public surface moves before the canonical-home question does. GitLab remains the
+canonical repository and the sole builder of the eight release assets; GitHub
+`georgepharrison/okf-net` is a downstream push mirror. The GitLab tag pipeline republishes
+those exact local, digest-verified bytes to a matching GitHub Release. It waits for the
+mirrored tag and resolves lightweight or annotated tags to the exact `CI_COMMIT_SHA`; a
+missing tag is an error and is never created by the publisher.
+
+Publication is rerun-safe without becoming permissive. A missing release is created as a
+draft, all eight named assets are uploaded, and every existing or newly uploaded asset is
+downloaded and compared byte-for-byte with the GitLab artifact. A differing asset refuses
+the run rather than replacing history. Stable tags are published releases; strict
+`-rc.N` tags are prereleases. Once all eight pass, the draft is published and a repository
+dispatch asks GitHub Actions to refresh Pages.
+
+GitHub Actions does not build release binaries. Its Pages workflow checks out mirrored
+`main`, renders the dogfood site, and runs a standard-library helper that selects stable
+and RC releases by numeric semantic-version order, not GitHub API order. It stages only
+`latest.json`, `install.sh`, and `install.ps1` in root aliases, `stable/`, `dev/`, and
+`v<version>/`; binaries and archives remain in GitHub Releases. The action uses immutable
+full commit SHAs for every action.
+
+`latest.json` gains one optional `downloadUrl` per asset. The existing relative `path` and
+authenticated GitLab `url` are preserved byte-for-byte, so old manifests and the internal
+host continue to work. A public default install or upgrade uses only a validated absolute
+HTTPS `downloadUrl`; an explicit `OKF_INSTALL_URL` always selects the contained relative
+`path` for mirrors and fixtures. Stable/dev channels, pinned versions, redirect restrictions,
+response bounds, digest verification, same-filesystem staging, atomic replacement, and
+NativeAOT/trim gates are unchanged.
+
+Issue #40 remains open. This is an interim public downstream arrangement, not a decision
+that GitHub has become the canonical home. A later canonical-home decision must settle
+remotes, issue tracking, and governance separately.

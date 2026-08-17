@@ -148,43 +148,50 @@ EOF
       "path": "v$v/okf-linux-x64",
       "size": $(wc -c <"$dir/okf-linux-x64"),
       "sha256": "$(sha_line okf-linux-x64)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-linux-x64"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-linux-x64",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/okf-linux-x64"
     },
     "okf-osx-arm64": {
       "path": "v$v/okf-osx-arm64",
       "size": $(wc -c <"$dir/okf-osx-arm64"),
       "sha256": "$(sha_line okf-osx-arm64)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-osx-arm64"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-osx-arm64",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/okf-osx-arm64"
     },
     "okf-win-x64.exe": {
       "path": "v$v/okf-win-x64.exe",
       "size": $(wc -c <"$dir/okf-win-x64.exe"),
       "sha256": "$(sha_line okf-win-x64.exe)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-win-x64.exe"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-win-x64.exe",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/okf-win-x64.exe"
     },
     "okf-net-knowledge.tar.gz": {
       "path": "v$v/okf-net-knowledge.tar.gz",
       "size": $(wc -c <"$dir/okf-net-knowledge.tar.gz"),
       "sha256": "$(sha_line okf-net-knowledge.tar.gz)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-net-knowledge.tar.gz",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/okf-net-knowledge.tar.gz"
     },
     "okf-skills.tar.gz": {
       "path": "v$v/okf-skills.tar.gz",
       "size": $(wc -c <"$dir/okf-skills.tar.gz"),
       "sha256": "$(sha_line okf-skills.tar.gz)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-skills.tar.gz"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/okf-skills.tar.gz",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/okf-skills.tar.gz"
     },
     "install.sh": {
       "path": "v$v/install.sh",
       "size": $(wc -c <"$dir/install.sh"),
       "sha256": "$(sha_line install.sh)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.sh"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.sh",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/install.sh"
     },
     "install.ps1": {
       "path": "v$v/install.ps1",
       "size": $(wc -c <"$dir/install.ps1"),
       "sha256": "$(sha_line install.ps1)",
-      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.ps1"
+      "url": "https://gitlab.tychostation.dev/api/v4/projects/ringo%2Fokf-net/packages/generic/okf/$v/install.ps1",
+      "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v$v/install.ps1"
     }
   }
 }
@@ -239,6 +246,33 @@ for _ in $(seq 1 50); do
 done
 curl -fsS "$base/latest.json" >/dev/null || { echo "fixture server never came up" >&2; cat "$work/server.log" >&2; exit 2; }
 
+# The public default is exercised without a network or a certificate. This curl shim maps
+# the public Pages and GitHub Release URLs back to the same fixture server, while leaving
+# every curl option and the installer's real download code intact.
+public_shim="$work/public-curl"
+mkdir -p "$public_shim"
+cat >"$public_shim/curl" <<EOF
+#!/bin/bash
+args=()
+skip=0
+for arg in "\$@"; do
+  if [ "\$skip" -eq 1 ]; then skip=0; continue; fi
+  case "\$arg" in
+    --proto|--proto-redir) skip=1; continue ;;
+    https://georgepharrison.github.io/okf-net/stable/*|https://georgepharrison.github.io/okf-net/dev/*|https://georgepharrison.github.io/okf-net/v*)
+      arg="${base}\${arg#https://georgepharrison.github.io/okf-net}" ;;
+    https://github.com/georgepharrison/okf-net/releases/download/v*/*)
+      release_path="\${arg#https://github.com/georgepharrison/okf-net/releases/download/}"
+      tag="\${release_path%%/*}"
+      name="\${release_path#*/}"
+      arg="${base}/\${tag}/\${name}" ;;
+  esac
+  args+=("\$arg")
+done
+exec $(command -v curl) "\${args[@]}"
+EOF
+chmod +x "$public_shim/curl"
+
 # ---------------------------------------------------------------------------
 # run <shell> <install-dir> [args...] — invoke the installer, capture rc + merged output.
 # ---------------------------------------------------------------------------
@@ -264,6 +298,20 @@ fi
 echo "shells under test: ${shells[*]}"
 
 for sh_bin in "${shells[@]}"; do
+
+note "[$sh_bin] public default uses downloadUrl"
+public_dir="$work/bin-public-$sh_bin"
+public_stub_log="$work/stub-public-$sh_bin.log"
+: >"$public_stub_log"
+set +e
+out="$(env -u OKF_INSTALL_URL OKF_INSTALL_DIR="$public_dir" OKF_STUB_LOG="$public_stub_log" \
+       PATH="$public_shim:$PATH" "$sh_bin" "$installer" 2>&1)"
+rc=$?
+set -e
+check_eq "public default exits 0" "0" "$rc"
+check_contains "public default reads the Pages manifest" "https://georgepharrison.github.io/okf-net/stable/latest.json" "$out"
+check_contains "public default uses the GitHub downloadUrl" "https://github.com/georgepharrison/okf-net/releases/download/v$VERSION_NEW/okf-linux-x64" "$out"
+check_eq "public default installs the release bytes" "$(cat "$www/v$VERSION_NEW/okf-linux-x64")" "$(cat "$public_dir/okf")"
 
 note "[$sh_bin] happy path"
 dir="$work/bin-happy-$sh_bin"
@@ -787,7 +835,7 @@ dir="$work/bin-missing-$sh_bin"
 run "$sh_bin" "$dir" --version 9.9.9
 if [[ "$rc" -ne 0 ]]; then ok "exits non-zero"; else bad "exits non-zero" "exited 0"; fi
 check_contains "names the URL it could not fetch" "v9.9.9/latest.json" "$out"
-check_contains "mentions the local-only caveat" "ringo/okf-net#26" "$out"
+check_contains "mentions the public Pages and mirror escape hatch" "OKF_INSTALL_URL" "$out"
 
 note "[$sh_bin] bad usage exits 2"
 run "$sh_bin" "$work/bin-usage-$sh_bin" --wat

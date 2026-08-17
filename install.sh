@@ -1,7 +1,7 @@
 #!/bin/sh
 # okf installer, for Linux and macOS. On Windows, use install.ps1.
 #
-#   curl -fsSL https://get.okf.tychostation.dev/install.sh | sh
+#   curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh
 #
 # Downloads the newest `okf` release, verifies it against the release manifest, installs
 # it to ~/.local/bin/okf, runs `okf skills install` to place the agent skills the binary
@@ -20,7 +20,7 @@
 #   install.sh --help
 #
 # Environment:
-#   OKF_INSTALL_URL   base URL to install from   (default https://get.okf.tychostation.dev)
+#   OKF_INSTALL_URL   mirror/fixture base URL (default https://georgepharrison.github.io/okf-net)
 #   OKF_INSTALL_DIR   directory to install into  (default $HOME/.local/bin)
 #   OKF_SKIP_SKILLS   set to 1 to install the binary only, no agent skills
 #   OKF_SKIP_COMPLETIONS  set to 1 to skip the shell completion for your $SHELL
@@ -36,7 +36,13 @@ set -eu
 # copy-paste — would still build the doubled path this exists to prevent. install.ps1 uses
 # `TrimEnd('/')`, which strips all of them, and the two installers should not disagree
 # about what the same environment variable means.
-OKF_BASE_URL="${OKF_INSTALL_URL:-https://get.okf.tychostation.dev}"
+if [ "${OKF_INSTALL_URL+x}" = x ]; then
+  OKF_INSTALL_URL_GIVEN=1
+  OKF_BASE_URL="$OKF_INSTALL_URL"
+else
+  OKF_INSTALL_URL_GIVEN=0
+  OKF_BASE_URL="https://georgepharrison.github.io/okf-net"
+fi
 while [ "${OKF_BASE_URL%/}" != "$OKF_BASE_URL" ]; do
   OKF_BASE_URL="${OKF_BASE_URL%/}"
 done
@@ -58,7 +64,7 @@ usage: install.sh [--version <version> | --channel <stable|rc>] [--dry-run]
   -h, --help      this message
 
 environment:
-  OKF_INSTALL_URL   base URL to install from  (default https://get.okf.tychostation.dev)
+  OKF_INSTALL_URL   mirror/fixture base URL (default https://georgepharrison.github.io/okf-net)
   OKF_INSTALL_DIR   install directory         (default $HOME/.local/bin)
   OKF_SKIP_SKILLS   set to 1 to skip `okf skills install`
   OKF_SKIP_COMPLETIONS  set to 1 to skip the shell completion for your $SHELL
@@ -172,7 +178,7 @@ case "${os}/${arch}" in
   *)
     die "okf ships Linux x86_64 and macOS arm64 binaries; this is ${os} (${arch}).
     On Windows, use the PowerShell installer instead:
-        irm https://get.okf.tychostation.dev/install.ps1 | iex
+        irm https://georgepharrison.github.io/okf-net/install.ps1 | iex
     Otherwise build from source: https://gitlab.tychostation.dev/ringo/okf-net"
     ;;
 esac
@@ -251,13 +257,14 @@ sha256_of() { # sha256_of <file>
 # Read with sed rather than jq or python3: an installer piped into `sh` on a fresh box may
 # have neither, and needing one would trade the whole point of a single-command install for
 # three scalar strings. That is affordable only because okf-net generates this file: every
-# value in it (a semver, a relative path, a hex digest, an RFC3339 stamp) is guaranteed
+# value in it (a semver, a relative path, an absolute HTTPS URL, a hex digest, an RFC3339 stamp) is guaranteed
 # free of whitespace and of quotes, and no asset object nests another. `tr -d` then flattens
 # the pretty-printing away, so the reader does not depend on how the JSON is laid out.
 #
 # The corresponding obligation is on the producer: the `publish` job in .gitlab-ci.yml must
 # keep those guarantees, and tests/install-sh covers the reader against a manifest written
-# the way that job writes it.
+# the way that job writes it. An explicit OKF_INSTALL_URL always chooses `path`; the public
+# default chooses `downloadUrl` and validates its HTTPS shape before fetching.
 # ---------------------------------------------------------------------------
 
 manifest_flat() { # manifest_flat <file>
@@ -294,8 +301,8 @@ fi
 say "    manifest: ${manifest_url}"
 download "$manifest_url" "$tmp/latest.json" \
   || die "could not fetch ${manifest_url}
-    If this hangs or cannot resolve, note that get.okf.tychostation.dev resolves only
-    inside Ringo's network today — see ringo/okf-net#26."
+    If this hangs or cannot resolve, check the public GitHub Pages site or set
+    OKF_INSTALL_URL to a mirror/fixture."
 
 resolved="$(manifest_version "$tmp/latest.json")"
 [ -n "$resolved" ] || die "no version in ${manifest_url} — is it a release manifest?"
@@ -308,8 +315,27 @@ asset_path="$(manifest_asset "$tmp/latest.json" "$OKF_ASSET" path)"
 asset_sha="$(manifest_asset "$tmp/latest.json" "$OKF_ASSET" sha256)"
 [ -n "$asset_path" ] || die "the manifest for ${resolved} lists no ${OKF_ASSET} path"
 [ -n "$asset_sha" ]  || die "the manifest for ${resolved} lists no ${OKF_ASSET} sha256"
+case "$asset_path" in
+  /*|../*|*/../*|*/..|*\\*)
+    die "the manifest for ${resolved} names an asset path outside the install base"
+    ;;
+esac
 
-asset_url="${OKF_BASE_URL}/${asset_path}"
+if [ "$OKF_INSTALL_URL_GIVEN" -eq 1 ]; then
+  asset_url="${OKF_BASE_URL}/${asset_path}"
+else
+  asset_url="$(manifest_asset "$tmp/latest.json" "$OKF_ASSET" downloadUrl)"
+  public_rest="${asset_url#https://}"
+  public_host="${public_rest%%/*}"
+  case "$asset_url:$public_host:$public_rest" in
+    https://?*/*:?*:?*/*) ;;
+    *) die "the manifest for ${resolved} has no validated absolute HTTPS downloadUrl for ${OKF_ASSET}" ;;
+  esac
+  case "$public_host" in
+    *'@'*|*'#'*|*'?'*|*' '*|*'"'*|*"'"*)
+      die "the manifest for ${resolved} has no validated absolute HTTPS downloadUrl for ${OKF_ASSET}" ;;
+  esac
+fi
 dest="${OKF_DIR}/okf"
 
 say "    version:  ${resolved}"

@@ -14,7 +14,8 @@ public sealed class OkfUpgradeAsset
     /// <param name="sha256">The expected digest, 64 lowercase hex digits (AD-19).</param>
     /// <param name="size">The size in bytes, or <c>0</c> when the manifest carried none.</param>
     /// <param name="url">The absolute registry URL, which no consumer of this type fetches.</param>
-    public OkfUpgradeAsset(string name, string path, string sha256, long size, string? url)
+    /// <param name="downloadUrl">An optional public HTTPS download URL.</param>
+    public OkfUpgradeAsset(string name, string path, string sha256, long size, string? url, string? downloadUrl = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -24,6 +25,7 @@ public sealed class OkfUpgradeAsset
         Sha256 = sha256;
         Size = size;
         Url = url;
+        DownloadUrl = downloadUrl;
     }
 
     /// <summary>The asset's name — <c>okf-linux-x64</c>, <c>install.sh</c>, and so on.</summary>
@@ -47,6 +49,12 @@ public sealed class OkfUpgradeAsset
     /// which pulls with a token; okf-net itself never fetches it.
     /// </summary>
     public string? Url { get; }
+
+    /// <summary>
+    /// An optional public HTTPS URL for a release asset. It is used only for the public
+    /// default install path; an explicit <c>OKF_INSTALL_URL</c> always uses <see cref="Path"/>.
+    /// </summary>
+    public string? DownloadUrl { get; }
 }
 
 /// <summary>
@@ -191,7 +199,8 @@ public sealed class OkfUpgradeManifest
             path,
             sha256,
             AssetSize(entry.Value),
-            StrictJson.String(entry.Value, "url"));
+            StrictJson.String(entry.Value, "url"),
+            StrictJson.String(entry.Value, "downloadUrl"));
     }
 
     private static long AssetSize(JsonElement asset) =>

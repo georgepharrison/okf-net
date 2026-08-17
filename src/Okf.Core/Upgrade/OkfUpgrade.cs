@@ -108,7 +108,7 @@ public static class OkfUpgrade
             manifest.Version,
             asset,
             manifestUri,
-            AssetUri(baseUri, asset),
+            AssetUri(baseUri, asset, options.UsePublicDownloadUrl),
             target);
     }
 
@@ -474,16 +474,47 @@ public static class OkfUpgrade
     /// <param name="asset">The asset.</param>
     /// <returns>The asset's URL.</returns>
     /// <remarks>
-    /// The manifest's relative <c>path</c>, never its absolute <c>url</c>: that one names
-    /// the package registry, and okf must not know GitLab exists (AD-42). Resolving against
-    /// the base URL is also what makes the same manifest describe the release from the
-    /// artifact host, from a mirror, or from a fixture on localhost.
+    /// The manifest's relative <c>path</c>, never its absolute registry <c>url</c>. This is
+    /// the mirror and fixture path and keeps old manifests compatible (AD-42).
     /// </remarks>
-    public static Uri AssetUri(Uri baseUri, OkfUpgradeAsset asset)
+    public static Uri AssetUri(Uri baseUri, OkfUpgradeAsset asset) =>
+        AssetUri(baseUri, asset, usePublicDownloadUrl: false);
+
+    /// <summary>
+    /// Resolves an asset using the optional public URL or the contained relative path.
+    /// </summary>
+    /// <param name="baseUri">The normalized manifest base URL.</param>
+    /// <param name="asset">The asset.</param>
+    /// <param name="usePublicDownloadUrl">Whether this is the public default path.</param>
+    /// <returns>The validated download URL.</returns>
+    /// <exception cref="OkfUpgradeException">The public URL is absent or not HTTPS.</exception>
+    public static Uri AssetUri(Uri baseUri, OkfUpgradeAsset asset, bool usePublicDownloadUrl)
     {
         ArgumentNullException.ThrowIfNull(baseUri);
         ArgumentNullException.ThrowIfNull(asset);
+        if (usePublicDownloadUrl)
+        {
+            return PublicDownloadUri(asset);
+        }
+
         return Under(baseUri, asset.Path.TrimStart('/'));
+    }
+
+    private static Uri PublicDownloadUri(OkfUpgradeAsset asset)
+    {
+        if (asset.DownloadUrl is not { Length: > 0 } value
+            || !Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || uri.Host.Length == 0
+            || uri.UserInfo.Length > 0
+            || uri.Fragment.Length > 0)
+        {
+            throw new OkfUpgradeException(
+                $"release {asset.Name} has no validated absolute HTTPS downloadUrl; " +
+                "set OKF_INSTALL_URL to use its contained relative path instead.");
+        }
+
+        return uri;
     }
 
     /// <summary>
@@ -620,8 +651,8 @@ public static class OkfUpgrade
         {
             throw new OkfUpgradeException(
                 $"could not fetch {current}: {exception.Message}\n" +
-                "    If this cannot resolve, note that get.okf.tychostation.dev resolves only\n" +
-                "    inside Ringo's network today — see ringo/okf-net#26.",
+                "    If this cannot resolve, check the public GitHub Pages site or set\n" +
+                "    OKF_INSTALL_URL to a mirror or fixture.",
                 exception);
         }
     }
@@ -719,7 +750,7 @@ public static class OkfUpgrade
                 $"cannot write to {Path.GetDirectoryName(staging)}: {exception.Message}\n" +
                 "    okf upgrade replaces the binary where it already is, so it needs to write\n" +
                 "    there. Reinstall into a directory you own instead:\n" +
-                "        curl -fsSL https://get.okf.tychostation.dev/install.sh | sh",
+                "        curl -fsSL https://georgepharrison.github.io/okf-net/install.sh | sh",
                 exception);
         }
     }

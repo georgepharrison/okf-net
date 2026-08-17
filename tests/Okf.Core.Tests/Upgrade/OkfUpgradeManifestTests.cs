@@ -87,6 +87,32 @@ public sealed class OkfUpgradeManifestTests
     }
 
     [Fact]
+    public void ReadsAnOptionalPublicDownloadUrlWithoutChangingTheMirrorPathOrRegistryUrl()
+    {
+        var manifest = OkfUpgradeManifest.Parse(
+            """
+            {
+              "version": "2.0.0",
+              "assets": {
+                "okf-linux-x64": {
+                  "path": "v2.0.0/okf-linux-x64",
+                  "sha256": "ab",
+                  "url": "https://gitlab.example/okf-linux-x64",
+                  "downloadUrl": "https://github.com/georgepharrison/okf-net/releases/download/v2.0.0/okf-linux-x64"
+                }
+              }
+            }
+            """);
+
+        var asset = manifest.Find("okf-linux-x64")!;
+        Assert.Equal("v2.0.0/okf-linux-x64", asset.Path);
+        Assert.Equal("https://gitlab.example/okf-linux-x64", asset.Url);
+        Assert.Equal(
+            "https://github.com/georgepharrison/okf-net/releases/download/v2.0.0/okf-linux-x64",
+            asset.DownloadUrl);
+    }
+
+    [Fact]
     public void RefusesTextThatIsNotAManifest()
     {
         var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgradeManifest.Parse("<!DOCTYPE html>"));
@@ -157,6 +183,7 @@ public sealed class OkfUpgradeManifestTests
         Assert.Null(manifest.Tag);
         Assert.Null(manifest.GeneratedAt);
         Assert.Null(asset.Url);
+        Assert.Null(asset.DownloadUrl);
         Assert.Equal(0, asset.Size);
         Assert.Equal("v2.0.0/okf-linux-x64", asset.Path);
     }
