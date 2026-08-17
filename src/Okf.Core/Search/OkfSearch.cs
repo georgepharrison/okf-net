@@ -270,14 +270,21 @@ public static class OkfSearchEngine
             foreach (string file in bundle.MarkdownFiles().Where(file => !OkfBundle.IsReservedFile(file)))
             {
                 string text = options.ReadText?.Invoke(file) ?? File.ReadAllText(file);
+
+                // Only the parse is guarded. Indexing what parsed cannot raise this, and
+                // if it ever did, counting it as an unreadable file would hide the bug.
+                OkfDocument document;
                 try
                 {
-                    corpus.Add(Concept.Of(bundle, file, OkfDocument.Parse(text)));
+                    document = OkfDocument.Parse(text);
                 }
                 catch (OkfDocumentException)
                 {
                     skipped++;
+                    continue;
                 }
+
+                corpus.Add(Concept.Of(bundle, file, document));
             }
         }
 

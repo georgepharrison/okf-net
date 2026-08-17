@@ -287,15 +287,21 @@ public static class OkfInboxScanner
         {
             foreach (string file in bundle.MarkdownFiles().Where(file => !OkfBundle.IsReservedFile(file)))
             {
+                // Only the parse is guarded. Reading the lifecycle of what parsed cannot
+                // raise this, and if it ever did, counting it as an unreadable file would
+                // hide the bug.
+                OkfDocument document;
                 try
                 {
-                    OkfDocument document = OkfDocument.Parse(File.ReadAllText(file));
-                    concepts.Add(new OkfConcept(bundle, file, document, today));
+                    document = OkfDocument.Parse(File.ReadAllText(file));
                 }
                 catch (OkfDocumentException)
                 {
                     skipped++;
+                    continue;
                 }
+
+                concepts.Add(new OkfConcept(bundle, file, document, today));
             }
         }
 

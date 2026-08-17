@@ -28,13 +28,15 @@ The scanner lives in the scratchpad rather than in the repo: it exists to rank
 files for one work item, and a heuristic C# parser that nothing gates on is not
 a tool the repo should carry.
 
-It also has a known blind spot, found on review: it silently skips some members
-in files whose bodies carry brace-bearing string literals — interpolated holes
-and embedded JSON — because those unbalance its brace depth. Seven rows below
-were re-measured by hand against `dev` at `73c91ae` and corrected; the count
-column is therefore a **floor**, not a total, and a file's real longest method
-may be one the scanner never saw. Read the ranking as "at least this much work
-here".
+It also has a known blind spot: it silently skips some members, so the count
+column is a **floor**, not a total, and a file's real longest method may be one
+the scanner never saw. Read the ranking as "at least this much work here". Seven
+rows below were re-measured by hand against `dev` at `73c91ae` and corrected.
+
+The first lane read that blind spot as brace-bearing string literals —
+interpolated holes and embedded JSON — unbalancing the brace depth. **That
+diagnosis is wrong**; see "A correction to the scanner" below. The cause is
+nullable return types, and the fix is one line.
 
 ## Inventory: `src/`, before
 
@@ -321,13 +323,13 @@ Lane `14-core-index-search-trust`, branched off `dev` at `0c97802`.
 | File | Methods > 20, before → after | Longest method, before → after |
 | --- | --- | --- |
 | `Index/OkfIndex.cs` | 6 → 4 | `Plan` (143) → `Flatten` (27) |
-| `Search/OkfSearch.cs` | 5 → 1 | `Search` (78) → `Search` (24) |
+| `Search/OkfSearch.cs` | 5 → 2 | `Search` (78) → `ReadCorpus` (27) |
 | `Search/OkfSearchQuery.cs` | 3 → 2 | `TokenizeWithOffsets` (32) → `TokenizeWithOffsets` (32) |
-| `Trust/OkfInbox.cs` | 4 → 2 | `Classify` (46) → `DriftedSources` (22) |
+| `Trust/OkfInbox.cs` | 4 → 3 | `Classify` (46) → `ReadConcepts` (26) |
 | `Trust/OkfStamp.cs` | 5 → 1 | `TryInsert` (99) → `VerifyText` (23) |
 | `Trust/OkfTrustTier.cs` | 0 → 0 | — |
 | `Trust/OkfVerifyIdentity.cs` | 2 → 1 | `GlobalUserEmail` (52) → `FromConfig` (22) |
-| **Area** | **25 → 11** | |
+| **Area** | **25 → 13** | |
 
 The area went from 59 methods to 97, and the longest method left in it is one
 the lane did not touch.
@@ -407,6 +409,14 @@ only statement returns a value equal to `default`**. `TargetEnd` in
 `if (…) { return null; }` guard whose fall-through also returns null; it is
 written as a `switch` expression with no block instead.
 
+The inline form has a second virtue the helper form loses, and it is the reason
+both `try` blocks here guard the parse *only* and not the indexing that follows
+it. `Concept.Of` and `OkfConcept`'s constructor read a document that already
+parsed; neither can raise `OkfDocumentException` today. If one ever did, a
+`try` wrapped around both would quietly count the bug as an unreadable file.
+Keeping the block tight costs each method five lines and is why `ReadCorpus`
+and `ReadConcepts` are on the list of methods left over 20.
+
 ### Mutation: killed rose everywhere, and one file's percentage did not
 
 Measured before and after with the same scoped command:
@@ -443,15 +453,20 @@ on a denominator that grew 86 → 117. Its survivor set is the honest account:
 - **Carried over, all five unkillable:** three at `Line(lines, index)`, whose
   `index < lines.Length` false branch no caller can reach, and the two loop
   bounds that guard it.
-- **New, all five in `BundleTree`, all five equivalent:** the `{ root }`
-  initializer, the `ThenBy` in `DeepestFirst`, and three in the ancestor walk.
-  They are equivalent for one reason: the walk breaks at the bundle root because
-  `_directories.Add(root)` returns `false` there, so the length guard, the
-  `break`, and the initializer each cover what the others do. Three were checked
-  rather than argued — applied to the source, the suite stays green and every
-  `okf index --check --json` surface in the repo is byte-identical; the fourth
-  (`&&` to `||`) does not compile outside Stryker's sandbox, and the fifth
-  reorders same-length sibling directories, which are independent of each other.
+- **New, all in `BundleTree`, all equivalent:** the `{ root }` initializer, the
+  `ThenBy` in `DeepestFirst`, and four in the ancestor walk — the `>=` length
+  guard, its `&&`, the `||` on the break condition, and the `break` itself. (Six
+  on the review's run, five on this lane's; which of them the coverage filter
+  selects moves between runs, and both counts describe the same set of
+  locations.) They are equivalent for one reason: the walk stops at the bundle
+  root because `_directories.Add(root)` returns `false` there, so the length
+  guard, the `break` and the initializer each cover what the others do, and
+  every ancestor of a directory already in the set is itself already in it.
+  Four were checked rather than argued — applied to the source, the suite stays
+  green and every `okf index --check --json` surface in the repo is
+  byte-identical; the `&&`-to-`||` one does not compile outside Stryker's
+  sandbox, and the `ThenBy` one only reorders same-length sibling directories,
+  which are independent of each other and re-sorted afterwards anyway.
 
 None of the five was visible before, because the old 143-line `Plan` was one
 block tree and Stryker's *block already covered* filter hid them. That is the
@@ -477,7 +492,7 @@ Six tests were added, each shown to fail against the mutant it is there for:
 
 ### What was left long in index, search and trust
 
-Eleven methods in the area are still over 20 lines.
+Thirteen methods in the area are still over 20 lines.
 
 - **`OkfTokenizer.TokenizeWithOffsets` (32) and `Tokenize` (26)** — untouched,
   and the one judgement call here worth arguing with. They are two copies of one
@@ -507,7 +522,12 @@ Eleven methods in the area are still over 20 lines.
   explaining why the emitter fallback is held to the same parse-back terms as
   the insertion. The check has to stay in the public method, and the paragraph
   has to stay with the check.
-- **`Plan` (21), `Render` (21), `ReadConcepts` (21), `LatestVerification` (21),
+- **`OkfSearchEngine.ReadCorpus` (27) and `OkfInboxScanner.ReadConcepts` (26)**
+  — two nested loops and a `try`/`catch` whose clause counts rather than
+  returns, for the reason above. Lifting the inner loop out would need a helper
+  that either returns the unkillable `default` or takes the counter by
+  reference; neither is clearer than the loop.
+- **`Plan` (21), `Render` (21), `LatestVerification` (21),
   `DriftedSources` (22), `FromConfig` (22)** — each is one or two lines over
   after its extractions, and the only way under would be to delete a blank line
   or a comment. `FromConfig` is the clearest: three refusals §7 spells out, one
