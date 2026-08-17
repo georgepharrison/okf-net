@@ -2,7 +2,8 @@
 
 > **Status:** Architecture Spine, `v1.0.0-frozen`. The public API surface of `Okf.Core`
 > was frozen by the [1.0.0 review](decisions.md#100-review-work-item-9-2026-08-15) on
-> 2026-08-15; the two changes that review ordered landed in work item #30.
+> 2026-08-15; the two changes that review ordered landed in work item #30. Frozen in
+> shape; namespaces re-homed by folder in #59 (2026-08-16), no external consumers.
 >
 > **This document fixes invariants, not rationale.** Every rule below is distilled from
 > [decisions.md](decisions.md), which stays the "why" log and wins wherever the two
@@ -992,7 +993,7 @@ flowchart TB
 | Actors | SPEC §7: `<producer>/<version>` (`okf/1.0.0-rc.24`, `claude-fable/5`), `human:<id>`, `process:<id>`. Validated before it is written. |
 | Machine-maintained JSON | `okf.json` and `recipe.json` are **JSONC** — comments and trailing commas — because the reason for a promotion is the half a reviewer needs. `raw/manifest.json`, `okf-bundle.json` and `latest.json` are strict JSON with **camelCase** keys; okf reads the first two with `JsonDocument` rather than a deserializer, and `latest.json` is deliberately shallow enough that `install.sh` parses it in POSIX shell without one. |
 | Markdown | `markdownlint-cli2`, `MD013` off repo-wide; the vault adds `MD025: false` via an `extends` line, because a nested config replaces the parent rather than merging. `mise run lint` is the gate. |
-| File layout | `src/Okf.Core` (all logic) · `src/Okf.Cli` (verbs, args, JSON writers, MCP) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests`, `tests/install-sh` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, `decisions.md`, `prd.md`, `lessons.md`, and `spikes/`) · `scripts/`, `.githooks/`, `.config/` (the dotnet tool manifest), `spikes/` (outside `Okf.sln`), and `install.sh` and `install.ps1` at the root. |
+| File layout | `src/Okf.Core` (all logic), one folder per capability — `Documents/`, `Lint/`, `Index/`, `Search/`, `Trust/`, `Vault/`, `Capture/`, `Bundle/`, `Site/` (with `Assets/` under it), `Skills/`, `Upgrade/` — namespace `Okf.Core.<Folder>` · `src/Okf.Cli` (verbs, args, JSON writers, MCP), `Program.cs` at the project root (namespace `Okf.Cli`) plus `Shared/` and one folder per verb — `Bundle/`, `Capture/`, `Completion/`, `Generated/`, `Inbox/`, `Index/`, `Init/`, `Lint/`, `Mcp/`, `Registry/`, `Search/`, `Site/`, `Skills/`, `Upgrade/`, `Verify/` — namespace `Okf.Cli.<Folder>` (#59, 2026-08-16; `dotnet_diagnostic.IDE0130.severity = error` enforces namespace-follows-folder from here on) · `tests/Okf.Core.Tests`, `tests/Okf.Cli.Tests` mirror the same folders one level down (`Okf.Core.Tests.<Folder>`, `Okf.Cli.Tests.<Folder>`), plus `tests/install-sh` · `skills/<name>/SKILL.md` · `okf/` (the dogfood vault) · `docs/` (this file, `decisions.md`, `prd.md`, `lessons.md`, and `spikes/`) · `scripts/`, `.githooks/`, `.config/` (the dotnet tool manifest), `spikes/` (outside `Okf.sln`), and `install.sh` and `install.ps1` at the root. |
 | Skills | One directory per skill, frontmatter of `name` and `description` only, body plain markdown. Nothing host-specific: no tool names, no `allowed-tools`, no slash commands. Every step ends on a checkable, environment-verified completion criterion. |
 
 ## Stack

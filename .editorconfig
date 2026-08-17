@@ -225,7 +225,7 @@ dotnet_diagnostic.CA1815.severity = none  # public API frozen 2026-08-15; and Ok
 dotnet_diagnostic.CA1032.severity = none  # the exception ctor overloads this asks for are dead API: OkfUpgradeException and McpProtocolException are only ever thrown by okf-net, always with a message
 dotnet_diagnostic.CA1062.severity = none  # redundant under nullable reference types, which Directory.Build.props enables everywhere and TreatWarningsAsErrors already makes a build failure
 dotnet_diagnostic.CA1308.severity = none  # changes behaviour: OkfSeverity.TryParse switches on lowercase spec tokens and OkfUpgrade.Name builds the lowercase asset name `okf-linux-x64`; ToUpperInvariant would need every literal inverted and the asset name would be wrong until it was
-dotnet_diagnostic.IDE0130.severity = none  # namespace-per-folder is what vertical slicing decides, which is step G of the polish plan (#59), not a rename to do ahead of it
+dotnet_diagnostic.IDE0130.severity = error  # #59 (2026-08-16) did the vertical slicing this line was waiting on: src/Okf.Core and src/Okf.Cli are now one folder per capability with the namespace following the folder, so a namespace that drifts from its folder is a build error from here on
 
 #### Test code ####
 #
@@ -254,6 +254,7 @@ dotnet_diagnostic.CA1054.severity = none  # [InlineData] feeds test parameters a
 dotnet_diagnostic.CA1056.severity = none  # ditto
 dotnet_diagnostic.CA1034.severity = none  # nested types in tests are fixtures, scoped to the class that uses them
 dotnet_diagnostic.CA1812.severity = none  # xUnit instantiates fixtures by reflection, which the analyzer cannot see
+dotnet_diagnostic.CA1716.severity = none  # #59 (2026-08-16): Okf.Cli.Tests.Shared collides with VB.NET's `Shared` keyword, and only fires here because xUnit requires the test classes in it to be public for discovery — src/Okf.Cli/Shared holds the same folder name but its types are internal, so the rule never reaches it. Scoped to test code because that is the only place it fires; if a future public type in Okf.Cli ever needs a Shared folder, this section is not where that downgrade belongs
 
 # There is no `[spikes/**/*.cs]` section: exempting a whole directory needs the
 # bulk key `dotnet_analyzer_diagnostic.severity`, and a bulk key loses to the

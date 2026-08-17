@@ -19,9 +19,11 @@
          (issue #6). `GetManifestResourceStream` reads them at run time, which is
          NativeAOT-safe: a manifest resource is data in the image, not a type the
          trimmer has to be told to keep. The logical names are pinned so they do not
-         move if the folder is ever renamed; `OkfSiteAssets` names them back. -->
-    <EmbeddedResource Include="Assets\site.css" LogicalName="Okf.Core.Assets.site.css" />
-    <EmbeddedResource Include="Assets\site.js" LogicalName="Okf.Core.Assets.site.js" />
+         move if the folder is ever renamed (#59 moved Assets/ under Site/, and the
+         pinned LogicalName is why nothing downstream had to change); `OkfSiteAssets`
+         names them back. -->
+    <EmbeddedResource Include="Site\Assets\site.css" LogicalName="Okf.Core.Assets.site.css" />
+    <EmbeddedResource Include="Site\Assets\site.js" LogicalName="Okf.Core.Assets.site.js" />
   </ItemGroup>
 
   <ItemGroup>

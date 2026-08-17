@@ -220,3 +220,18 @@ sites in the tree, so IDE0007/IDE0008 stay quiet. Ringo's ruling is the opposite
 explicit types plus target-typed `new`, `var` only for anonymous types. That is a
 tree-wide rewrite and the second half of #31, not this change. Flipping the three
 `csharp_style_var_*` lines to `false:warning` is what starts it.
+
+## Update, later the same day (#59)
+
+`IDE0130` above is now `error`, not `none`: #59 did the vertical slicing this
+document's downgrade was waiting on — `src/Okf.Core` and `src/Okf.Cli` are one
+folder per capability, the namespace follows the folder, and `.editorconfig`
+enforces it on every build from here on. Full mapping and reasoning in
+`docs/decisions.md`'s #59 section.
+
+One rule joined the downgrade list that this triage did not anticipate: `CA1716`
+started firing on `Okf.Cli.Tests.Shared` (test classes there must be `public` for
+xUnit discovery, and `Shared` collides with VB.NET's `Shared` keyword). Neither
+`Okf.Cli` nor `Okf.Cli.Tests` is ever packed or consumed outside this solution,
+so it is `none` too — see the `.editorconfig` line for the exact reasoning.
+`dotnet build Okf.sln` is still 0 errors, 0 warnings after both changes.

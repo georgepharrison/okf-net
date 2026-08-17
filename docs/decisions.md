@@ -3690,3 +3690,103 @@ used to reach `Directory.CreateDirectory("")` and escape as a raw `ArgumentExcep
 past the `catch` that wraps IO failures; it now resolves against the working directory
 and succeeds. No caller can reach it — all three pass `OkfRegistry.PathFor`, which is
 absolute — and the failure it replaces was not a behaviour anything wanted.
+
+### Proposed decisions: vertical slices (work item #59, 2026-08-16)
+
+Step G of the polish plan: a mechanical, behaviour-preserving move of `src/Okf.Core`'s 50
+flat files and `src/Okf.Cli`'s 41 flat files into one folder per capability, namespace
+following folder, sequenced after dead-code removal (#13) and contextual DRY (#13's
+follow-on) and before #14/#15 so those land in the final layout rather than the old one.
+The why, for humans: a flat 50-file `Okf.Core` and 41-file `Okf.Cli` made "where does this
+concept live" a `grep`, not a glance, and every new type since #6 has had to guess a
+convention nobody wrote down. `IDE0130` (namespace matches folder) is `error` from this
+commit on — the build enforces the convention it just created, so the next file that
+drifts is a build failure, not a code-review nit.
+
+**Namespace ruling.** Changing a public `Okf.Core` type's namespace *is* a source-breaking
+change for an external consumer under the 1.0.0 API freeze (`docs/architecture.md`'s
+status line) — a `using Okf.Core;` that resolved yesterday does not resolve today. The
+freeze exists because `Okf.Cli` depends on `Okf.Core` and nothing else does: `Okf.Core` is
+not packed (`IsPackable` is unset, defaulting to packable, but no `dotnet pack` step exists
+anywhere in `.gitlab-ci.yml`, `mise.toml`, or the release chain — verified in step A, #10's
+review), it ships no NuGet manifest, and grep across `README.md` and `docs/` for a promise
+of a library API turns up nothing: every reference to `Okf.Core` describes it as this
+repository's internal library, never as something to `dotnet add package`. There is no
+external consumer to break. The orchestrator's ruling: acceptable for the 1.x line.
+`docs/architecture.md`'s status line now reads "frozen in shape; namespaces re-homed by
+folder in #59 (2026-08-16), no external consumers" rather than claiming a freeze this move
+would otherwise falsify.
+
+**What stayed at the root.** `Program.cs` in `Okf.Cli`, namespace `Okf.Cli` — the entry
+point is not a capability, and `RootNamespace` in `Okf.Cli.csproj` is already `Okf.Cli`, so
+it needs no folder to satisfy IDE0130. Everything else in both projects moved into a
+folder.
+
+**`GlobalUsings.cs`, not per-file `using`.** AGENTS.md and the task both leave the choice
+open between explicit per-file `using` directives and a handful of `global using` lines
+per project. A pure mechanical move with ~90 cross-capability call sites across two
+projects and two test projects made per-file tracing the slower and more error-prone path
+for zero readability gain — the folder a type lives in is already the answer to "where is
+this from" that a `using` list would otherwise carry. Applied consistently:
+`src/Okf.Core/GlobalUsings.cs`, `src/Okf.Cli/GlobalUsings.cs`,
+`tests/Okf.Core.Tests/GlobalUsings.cs`, `tests/Okf.Cli.Tests/GlobalUsings.cs`, one `global
+using` per capability namespace the project can see, plus (in the two test projects) one
+per mirrored test-folder namespace.
+
+**A namespace collision the move exposed, not created.** `Okf.Cli.Tests` had two static
+test-harness classes literally named `Cli` and `Mcp` — fine while every test file shared
+one flat `Okf.Cli.Tests` namespace, because a same-namespace lookup found the class before
+climbing to a parent. Once tests moved into `Okf.Cli.Tests.<Folder>`, C#'s namespace
+lookup climbs outward from the file's namespace and finds the *namespace* segment
+`Okf.Cli` (or `Okf.Cli.Tests.Mcp`) before it ever reaches the `global using` that would
+have offered the class — a namespace member always wins over an imported type at the same
+enclosing level. Renamed `Cli` → `CliHarness` and `Mcp` → `McpHarness` in
+`tests/Okf.Cli.Tests/Shared/TestSupport.cs` and every call site; this is a mechanical
+consequence of the folder move, not a design change, and the class bodies are untouched.
+
+**`CA1716` joined the `.editorconfig` downgrade list, scoped to test code.**
+`Okf.Cli.Tests.Shared` collides with VB.NET's `Shared` keyword, and the rule only fires
+because xUnit requires the test classes in that namespace to be `public` for discovery —
+`src/Okf.Cli/Shared` carries the same folder name and never trips it, because its types
+are `internal`. The downgrade line lives in the existing `[tests/**/*.cs]` section, not
+the repo-wide one, so it does not also silence the rule for `Okf.Core`, the one
+NuGet-eligible project the freeze reasoning above cares about protecting. `docs/spikes/
+2026-08-16-analyzers.md` records the addendum; `.editorconfig` carries the line and the
+reason.
+
+**Assets moved too.** `src/Okf.Core/Assets/` (the site's `site.css`/`site.js`) is now
+`src/Okf.Core/Site/Assets/` — grouped with the capability that owns it. `Okf.Core.csproj`'s
+`EmbeddedResource` `Include` paths changed to match; the `LogicalName` attributes did not,
+so `GetManifestResourceNames()` returns the identical two strings before and after (asserted
+by the pre-existing `OkfSiteHtmlTests` and `OkfSkillsTests`, both still green). The skills
+glob (`..\..\skills\*\SKILL.md`) is relative to the project root and untouched by any
+internal folder move.
+
+**Test counts, unchanged.** `dotnet test Okf.sln` before this branch (`origin/dev` at
+`67f7659`): `Okf.Core.Tests` 1117 passed; `Okf.Cli.Tests` 646 passed + 1 skipped, 647
+total. After: identical counts. `okf help` is byte-identical between a build of
+`origin/dev` and this branch.
+
+**Commit-by-commit buildability, disclosed rather than claimed away.** The five
+commits are `refactor(cli)`, `refactor(core)`, `test: mirror the source folders`,
+`build: enforce IDE0130`, `docs:`. `refactor(cli)` and `refactor(core)` each build `src/`
+clean on their own (verified in a scratch worktree per commit) — `refactor(cli)` keeps a
+placeholder `global using Okf.Core;` in its new `GlobalUsings.cs` for the one commit where
+`Okf.Core` is not sliced yet, and `refactor(core)` replaces it with the real per-capability
+usings in the same commit that moves `Okf.Core`. Both test projects, though, see
+production types through the same ancestor-namespace lookup the old flat layout gave them
+for free, and do not get their own `GlobalUsings.cs` until `test: mirror the source
+folders` — so `dotnet test Okf.sln` (and, for `refactor(core)` alone, `dotnet build
+Okf.sln` including the test projects) does not go green until that third commit, which was
+verified standalone in its own scratch worktree: `dotnet build Okf.sln` 0/0, `dotnet test
+Okf.sln` 1117 passed / 646 passed + 1 skipped. Each commit's message states only what is
+true at that commit; the full-solution gate this section otherwise reports is asserted at
+HEAD, after all five.
+
+**Not built, so not sliced ahead of it.** The task's folder-per-verb list named `Registry`,
+`Capture`, `Generated`, `Upgrade` and `Completion` as Cli verb folders and `Vault`,
+`Capture`, `Upgrade` as Core capability folders. All of these already existed in
+`origin/dev` at `67f7659` — `OkfRegistry`, `OkfCaptureWriter`, `OkfUpgrade*`,
+`OkfAgentPointer`, `OkfScope`, and the five corresponding CLI verbs, landed in earlier work
+items (#43–#49 per `NEXT-SESSION.md`'s plan) before this session started. All are sliced
+into their folders below; nothing was left flat.
