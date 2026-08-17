@@ -67,7 +67,7 @@ public readonly struct OkfLifecycleInstant
     {
         timestamp = default;
 
-        var trimmed = text?.Trim();
+        string? trimmed = text?.Trim();
         if (trimmed is null || trimmed.Length < 10)
         {
             return false;
@@ -78,7 +78,7 @@ public readonly struct OkfLifecycleInstant
                 "yyyy-MM-dd",
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.None,
-                out var date))
+                out DateOnly date))
         {
             return false;
         }
@@ -90,7 +90,7 @@ public readonly struct OkfLifecycleInstant
                 trimmed,
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out var instant))
+                out DateTimeOffset instant))
         {
             timestamp = new OkfLifecycleInstant(date, instant, hasTime: true);
             return true;
@@ -104,7 +104,7 @@ public readonly struct OkfLifecycleInstant
     /// <param name="text">The frontmatter text, or <see langword="null" />.</param>
     /// <returns>The parsed timestamp, or <see langword="null" />.</returns>
     public static OkfLifecycleInstant? Parse(string? text) =>
-        TryParse(text, out var timestamp) ? timestamp : null;
+        TryParse(text, out OkfLifecycleInstant timestamp) ? timestamp : null;
 
     /// <summary>
     /// Orders two timestamps at the coarser of their two precisions (see the type's

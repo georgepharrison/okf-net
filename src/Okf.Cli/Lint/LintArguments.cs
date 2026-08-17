@@ -51,12 +51,12 @@ internal sealed class LintArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static LintArguments Parse(string[] args)
     {
-        var parsed = new LintArguments();
+        LintArguments parsed = new LintArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -77,7 +77,7 @@ internal sealed class LintArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Json = CliArguments.ParseFormat(format);
                     break;
 
@@ -115,15 +115,15 @@ internal sealed class LintArguments
 
     private static void ApplySeverity(LintArguments parsed, string value)
     {
-        var separator = value.IndexOf('=', StringComparison.Ordinal);
+        int separator = value.IndexOf('=', StringComparison.Ordinal);
         if (separator <= 0)
         {
             throw new OkfConfigException(
                 $"--severity expects <OKF####>=<hidden|info|warning|error>; got '{value}'.");
         }
 
-        var id = value[..separator];
-        if (!OkfSeverityExtensions.TryParse(value[(separator + 1)..], out var severity))
+        string id = value[..separator];
+        if (!OkfSeverityExtensions.TryParse(value[(separator + 1)..], out OkfSeverity severity))
         {
             throw new OkfConfigException(
                 $"--severity expects <OKF####>=<hidden|info|warning|error>; got '{value}'.");

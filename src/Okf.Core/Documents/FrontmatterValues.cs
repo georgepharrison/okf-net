@@ -17,7 +17,7 @@ internal static class FrontmatterValues
     /// <param name="key">The key to read.</param>
     /// <returns>The value, or <see langword="null" />.</returns>
     public static string? Scalar(OkfMapping mapping, string key) =>
-        mapping.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy
+        mapping.TryGetValue(key, out OkfValue? value) && value is OkfScalar scalar && scalar.IsTruthy
             ? scalar.Value
             : null;
 
@@ -30,7 +30,7 @@ internal static class FrontmatterValues
     /// <returns>The tags, in the order they were written.</returns>
     public static IReadOnlyList<string> Tags(OkfMapping mapping)
     {
-        if (!mapping.TryGetValue("tags", out var value))
+        if (!mapping.TryGetValue("tags", out OkfValue? value))
         {
             return [];
         }

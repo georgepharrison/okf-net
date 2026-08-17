@@ -184,7 +184,7 @@ public sealed class OkfIndexPlan
     public OkfIndex? For(string directory)
     {
         ArgumentException.ThrowIfNullOrEmpty(directory);
-        var wanted = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(directory));
+        string wanted = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(directory));
         return Indexes.FirstOrDefault(
             index => string.Equals(index.Directory, wanted, StringComparison.Ordinal));
     }
@@ -274,15 +274,15 @@ public static class OkfIndexGenerator
             return false;
         }
 
-        var lines = text.Split('\n');
-        var start = 0;
+        string[] lines = text.Split('\n');
+        int start = 0;
 
         if (Line(lines, 0) is OkfDocument.FrontmatterDelimiter)
         {
             // Skip the frontmatter block the bundle-root index carries (§8, §12). An
             // unterminated one is not something the renderer can have produced.
             start = -1;
-            for (var i = 1; i < lines.Length; i++)
+            for (int i = 1; i < lines.Length; i++)
             {
                 if (Line(lines, i) is OkfDocument.FrontmatterDelimiter)
                 {
@@ -297,7 +297,7 @@ public static class OkfIndexGenerator
             }
         }
 
-        for (var i = start; i < lines.Length; i++)
+        for (int i = start; i < lines.Length; i++)
         {
             if (Line(lines, i) is { Length: > 0 } line)
             {
@@ -324,15 +324,15 @@ public static class OkfIndexGenerator
         ArgumentNullException.ThrowIfNull(bundle);
         options ??= new OkfIndexOptions();
 
-        var files = options.Files ?? bundle.MarkdownFiles();
-        var concepts = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var existingIndexes = new Dictionary<string, string>(StringComparer.Ordinal);
-        var directories = new HashSet<string>(StringComparer.Ordinal) { bundle.Root };
+        IReadOnlyList<string> files = options.Files ?? bundle.MarkdownFiles();
+        Dictionary<string, List<string>> concepts = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        Dictionary<string, string> existingIndexes = new Dictionary<string, string>(StringComparer.Ordinal);
+        HashSet<string> directories = new HashSet<string>(StringComparer.Ordinal) { bundle.Root };
 
-        foreach (var file in files)
+        foreach (string file in files)
         {
-            var directory = Path.GetDirectoryName(file)!;
-            for (var current = directory;
+            string directory = Path.GetDirectoryName(file)!;
+            for (string? current = directory;
                  current is not null && current.Length >= bundle.Root.Length;
                  current = Path.GetDirectoryName(current))
             {
@@ -348,7 +348,7 @@ public static class OkfIndexGenerator
             }
             else if (!OkfBundle.IsReservedFile(file))
             {
-                if (!concepts.TryGetValue(directory, out var list))
+                if (!concepts.TryGetValue(directory, out List<string>? list))
                 {
                     concepts[directory] = list = [];
                 }
@@ -359,19 +359,19 @@ public static class OkfIndexGenerator
 
         // Deepest first, so a directory knows whether its children ended up indexed
         // before it decides whether it has anything to list.
-        var ordered = directories
+        List<string> ordered = directories
             .OrderByDescending(directory => directory.Length)
             .ThenBy(directory => directory, StringComparer.Ordinal)
             .ToList();
 
-        var entriesByDirectory = new Dictionary<string, List<OkfIndexEntry>>(StringComparer.Ordinal);
-        var childEntries = new Dictionary<string, List<OkfIndexEntry>>(StringComparer.Ordinal);
+        Dictionary<string, List<OkfIndexEntry>> entriesByDirectory = new Dictionary<string, List<OkfIndexEntry>>(StringComparer.Ordinal);
+        Dictionary<string, List<OkfIndexEntry>> childEntries = new Dictionary<string, List<OkfIndexEntry>>(StringComparer.Ordinal);
 
-        foreach (var directory in ordered)
+        foreach (string directory in ordered)
         {
-            var entries = new List<OkfIndexEntry>();
+            List<OkfIndexEntry> entries = new List<OkfIndexEntry>();
 
-            foreach (var concept in concepts.GetValueOrDefault(directory) ?? [])
+            foreach (string concept in concepts.GetValueOrDefault(directory) ?? [])
             {
                 if (Frontmatter(concept, options) is not { } frontmatter)
                 {
@@ -405,14 +405,14 @@ public static class OkfIndexGenerator
                 continue;
             }
 
-            var parent = Path.GetDirectoryName(directory);
+            string? parent = Path.GetDirectoryName(directory);
             if (parent is null)
             {
                 continue;
             }
 
-            var name = Path.GetFileName(directory);
-            if (!childEntries.TryGetValue(parent, out var siblings))
+            string name = Path.GetFileName(directory);
+            if (!childEntries.TryGetValue(parent, out List<OkfIndexEntry>? siblings))
             {
                 childEntries[parent] = siblings = [];
             }
@@ -424,17 +424,17 @@ public static class OkfIndexGenerator
                 AboutDescription(directory, options)));
         }
 
-        var indexes = new List<OkfIndex>();
+        List<OkfIndex> indexes = new List<OkfIndex>();
 
-        foreach (var directory in directories)
+        foreach (string directory in directories)
         {
-            var isRoot = string.Equals(directory, bundle.Root, StringComparison.Ordinal);
-            var path = Path.Combine(directory, OkfBundle.IndexFileName);
-            var existing = existingIndexes.TryGetValue(directory, out var indexPath)
+            bool isRoot = string.Equals(directory, bundle.Root, StringComparison.Ordinal);
+            string path = Path.Combine(directory, OkfBundle.IndexFileName);
+            string? existing = existingIndexes.TryGetValue(directory, out string? indexPath)
                 ? Text(indexPath, options)
                 : null;
 
-            if (!entriesByDirectory.TryGetValue(directory, out var entries))
+            if (!entriesByDirectory.TryGetValue(directory, out List<OkfIndexEntry>? entries))
             {
                 // Nothing to index here. A generated file left behind is stale and worth
                 // reporting; a hand-written one is none of okf-net's business.
@@ -446,8 +446,8 @@ public static class OkfIndexGenerator
                 continue;
             }
 
-            var content = Render(isRoot, entries);
-            var status = existing switch
+            string content = Render(isRoot, entries);
+            OkfIndexStatus status = existing switch
             {
                 null => OkfIndexStatus.Created,
                 _ when string.Equals(existing, content, StringComparison.Ordinal) => OkfIndexStatus.Unchanged,
@@ -478,8 +478,8 @@ public static class OkfIndexGenerator
     {
         ArgumentNullException.ThrowIfNull(plan);
 
-        var written = new List<OkfIndex>();
-        foreach (var index in plan.Indexes.Where(index => index.WouldWrite))
+        List<OkfIndex> written = new List<OkfIndex>();
+        foreach (OkfIndex index in plan.Indexes.Where(index => index.WouldWrite))
         {
             Directory.CreateDirectory(index.Directory);
 
@@ -495,13 +495,13 @@ public static class OkfIndexGenerator
     private static int Compare(OkfIndexEntry left, OkfIndexEntry right)
     {
         // Concept sections first, the subdirectory section last.
-        var bySubdirectory = left.IsSubdirectory.CompareTo(right.IsSubdirectory);
+        int bySubdirectory = left.IsSubdirectory.CompareTo(right.IsSubdirectory);
         if (bySubdirectory != 0)
         {
             return bySubdirectory;
         }
 
-        var bySection = string.Compare(left.Section, right.Section, StringComparison.OrdinalIgnoreCase);
+        int bySection = string.Compare(left.Section, right.Section, StringComparison.OrdinalIgnoreCase);
         if (bySection != 0)
         {
             return bySection;
@@ -515,13 +515,13 @@ public static class OkfIndexGenerator
             return bySection;
         }
 
-        var byLink = string.Compare(left.Link, right.Link, StringComparison.OrdinalIgnoreCase);
+        int byLink = string.Compare(left.Link, right.Link, StringComparison.OrdinalIgnoreCase);
         return byLink != 0 ? byLink : string.CompareOrdinal(left.Link, right.Link);
     }
 
     private static string Render(bool isBundleRoot, IReadOnlyList<OkfIndexEntry> entries)
     {
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
 
         // §8/§12: the bundle-root index is the only index permitted frontmatter, and only
         // `okf_version`. Written as literal text rather than emitted, so the quoting the
@@ -536,7 +536,7 @@ public static class OkfIndexGenerator
         builder.Append(GeneratedMarker).Append("\n\n");
 
         string? section = null;
-        foreach (var entry in entries)
+        foreach (OkfIndexEntry entry in entries)
         {
             if (!string.Equals(section, entry.Section, StringComparison.Ordinal))
             {
@@ -598,7 +598,7 @@ public static class OkfIndexGenerator
         // Q1, resolved: a subdirectory's blurb comes from its own `about.md`, and from
         // nowhere else. No synthesis, no borrowing a child's description — generation
         // stays deterministic and offline (PRD CLI-16).
-        var about = Path.Combine(directory, OkfBundle.AboutFileName);
+        string about = Path.Combine(directory, OkfBundle.AboutFileName);
         return Frontmatter(about, options) is { } frontmatter
             ? Blurb(FrontmatterValues.Scalar(frontmatter, "description"))
             : null;
@@ -624,15 +624,23 @@ public static class OkfIndexGenerator
         // the three characters that would break the entry are percent-encoded. Everything
         // else is left alone: `/` must stay a separator and readability matters more than
         // exhaustive escaping.
-        var builder = new StringBuilder(name.Length);
-        foreach (var character in name)
+        StringBuilder builder = new StringBuilder(name.Length);
+        foreach (char character in name)
         {
             switch (character)
             {
-                case ' ': builder.Append("%20"); break;
-                case '(': builder.Append("%28"); break;
-                case ')': builder.Append("%29"); break;
-                default: builder.Append(character); break;
+                case ' ':
+                    builder.Append("%20");
+                    break;
+                case '(':
+                    builder.Append("%28");
+                    break;
+                case ')':
+                    builder.Append("%29");
+                    break;
+                default:
+                    builder.Append(character);
+                    break;
             }
         }
 
@@ -648,9 +656,9 @@ public static class OkfIndexGenerator
 
         // A YAML block scalar can carry newlines; an index entry is one line. Runs of
         // whitespace collapse to a single space so the rendered bullet stays a bullet.
-        var builder = new StringBuilder(text.Length);
-        var pendingSpace = false;
-        foreach (var character in text)
+        StringBuilder builder = new StringBuilder(text.Length);
+        bool pendingSpace = false;
+        foreach (char character in text)
         {
             if (char.IsWhiteSpace(character))
             {

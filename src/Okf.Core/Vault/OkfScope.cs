@@ -40,7 +40,7 @@ public static class OkfScopeKindExtensions
     /// <returns><see langword="true" /> when the value names a scope.</returns>
     public static bool TryParse(string? text, out OkfScopeKind scope)
     {
-        var index = text is null ? -1 : Names.ToList().IndexOf(text);
+        int index = text is null ? -1 : Names.ToList().IndexOf(text);
         scope = index < 0 ? OkfScopeKind.Project : (OkfScopeKind)index;
         return index >= 0;
     }
@@ -93,7 +93,7 @@ public static class OkfScope
 
     private static OkfScopeResolution Personal(OkfEnvironment environment)
     {
-        var personal = environment.PersonalVault;
+        string personal = environment.PersonalVault;
         if (!Directory.Exists(Path.Combine(personal, OkfDiscovery.BundlesDirectoryName)))
         {
             throw new OkfDiscoveryException(
@@ -101,7 +101,7 @@ public static class OkfScope
                 $"Create one with `okf init --personal`, or point {OkfEnvironment.HomeVariable} at an existing vault.");
         }
 
-        var resolved = OkfDiscovery.Resolve(personal, environment);
+        OkfWorkingSet resolved = OkfDiscovery.Resolve(personal, environment);
         return new OkfScopeResolution(
             new OkfWorkingSet(resolved.Bundles, resolved.VaultRoot, $"personal vault '{personal}' (--scope personal)"),
             []);
@@ -109,8 +109,8 @@ public static class OkfScope
 
     private static OkfScopeResolution Registered(OkfEnvironment environment, OkfRegistry registry)
     {
-        var notes = new List<string>();
-        var bundles = FromRegistry(environment, registry, notes, new Dictionary<string, OkfBundle>(StringComparer.Ordinal));
+        List<string> notes = new List<string>();
+        List<OkfBundle> bundles = FromRegistry(environment, registry, notes, new Dictionary<string, OkfBundle>(StringComparer.Ordinal));
 
         if (bundles.Count == 0)
         {
@@ -131,18 +131,18 @@ public static class OkfScope
 
     private static OkfScopeResolution All(OkfEnvironment environment, OkfRegistry registry)
     {
-        var notes = new List<string>();
-        var seen = new Dictionary<string, OkfBundle>(StringComparer.Ordinal);
-        var bundles = new List<OkfBundle>();
+        List<string> notes = new List<string>();
+        Dictionary<string, OkfBundle> seen = new Dictionary<string, OkfBundle>(StringComparer.Ordinal);
+        List<OkfBundle> bundles = new List<OkfBundle>();
         string? projectVault = null;
         string? projectResolution = null;
 
         try
         {
-            var project = OkfDiscovery.Resolve(null, environment);
+            OkfWorkingSet project = OkfDiscovery.Resolve(null, environment);
             projectVault = project.VaultRoot;
             projectResolution = project.Resolution;
-            foreach (var bundle in project.Bundles)
+            foreach (OkfBundle bundle in project.Bundles)
             {
                 Add(bundles, seen, bundle);
             }
@@ -163,7 +163,7 @@ public static class OkfScope
                 $"('{OkfRegistry.PathFor(environment)}'). Register one with `okf register [path]`.");
         }
 
-        var resolution = projectResolution is null
+        string resolution = projectResolution is null
             ? Sentence("all", bundles, OkfRegistry.PathFor(environment))
             : $"{projectResolution}, plus the registry (--scope all)";
 
@@ -178,8 +178,8 @@ public static class OkfScope
         List<string> notes,
         Dictionary<string, OkfBundle> seen)
     {
-        var bundles = new List<OkfBundle>();
-        foreach (var entry in registry.Entries)
+        List<OkfBundle> bundles = new List<OkfBundle>();
+        foreach (OkfRegistryEntry entry in registry.Entries)
         {
             if (!entry.Exists)
             {
@@ -198,7 +198,7 @@ public static class OkfScope
                 continue;
             }
 
-            foreach (var bundle in resolved.Bundles)
+            foreach (OkfBundle bundle in resolved.Bundles)
             {
                 Add(bundles, seen, bundle);
             }
@@ -239,7 +239,7 @@ public static class OkfScope
                 return path;
             }
 
-            var real = RealPath(parent);
+            string real = RealPath(parent);
             return string.Equals(real, parent, StringComparison.Ordinal)
                 ? path
                 : Path.Combine(real, Path.GetFileName(path));
@@ -260,7 +260,7 @@ public static class OkfScope
     /// </summary>
     private static string? VaultOf(List<OkfBundle> bundles)
     {
-        var vaults = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).ToList();
+        List<string> vaults = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).ToList();
         return vaults.Count == 1 ? vaults[0] : null;
     }
 
@@ -274,7 +274,7 @@ public static class OkfScope
 
     private static string Sentence(string scope, List<OkfBundle> bundles, string registryPath)
     {
-        var roots = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).Count();
+        int roots = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).Count();
         return $"--scope {scope}: {bundles.Count} {(bundles.Count == 1 ? "bundle" : "bundles")} " +
             $"from {roots} registered {(roots == 1 ? "root" : "roots")} in '{registryPath}'";
     }

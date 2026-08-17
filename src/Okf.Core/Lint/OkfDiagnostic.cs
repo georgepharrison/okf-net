@@ -74,25 +74,25 @@ public sealed class OkfDiagnostic : IComparable<OkfDiagnostic>
             return 1;
         }
 
-        var byPath = ComparePaths(Path, other.Path);
+        int byPath = ComparePaths(Path, other.Path);
         if (byPath != 0)
         {
             return byPath;
         }
 
-        var byLine = (Line ?? 0).CompareTo(other.Line ?? 0);
+        int byLine = (Line ?? 0).CompareTo(other.Line ?? 0);
         if (byLine != 0)
         {
             return byLine;
         }
 
-        var byRule = string.CompareOrdinal(RuleId, other.RuleId);
+        int byRule = string.CompareOrdinal(RuleId, other.RuleId);
         if (byRule != 0)
         {
             return byRule;
         }
 
-        var byMessage = string.CompareOrdinal(Message, other.Message);
+        int byMessage = string.CompareOrdinal(Message, other.Message);
 
         // The raw ordinal tiebreak keeps this a TOTAL order. Ranking '\' as '/' makes two
         // spellings of one path compare equal, and two diagnostics that compared equal
@@ -109,8 +109,8 @@ public sealed class OkfDiagnostic : IComparable<OkfDiagnostic>
     /// <returns>A signed ordering value.</returns>
     private static int ComparePaths(string left, string right)
     {
-        var shared = Math.Min(left.Length, right.Length);
-        for (var index = 0; index < shared; index++)
+        int shared = Math.Min(left.Length, right.Length);
+        for (int index = 0; index < shared; index++)
         {
             int leftChar = Rank(left[index]);
             int rightChar = Rank(right[index]);

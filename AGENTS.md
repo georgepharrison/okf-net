@@ -53,7 +53,9 @@ implementation choices in this repo.
 - **Code style: name things to say what they do.** A name that carries its own
   meaning is the documentation. Comments are for what a name cannot carry — a
   constraint, a spec section, a non-obvious why — never narration of what the
-  next line already says. Reviewers flag narrative comments as noise.
+  next line already says. Reviewers flag narrative comments as noise. Style is
+  enforced by `.editorconfig` as build errors; run `dotnet format` before
+  committing.
 - **Tests must be shown to constrain the code.** A test added alongside new
   behavior must be demonstrated to FAIL without that behavior (write it
   first, or temporarily revert the change and run it), OR derive its expected

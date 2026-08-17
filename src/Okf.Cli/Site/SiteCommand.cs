@@ -66,8 +66,8 @@ internal static class SiteCommand
         TextWriter error)
     {
         // PRD CLI-1: the same working-set resolution as `okf lint` and `okf index`.
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
-        var outputDirectory = Path.GetFullPath(
+        OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        string outputDirectory = Path.GetFullPath(
             Path.Combine(environment.CurrentDirectory, arguments.Out!));
 
         if (File.Exists(outputDirectory))
@@ -76,7 +76,7 @@ internal static class SiteCommand
             return CliApplication.ExitUsage;
         }
 
-        foreach (var bundle in workingSet.Bundles)
+        foreach (OkfBundle bundle in workingSet.Bundles)
         {
             // Writing a site into the bundle it was generated from would make the next run
             // read its own output — and `okf lint` would then find a tree full of HTML.
@@ -99,7 +99,7 @@ internal static class SiteCommand
                 : $"okf: writing a multi-page site into {outputDirectory}");
         }
 
-        var plan = OkfSiteGenerator.Plan(workingSet, new OkfSiteOptions
+        OkfSitePlan plan = OkfSiteGenerator.Plan(workingSet, new OkfSiteOptions
         {
             Name = arguments.Name,
             SingleFile = arguments.SingleFile,
@@ -122,7 +122,7 @@ internal static class SiteCommand
 
         OkfSiteGenerator.Apply(plan, outputDirectory);
 
-        var landing = Path.Combine(outputDirectory, OkfSiteBuilder.IndexHref);
+        string landing = Path.Combine(outputDirectory, OkfSiteBuilder.IndexHref);
         if (arguments.Json)
         {
             output.Write(ToJson(plan, outputDirectory, landing));
@@ -145,12 +145,12 @@ internal static class SiteCommand
         string outputDirectory,
         OkfWorkingSet workingSet)
     {
-        foreach (var file in plan.Files)
+        foreach (OkfSiteFile file in plan.Files)
         {
-            var path = Path.GetFullPath(
+            string path = Path.GetFullPath(
                 Path.Combine(outputDirectory, file.Path.Replace('/', Path.DirectorySeparatorChar)));
 
-            foreach (var bundle in workingSet.Bundles)
+            foreach (OkfBundle bundle in workingSet.Bundles)
             {
                 if (path.StartsWith(bundle.Root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 {
@@ -169,8 +169,8 @@ internal static class SiteCommand
         string baseDirectory,
         TextWriter output)
     {
-        var counts = plan.Model.Counts;
-        var summary = new StringBuilder()
+        OkfSiteCounts counts = plan.Model.Counts;
+        StringBuilder summary = new StringBuilder()
             .Append("Generated ")
             .Append(DiagnosticWriter.Plural(plan.Files.Count, "file"))
             .Append(" in ")
@@ -192,7 +192,7 @@ internal static class SiteCommand
 
     private static string ToJson(OkfSitePlan plan, string outputDirectory, string landing)
     {
-        var counts = plan.Model.Counts;
+        OkfSiteCounts counts = plan.Model.Counts;
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
@@ -215,7 +215,7 @@ internal static class SiteCommand
             writer.WriteEndObject();
 
             writer.WriteStartArray("bundles");
-            foreach (var bundle in plan.Model.Bundles)
+            foreach (OkfSiteBundle bundle in plan.Model.Bundles)
             {
                 writer.WriteStartObject();
                 writer.WriteString("name", bundle.Name);

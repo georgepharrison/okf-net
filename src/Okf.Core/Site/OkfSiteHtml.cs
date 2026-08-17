@@ -39,7 +39,7 @@ internal static class OkfSiteHtml
     /// <returns>A prefix of <c>../</c> segments, empty for a page at the root.</returns>
     public static string Root(string href)
     {
-        var depth = href.Count(character => character == '/');
+        int depth = href.Count(character => character == '/');
         return string.Concat(Enumerable.Repeat("../", depth));
     }
 
@@ -57,7 +57,7 @@ internal static class OkfSiteHtml
     /// <returns>The document.</returns>
     public static string Document(string title, string? description, string head, string body, string tail)
     {
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
         builder.Append("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n")
             .Append("<meta charset=\"utf-8\" />\n")
             .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n")
@@ -107,7 +107,7 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     public static string TopBar(OkfSiteModel model, string root, string? current)
     {
-        var (home, dashboard, graph) = Views(model, root);
+        (string home, string dashboard, string graph) = Views(model, root);
 
         return new StringBuilder()
             .Append("<header class=\"topbar\"><div class=\"topbar-inner\">\n")
@@ -153,9 +153,9 @@ internal static class OkfSiteHtml
     /// </remarks>
     public static string Landing(OkfSiteModel model, string root, Func<OkfSitePage, string> hrefFor)
     {
-        var counts = model.Counts;
-        var (_, dashboard, graph) = Views(model, root);
-        var builder = new StringBuilder();
+        OkfSiteCounts counts = model.Counts;
+        (string _, string dashboard, string graph) = Views(model, root);
+        StringBuilder builder = new StringBuilder();
 
         builder.Append("<div class=\"page-head\"><h1>").Append(Escape(model.Name)).Append("</h1>\n")
             .Append("<p class=\"lede\">")
@@ -177,16 +177,16 @@ internal static class OkfSiteHtml
             .Append(TileLink(dashboard, "draft", "serious", "✎", "Draft", counts.Draft))
             .Append("</div>\n</section>\n");
 
-        var indexes = model.Pages.Where(page => page.IsBundleIndex)
+        Dictionary<string, OkfSitePage> indexes = model.Pages.Where(page => page.IsBundleIndex)
             .ToDictionary(page => page.BundleSlug, StringComparer.Ordinal);
 
         builder.Append(model.Bundles.Count > 1
             ? "<div class=\"bundle-picker\">\n"
             : "<div class=\"bundle-picker single\">\n");
 
-        foreach (var bundle in model.Bundles)
+        foreach (OkfSiteBundle bundle in model.Bundles)
         {
-            var index = indexes.TryGetValue(bundle.Slug, out var found) ? found : null;
+            OkfSitePage? index = indexes.TryGetValue(bundle.Slug, out OkfSitePage? found) ? found : null;
 
             builder.Append("<section class=\"bundle-index\">\n").Append("<h2>");
 
@@ -215,7 +215,7 @@ internal static class OkfSiteHtml
                 // A bundle with no root index.md still has to be openable from the front door;
                 // §8 makes index.md reserved, not mandatory.
                 builder.Append("<ul>\n");
-                foreach (var page in model.Concepts.Where(page => page.BundleSlug == bundle.Slug))
+                foreach (OkfSitePage page in model.Concepts.Where(page => page.BundleSlug == bundle.Slug))
                 {
                     builder.Append("<li><a href=\"").Append(hrefFor(page)).Append("\">")
                         .Append(Escape(page.Title)).Append("</a></li>\n");
@@ -259,8 +259,8 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     public static string Dashboard(OkfSiteModel model, Func<OkfSitePage, string> hrefFor, string tagBase)
     {
-        var counts = model.Counts;
-        var builder = new StringBuilder();
+        OkfSiteCounts counts = model.Counts;
+        StringBuilder builder = new StringBuilder();
 
         builder.Append("<div class=\"page-head\"><h1>").Append(Escape(model.Name)).Append("</h1>\n")
             .Append("<p class=\"lede\">")
@@ -283,7 +283,7 @@ internal static class OkfSiteHtml
         builder.Append(Tile("draft", "serious", "✎", "Draft", counts.Draft, "status: draft"));
 
         builder.Append("</div>\n<div class=\"bundle-drill\" id=\"bundle-drill\">\n");
-        foreach (var bundle in model.Bundles)
+        foreach (OkfSiteBundle bundle in model.Bundles)
         {
             builder.Append("<button type=\"button\" class=\"chip\" data-bundle=\"")
                 .Append(Escape(bundle.Name)).Append("\" aria-pressed=\"false\">")
@@ -309,7 +309,7 @@ internal static class OkfSiteHtml
             .Append(" concepts</p>\n");
 
         builder.Append("<ul class=\"card-list\" id=\"concept-list\">\n");
-        foreach (var page in model.Concepts)
+        foreach (OkfSitePage page in model.Concepts)
         {
             builder.Append(Card(page, hrefFor(page), tagBase));
         }
@@ -359,12 +359,12 @@ internal static class OkfSiteHtml
         string homeHref,
         string tagBase)
     {
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
 
         builder.Append("<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><ol>\n")
             .Append("<li><a href=\"").Append(homeHref).Append("\">").Append(Escape(model.Name)).Append("</a></li>\n");
 
-        foreach (var crumb in page.Crumbs)
+        foreach (OkfSiteCrumb crumb in page.Crumbs)
         {
             builder.Append("<li>");
             if (crumb.Href is { Length: > 0 } href)
@@ -411,12 +411,12 @@ internal static class OkfSiteHtml
     /// <returns>The JavaScript assignment.</returns>
     public static string SiteData(OkfSiteModel model, Func<OkfSitePage, string> hrefFor)
     {
-        using var buffer = new MemoryStream();
+        using MemoryStream buffer = new MemoryStream();
 
         // The default encoder, deliberately, not UnsafeRelaxedJsonEscaping: it escapes `<`,
         // `>` and `&`, which is what keeps this payload from closing the <script> element it
         // is embedded in and what keeps every generated page parseable as XML.
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
         {
             writer.WriteStartObject();
             writer.WriteString("name", model.Name);
@@ -434,7 +434,7 @@ internal static class OkfSiteHtml
             writer.WriteEndObject();
 
             writer.WriteStartArray("bundles");
-            foreach (var bundle in model.Bundles)
+            foreach (OkfSiteBundle bundle in model.Bundles)
             {
                 writer.WriteStartObject();
                 writer.WriteString("name", bundle.Name);
@@ -447,7 +447,7 @@ internal static class OkfSiteHtml
             writer.WriteEndArray();
 
             writer.WriteStartArray("concepts");
-            foreach (var page in model.Concepts)
+            foreach (OkfSitePage page in model.Concepts)
             {
                 writer.WriteStartObject();
                 writer.WriteString("id", page.Id);
@@ -461,7 +461,7 @@ internal static class OkfSiteHtml
                 writer.WriteString("status", page.Status);
                 writer.WriteBoolean("stale", page.Stale);
                 writer.WriteStartArray("tags");
-                foreach (var tag in page.Tags)
+                foreach (string tag in page.Tags)
                 {
                     writer.WriteStringValue(tag);
                 }
@@ -473,7 +473,7 @@ internal static class OkfSiteHtml
             writer.WriteEndArray();
 
             writer.WriteStartArray("edges");
-            foreach (var edge in model.Edges)
+            foreach (OkfSiteEdge edge in model.Edges)
             {
                 writer.WriteStartArray();
                 writer.WriteStringValue(edge.Source);
@@ -493,11 +493,11 @@ internal static class OkfSiteHtml
     /// <returns>The JSON object.</returns>
     public static string Articles(IEnumerable<KeyValuePair<string, string>> articles)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
+        using MemoryStream buffer = new MemoryStream();
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
         {
             writer.WriteStartObject();
-            foreach (var article in articles)
+            foreach (KeyValuePair<string, string> article in articles)
             {
                 writer.WriteString(article.Key, article.Value);
             }
@@ -534,8 +534,8 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     private static string TagChips(OkfSitePage page, string tagBase)
     {
-        var builder = new StringBuilder();
-        foreach (var tag in page.Tags)
+        StringBuilder builder = new StringBuilder();
+        foreach (string tag in page.Tags)
         {
             builder.Append("<a class=\"chip chip-tag\" data-tag=\"").Append(Escape(tag))
                 .Append("\" href=\"").Append(tagBase).Append(Uri.EscapeDataString(tag)).Append("\">")
@@ -573,7 +573,7 @@ internal static class OkfSiteHtml
 
     private static string Card(OkfSitePage page, string href, string tagBase)
     {
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
         builder.Append("<li class=\"card tier-").Append(page.TrustTier.ToSpecString())
             .Append("\" data-id=\"").Append(Escape(page.Id)).Append("\">")
             .Append("<a class=\"card-title\" href=\"").Append(href).Append("\">")
@@ -613,7 +613,7 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     private static string Facts(OkfSitePage page)
     {
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
 
         if (page.Type is { Length: > 0 } type)
         {
@@ -667,7 +667,7 @@ internal static class OkfSiteHtml
             return Escape(text);
         }
 
-        var builder = new StringBuilder().Append("<span class=\"signal");
+        StringBuilder builder = new StringBuilder().Append("<span class=\"signal");
         if (tone is { Length: > 0 })
         {
             builder.Append(" tone-").Append(tone);
@@ -708,7 +708,7 @@ internal static class OkfSiteHtml
     /// <returns>The markup.</returns>
     private static string AboutPanel(OkfSitePage page)
     {
-        var builder = new StringBuilder()
+        StringBuilder builder = new StringBuilder()
             .Append("<section class=\"panel\"><h2>About this page</h2><dl>\n");
 
         Row(builder, "Type", page.Type is { Length: > 0 } type ? Escape(type) : Missing());
@@ -756,9 +756,9 @@ internal static class OkfSiteHtml
             return Missing();
         }
 
-        var tone = actor.IsHuman ? "good" : "neutral";
-        var glyph = actor.IsHuman ? "✔" : "◎";
-        var text = actor.At is { Length: > 0 } at ? $"{actor.By} · {at}" : actor.By;
+        string tone = actor.IsHuman ? "good" : "neutral";
+        string glyph = actor.IsHuman ? "✔" : "◎";
+        string text = actor.At is { Length: > 0 } at ? $"{actor.By} · {at}" : actor.By;
         return Signal(tone, glyph, text);
     }
 
@@ -786,10 +786,10 @@ internal static class OkfSiteHtml
             return string.Empty;
         }
 
-        var builder = new StringBuilder()
+        StringBuilder builder = new StringBuilder()
             .Append("<section class=\"panel\"><h2>Sources</h2><ul class=\"sources\">\n");
 
-        foreach (var source in page.Sources)
+        foreach (OkfSiteSource source in page.Sources)
         {
             builder.Append("<li class=\"source\"");
             if (source.Id.Length > 0)
@@ -799,7 +799,7 @@ internal static class OkfSiteHtml
 
             builder.Append('>');
 
-            var label = source.Title ?? source.Resource ?? source.Id;
+            string label = source.Title ?? source.Resource ?? source.Id;
             builder.Append("<div class=\"source-title\">");
             if (source.IsUrl)
             {
@@ -869,13 +869,13 @@ internal static class OkfSiteHtml
             return string.Empty;
         }
 
-        var byId = model.Pages.ToDictionary(candidate => candidate.Id, StringComparer.Ordinal);
-        var builder = new StringBuilder()
+        Dictionary<string, OkfSitePage> byId = model.Pages.ToDictionary(candidate => candidate.Id, StringComparer.Ordinal);
+        StringBuilder builder = new StringBuilder()
             .Append("<section class=\"panel\"><h2>Cited by</h2><ul class=\"backlinks\">\n");
 
-        foreach (var id in page.CitedBy)
+        foreach (string id in page.CitedBy)
         {
-            if (!byId.TryGetValue(id, out var citing))
+            if (!byId.TryGetValue(id, out OkfSitePage? citing))
             {
                 continue;
             }

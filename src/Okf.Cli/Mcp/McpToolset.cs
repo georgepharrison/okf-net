@@ -171,10 +171,10 @@ internal sealed class McpToolset
             """),
     ];
 
-    private readonly OkfEnvironment environment;
-    private readonly string? path;
-    private readonly OkfScopeKind scope;
-    private IReadOnlyList<string> notes = [];
+    private readonly OkfEnvironment _environment;
+    private readonly string? _path;
+    private readonly OkfScopeKind _scope;
+    private IReadOnlyList<string> _notes = [];
 
     /// <summary>Initializes the toolset.</summary>
     /// <param name="environment">The environment vaults and configuration resolve against.</param>
@@ -183,9 +183,9 @@ internal sealed class McpToolset
     public McpToolset(OkfEnvironment environment, string? path, OkfScopeKind scope = OkfScopeKind.Project)
     {
         ArgumentNullException.ThrowIfNull(environment);
-        this.environment = environment;
-        this.path = path;
-        this.scope = scope;
+        _environment = environment;
+        _path = path;
+        _scope = scope;
     }
 
     /// <summary>The date staleness is judged against; overridable so tests are deterministic.</summary>
@@ -196,7 +196,7 @@ internal sealed class McpToolset
     /// registered path that has gone missing. Reported at startup under <c>--verbose</c>,
     /// never on stdout, which carries JSON-RPC and nothing else.
     /// </summary>
-    public IReadOnlyList<string> Notes => this.notes;
+    public IReadOnlyList<string> Notes => _notes;
 
     /// <summary>Resolves the working set exactly as every other command does (PRD MCP-3).</summary>
     /// <returns>The resolved working set.</returns>
@@ -209,13 +209,13 @@ internal sealed class McpToolset
             // added to the vault while it runs must be visible to the next call, exactly as
             // it would be to the next `okf search` invocation. The scope it resolves is the
             // one fixed at launch, through the same Core entry point `okf search` uses.
-            if (this.path is not null)
+            if (_path is not null)
             {
-                return OkfDiscovery.Resolve(this.path, this.environment);
+                return OkfDiscovery.Resolve(_path, _environment);
             }
 
-            var resolution = OkfScope.Resolve(this.scope, this.environment);
-            this.notes = resolution.Notes;
+            OkfScopeResolution resolution = OkfScope.Resolve(_scope, _environment);
+            _notes = resolution.Notes;
             return resolution.WorkingSet;
         }
         catch (OkfDiscoveryException exception)
@@ -232,7 +232,7 @@ internal sealed class McpToolset
         {
             writer.WriteStartObject();
             writer.WriteStartArray("tools");
-            foreach (var tool in Tools)
+            foreach (McpTool tool in Tools)
             {
                 writer.WriteStartObject();
                 writer.WriteString("name", tool.Name);
@@ -242,7 +242,7 @@ internal sealed class McpToolset
                 // Re-emitted through the writer rather than copied verbatim: the schemas are
                 // written indented to stay readable in source, and a raw copy would carry
                 // those newlines into the message and split it across lines on the wire.
-                using var schema = JsonDocument.Parse(tool.InputSchema);
+                using JsonDocument schema = JsonDocument.Parse(tool.InputSchema);
                 schema.RootElement.WriteTo(writer);
                 writer.WriteEndObject();
             }
@@ -263,18 +263,18 @@ internal sealed class McpToolset
             throw McpProtocolException.InvalidParams("tools/call requires a params object with a tool name.");
         }
 
-        if (!value.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String)
+        if (!value.TryGetProperty("name", out JsonElement name) || name.ValueKind != JsonValueKind.String)
         {
             throw McpProtocolException.InvalidParams("tools/call requires a string \"name\".");
         }
 
-        var arguments = value.TryGetProperty("arguments", out var given) ? given : (JsonElement?)null;
+        JsonElement? arguments = value.TryGetProperty("arguments", out JsonElement given) ? given : (JsonElement?)null;
         if (arguments is { ValueKind: not JsonValueKind.Object and not JsonValueKind.Null })
         {
             throw McpProtocolException.InvalidParams("\"arguments\" must be an object.");
         }
 
-        var result = name.GetString() switch
+        McpToolResult result = name.GetString() switch
         {
             "okf_list" => ListTool(arguments),
             "okf_search" => SearchTool(arguments),
@@ -288,18 +288,18 @@ internal sealed class McpToolset
 
     private McpToolResult SearchTool(JsonElement? arguments)
     {
-        var query = OkfSearchQuery.Parse(String(arguments, "query"));
-        foreach (var type in Strings(arguments, "type"))
+        OkfSearchQuery query = OkfSearchQuery.Parse(String(arguments, "query"));
+        foreach (string type in Strings(arguments, "type"))
         {
             query.AddTypeFilter(type);
         }
 
-        foreach (var tag in Strings(arguments, "tag"))
+        foreach (string tag in Strings(arguments, "tag"))
         {
             query.AddTagFilter(tag);
         }
 
-        var limit = Integer(arguments, "limit") ?? 10;
+        int limit = Integer(arguments, "limit") ?? 10;
         if (limit <= 0)
         {
             throw McpProtocolException.InvalidParams($"\"limit\" expects a positive whole number; got {limit}.");
@@ -313,7 +313,7 @@ internal sealed class McpToolset
                 "No query. Give at least one search term, or a type/tag filter. To browse rather than search, call okf_list.");
         }
 
-        var outcome = OkfSearchEngine.Search(
+        OkfSearchOutcome outcome = OkfSearchEngine.Search(
             Resolve().Bundles,
             query,
             new OkfSearchOptions { Limit = limit, Today = Now });
@@ -325,16 +325,16 @@ internal sealed class McpToolset
 
     private McpToolResult ReadTool(JsonElement? arguments)
     {
-        var requested = String(arguments, "path")
+        string requested = String(arguments, "path")
             ?? throw McpProtocolException.InvalidParams("okf_read requires a \"path\": a concept's bundle-relative path or id.");
 
-        var relative = OkfConceptReader.Normalize(requested)
+        string relative = OkfConceptReader.Normalize(requested)
             ?? throw McpProtocolException.InvalidParams(
                 $"'{requested}' is not a bundle-relative path. Paths are relative to a bundle root, "
                 + "never absolute, and never contain '..'.");
 
-        var workingSet = Resolve();
-        var wanted = String(arguments, "bundle");
+        OkfWorkingSet workingSet = Resolve();
+        string? wanted = String(arguments, "bundle");
         if (wanted is not null)
         {
             return Bundle(workingSet, wanted) is { } named
@@ -342,10 +342,10 @@ internal sealed class McpToolset
                 : McpToolResult.Failed(NoSuchBundle(workingSet, wanted));
         }
 
-        var hits = new List<OkfConcept>();
-        foreach (var bundle in workingSet.Bundles)
+        List<OkfConcept> hits = new List<OkfConcept>();
+        foreach (OkfBundle bundle in workingSet.Bundles)
         {
-            var result = OkfConceptReader.Read(bundle, relative, new OkfConceptOptions { Today = Now });
+            OkfConceptResult result = OkfConceptReader.Read(bundle, relative, new OkfConceptOptions { Today = Now });
             if (result.Concept is { } concept)
             {
                 hits.Add(concept);
@@ -372,9 +372,9 @@ internal sealed class McpToolset
 
     private McpToolResult ListTool(JsonElement? arguments)
     {
-        var workingSet = Resolve();
-        var wanted = String(arguments, "bundle");
-        var requested = String(arguments, "path");
+        OkfWorkingSet workingSet = Resolve();
+        string? wanted = String(arguments, "bundle");
+        string? requested = String(arguments, "path");
 
         if (wanted is null && requested is null)
         {
@@ -382,7 +382,7 @@ internal sealed class McpToolset
             return McpToolResult.Ok(Scope(workingSet));
         }
 
-        var relative = NormalizeDirectory(requested)
+        string relative = NormalizeDirectory(requested)
             ?? throw McpProtocolException.InvalidParams(
                 $"'{requested}' is not a bundle-relative directory. Directories are relative to a bundle root, "
                 + "never absolute, and never contain '..'.");
@@ -417,7 +417,7 @@ internal sealed class McpToolset
                 + "). Pass \"bundle\" to say which one to list.");
         }
 
-        if (!bundle.TryResolve(relative, out var directory))
+        if (!bundle.TryResolve(relative, out string? directory))
         {
             throw McpProtocolException.InvalidParams(
                 $"'{relative}' resolves outside bundle '{bundle.Name}'. okf lists only directories inside a bundle root.");
@@ -434,7 +434,7 @@ internal sealed class McpToolset
 
     private McpToolResult Read(OkfBundle bundle, string relative)
     {
-        var result = OkfConceptReader.Read(bundle, relative, new OkfConceptOptions { Today = Now });
+        OkfConceptResult result = OkfConceptReader.Read(bundle, relative, new OkfConceptOptions { Today = Now });
         return result.Concept is { } concept
             ? McpToolResult.Ok(Concept(concept))
             : McpToolResult.Failed(result.Message);
@@ -471,7 +471,7 @@ internal sealed class McpToolset
 
     private static OkfBundle? Bundle(OkfWorkingSet workingSet, string name)
     {
-        var named = workingSet.Bundles
+        List<OkfBundle> named = workingSet.Bundles
             .Where(bundle => string.Equals(bundle.Name, name, StringComparison.Ordinal))
             .ToList();
 
@@ -489,7 +489,7 @@ internal sealed class McpToolset
             writer.WriteString("scope", workingSet.Resolution);
             JsonOutput.WriteStringOrNull(writer, "vault", workingSet.VaultRoot);
             writer.WriteStartArray("bundles");
-            foreach (var bundle in workingSet.Bundles)
+            foreach (OkfBundle bundle in workingSet.Bundles)
             {
                 writer.WriteStartObject();
                 writer.WriteString("name", bundle.Name);
@@ -512,8 +512,8 @@ internal sealed class McpToolset
     /// </summary>
     private static string Listing(OkfBundle bundle, string relative, string directory)
     {
-        var index = OkfIndexGenerator.Plan(bundle).For(directory);
-        var listing = index?.ExistingContent ?? index?.Content ?? string.Empty;
+        OkfIndex? index = OkfIndexGenerator.Plan(bundle).For(directory);
+        string listing = index?.ExistingContent ?? index?.Content ?? string.Empty;
 
         return JsonOutput.Write(writer =>
         {
@@ -526,7 +526,7 @@ internal sealed class McpToolset
                 index is null ? "empty" : index.ExistingContent is null ? "synthesized" : "index.md");
 
             writer.WriteStartArray("entries");
-            foreach (var entry in index?.Entries ?? [])
+            foreach (OkfIndexEntry entry in index?.Entries ?? [])
             {
                 writer.WriteStartObject();
                 writer.WriteString("section", entry.Section);
@@ -558,7 +558,7 @@ internal sealed class McpToolset
             JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
             JsonOutput.WriteStringOrNull(writer, "description", concept.Description);
             writer.WriteStartArray("tags");
-            foreach (var tag in concept.Tags)
+            foreach (string tag in concept.Tags)
             {
                 writer.WriteStringValue(tag);
             }
@@ -593,7 +593,7 @@ internal sealed class McpToolset
 
             case OkfSequence sequence:
                 writer.WriteStartArray();
-                foreach (var item in sequence)
+                foreach (OkfValue item in sequence)
                 {
                     WriteValue(writer, item);
                 }
@@ -603,7 +603,7 @@ internal sealed class McpToolset
 
             case OkfMapping mapping:
                 writer.WriteStartObject();
-                foreach (var entry in mapping.Entries)
+                foreach (KeyValuePair<OkfValue, OkfValue> entry in mapping.Entries)
                 {
                     // YAML permits a non-scalar key; JSON does not, and no bundle uses one.
                     if (entry.Key is OkfScalar key)
@@ -652,7 +652,7 @@ internal sealed class McpToolset
     /// </summary>
     private static string? NormalizeDirectory(string? requested)
     {
-        var trimmed = requested?.Trim() ?? string.Empty;
+        string trimmed = requested?.Trim() ?? string.Empty;
         if (trimmed.Length == 0)
         {
             return string.Empty;
@@ -667,8 +667,8 @@ internal sealed class McpToolset
             return null;
         }
 
-        var segments = new List<string>();
-        foreach (var segment in trimmed.Split('/'))
+        List<string> segments = new List<string>();
+        foreach (string segment in trimmed.Split('/'))
         {
             if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
             {
@@ -689,7 +689,7 @@ internal sealed class McpToolset
     private static string? String(JsonElement? arguments, string name)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } value
-            || !value.TryGetProperty(name, out var property)
+            || !value.TryGetProperty(name, out JsonElement property)
             || property.ValueKind == JsonValueKind.Null)
         {
             return null;
@@ -703,13 +703,13 @@ internal sealed class McpToolset
     private static int? Integer(JsonElement? arguments, string name)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } value
-            || !value.TryGetProperty(name, out var property)
+            || !value.TryGetProperty(name, out JsonElement property)
             || property.ValueKind == JsonValueKind.Null)
         {
             return null;
         }
 
-        return property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number)
+        return property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out int number)
             ? number
             : throw McpProtocolException.InvalidParams($"\"{name}\" must be a whole number.");
     }
@@ -722,7 +722,7 @@ internal sealed class McpToolset
     private static List<string> Strings(JsonElement? arguments, string name)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } value
-            || !value.TryGetProperty(name, out var property)
+            || !value.TryGetProperty(name, out JsonElement property)
             || property.ValueKind == JsonValueKind.Null)
         {
             return [];
@@ -738,8 +738,8 @@ internal sealed class McpToolset
             throw McpProtocolException.InvalidParams($"\"{name}\" must be a string or an array of strings.");
         }
 
-        var values = new List<string>();
-        foreach (var item in property.EnumerateArray())
+        List<string> values = new List<string>();
+        foreach (JsonElement item in property.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.String)
             {

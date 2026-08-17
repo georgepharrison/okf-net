@@ -61,7 +61,7 @@ internal static class InitCommand
         TextWriter output,
         TextWriter error)
     {
-        var vault = arguments.Personal
+        string vault = arguments.Personal
             ? environment.PersonalVault
             : OkfScaffold.ResolveVault(arguments.Path, environment);
 
@@ -72,7 +72,7 @@ internal static class InitCommand
                 : $"okf: vault '{vault}'");
         }
 
-        var result = OkfScaffold.Initialize(
+        OkfScaffoldResult result = OkfScaffold.Initialize(
             vault,
             new OkfScaffoldOptions
             {
@@ -90,14 +90,14 @@ internal static class InitCommand
                 Actor = $"okf/{CliApplication.Version}",
             });
 
-        foreach (var file in result.Files)
+        foreach (OkfScaffoldFile file in result.Files)
         {
             output.WriteLine(
                 $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
         }
 
-        var bundle = Path.GetFileName(result.BundleRoot);
-        var vaultDisplay = DiagnosticWriter.Display(result.VaultRoot, environment.CurrentDirectory);
+        string bundle = Path.GetFileName(result.BundleRoot);
+        string vaultDisplay = DiagnosticWriter.Display(result.VaultRoot, environment.CurrentDirectory);
 
         // The pointer lives at the *project* root — the vault's parent — deliberately
         // outside okf/ (a widening of AD-2, decisions.md #56), and it is written whether or
@@ -107,7 +107,7 @@ internal static class InitCommand
         // should find AGENTS.md in, so only a project vault gets one.
         if (!arguments.Personal && !arguments.NoAgentsMd)
         {
-            var projectRoot = Path.GetDirectoryName(vault)
+            string projectRoot = Path.GetDirectoryName(vault)
                 ?? throw new OkfScaffoldException($"'{vault}' has no parent directory to write AGENTS.md into.");
 
             AgentPointerReport.Write(projectRoot, environment, output);
@@ -130,7 +130,7 @@ internal static class InitCommand
         // The recipe names its skills as instructions when this project has no copy on
         // disk, and an instruction nobody is told how to follow is a dangling pointer with
         // better manners. Said here, at the one moment the file was written.
-        var unresolved = result.SkillPointers.Where(pointer => !pointer.IsPath).ToArray();
+        OkfSkillPointer[] unresolved = result.SkillPointers.Where(pointer => !pointer.IsPath).ToArray();
         if (unresolved.Length > 0)
         {
             output.WriteLine(

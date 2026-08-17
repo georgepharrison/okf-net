@@ -191,20 +191,20 @@ public static class OkfCaptureWriter
         ArgumentNullException.ThrowIfNull(addition);
         ValidateActor(addition.CapturedBy, nameof(addition));
 
-        var (item, problem) = Describe(rawDirectory, addition);
+        (CapturedItem? item, string? problem) = Describe(rawDirectory, addition);
         if (item is null)
         {
             return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ItemRefused, problem!);
         }
 
-        var bytes = Encoding.UTF8.GetBytes(manifestText);
+        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
         if (Locate(bytes) is not { } manifest)
         {
             return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ManifestUnreadable, Unreadable);
         }
 
-        var entry = Render(item, addition);
-        var clash = manifest.Entries.FirstOrDefault(
+        string entry = Render(item, addition);
+        LocatedEntry? clash = manifest.Entries.FirstOrDefault(
             candidate => string.Equals(candidate.Id, item.Id, StringComparison.Ordinal)
                 || candidate.Paths.Intersect(item.Paths, StringComparer.Ordinal).Any());
 
@@ -246,14 +246,14 @@ public static class OkfCaptureWriter
             throw new ArgumentException("An ingestion names at least one concept.", nameof(closure));
         }
 
-        var bytes = Encoding.UTF8.GetBytes(manifestText);
+        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
         if (Locate(bytes) is not { } manifest)
         {
             return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ManifestUnreadable, Unreadable);
         }
 
-        var wanted = closure.Entry.Replace('\\', '/').Trim('/');
-        var entry = manifest.Entries.FirstOrDefault(
+        string wanted = closure.Entry.Replace('\\', '/').Trim('/');
+        LocatedEntry? entry = manifest.Entries.FirstOrDefault(
             candidate => string.Equals(candidate.Id, wanted, StringComparison.Ordinal)
                 || candidate.Paths.Contains(wanted, StringComparer.Ordinal));
 
@@ -326,8 +326,8 @@ public static class OkfCaptureWriter
             return false;
         }
 
-        var previousWasHyphen = true;
-        foreach (var character in id[11..])
+        bool previousWasHyphen = true;
+        foreach (char character in id[11..])
         {
             if (character == '-')
             {
@@ -363,7 +363,7 @@ public static class OkfCaptureWriter
         string text,
         bool expectIngested)
     {
-        var entry = OkfCaptureManifest.Parse(text, "manifest.json")?.Captures
+        OkfCaptureEntry? entry = OkfCaptureManifest.Parse(text, "manifest.json")?.Captures
             .FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
 
         return entry is not null && entry.IsIngested == expectIngested
@@ -390,9 +390,9 @@ public static class OkfCaptureWriter
     /// </summary>
     private static (CapturedItem? Item, string? Problem) Describe(string rawDirectory, OkfCaptureAddition addition)
     {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(addition.ItemPath));
-        var relative = Path.GetRelativePath(root, full).Replace(Path.DirectorySeparatorChar, '/');
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(addition.ItemPath));
+        string relative = Path.GetRelativePath(root, full).Replace(Path.DirectorySeparatorChar, '/');
 
         if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
         {
@@ -400,7 +400,7 @@ public static class OkfCaptureWriter
                 + "which sits outside every bundle root (AD-17).");
         }
 
-        var isDirectory = Directory.Exists(full);
+        bool isDirectory = Directory.Exists(full);
         if (!isDirectory && !File.Exists(full))
         {
             return (null, $"no such file or directory: '{full}'.");
@@ -411,7 +411,7 @@ public static class OkfCaptureWriter
             return (null, Linked(relative));
         }
 
-        var form = isDirectory ? OkfCaptureForm.Packet : OkfCaptureForm.Flat;
+        OkfCaptureForm form = isDirectory ? OkfCaptureForm.Packet : OkfCaptureForm.Flat;
         if (addition.Form is { } asserted && asserted != form)
         {
             return (null, $"'{relative}' is {(isDirectory ? "a directory, which is a `packet`" : "a file, which is `flat`")}, "
@@ -429,14 +429,14 @@ public static class OkfCaptureWriter
         // capture's file is `<id>.<ext>`, a packet's files live under `<id>/` — so
         // deriving the id here is what keeps a CLI-written capture passing the gate that
         // reads it.
-        var id = form == OkfCaptureForm.Flat ? Stem(relative) : relative;
+        string id = form == OkfCaptureForm.Flat ? Stem(relative) : relative;
         if (!IsValidId(id))
         {
             return (null, $"'{relative}' gives the capture id `{id}`, which is not `<YYYY-MM-DD>-<slug>`: a day that "
                 + "exists, then lowercase words joined by single hyphens. Rename the item, because the id is its name.");
         }
 
-        var paths = new List<string>();
+        List<string> paths = new List<string>();
         if (form == OkfCaptureForm.Flat)
         {
             paths.Add(relative);
@@ -455,8 +455,8 @@ public static class OkfCaptureWriter
             }
         }
 
-        var files = new List<(string Path, string Sha256)>();
-        foreach (var path in paths)
+        List<(string Path, string Sha256)> files = new List<(string Path, string Sha256)>();
+        foreach (string path in paths)
         {
             files.Add((path, OkfCaptureManifest.Sha256Of(
                 Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)))));
@@ -476,9 +476,9 @@ public static class OkfCaptureWriter
     /// <returns>The raw-relative path of the first link found, or null when there is none.</returns>
     private static string? Collect(string root, string directory, List<string> paths)
     {
-        foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+        foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
         {
-            var relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
+            string relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
             if (entry.LinkTarget is not null)
             {
                 return relative;
@@ -516,22 +516,22 @@ public static class OkfCaptureWriter
 
     private static string Stem(string name)
     {
-        var dot = name.LastIndexOf('.');
+        int dot = name.LastIndexOf('.');
         return dot > 0 ? name[..dot] : name;
     }
 
     /// <summary>Renders one capture entry, in the key order the capture skill documents.</summary>
     private static string Render(CapturedItem item, OkfCaptureAddition addition)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
+        using MemoryStream buffer = new MemoryStream();
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
         {
             writer.WriteStartObject();
             writer.WriteString("id", item.Id);
             writer.WriteString("form", Spell(item.Form));
 
             writer.WriteStartArray("files");
-            foreach (var (path, sha256) in item.Files)
+            foreach ((string path, string sha256) in item.Files)
             {
                 writer.WriteStartObject();
                 writer.WriteString("path", path);
@@ -570,14 +570,14 @@ public static class OkfCaptureWriter
 
     private static string RenderIngestion(OkfCaptureClosure closure)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
+        using MemoryStream buffer = new MemoryStream();
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
         {
             writer.WriteStartObject();
             writer.WriteString("at", OkfCanonicalTimestamp.ToCanonical(closure.At));
             writer.WriteString("by", closure.By);
             writer.WriteStartArray("concepts");
-            foreach (var concept in closure.Concepts)
+            foreach (string concept in closure.Concepts)
             {
                 writer.WriteStringValue(concept);
             }
@@ -594,8 +594,8 @@ public static class OkfCaptureWriter
     {
         if (manifest.Entries.Count > 0)
         {
-            var last = manifest.Entries[^1];
-            var indent = Indent(bytes, last.Start);
+            LocatedEntry last = manifest.Entries[^1];
+            string indent = Indent(bytes, last.Start);
             return Splice(
                 bytes,
                 last.End,
@@ -605,8 +605,8 @@ public static class OkfCaptureWriter
 
         // An empty array is `[]` on one line, the shape `okf init` scaffolds, so the two
         // brackets are opened out rather than written between.
-        var elementIndent = manifest.CapturesIndent + "  ";
-        var body = manifest.Newline
+        string elementIndent = manifest.CapturesIndent + "  ";
+        string body = manifest.Newline
             + elementIndent + Reindent(entry, elementIndent, manifest.Newline)
             + manifest.Newline + manifest.CapturesIndent;
         return Splice(bytes, manifest.ArrayStart + 1, manifest.ArrayEnd, body);
@@ -624,7 +624,7 @@ public static class OkfCaptureWriter
     /// <summary>The whitespace between the previous newline and a byte offset.</summary>
     private static string Indent(byte[] bytes, int offset)
     {
-        var start = offset;
+        int start = offset;
         while (start > 0 && bytes[start - 1] is (byte)' ' or (byte)'\t')
         {
             start--;
@@ -638,7 +638,7 @@ public static class OkfCaptureWriter
     /// <summary>The line ending the manifest already uses, so an inserted entry is not the odd one out.</summary>
     private static string NewlineOf(byte[] bytes)
     {
-        var first = Array.IndexOf(bytes, (byte)'\n');
+        int first = Array.IndexOf(bytes, (byte)'\n');
         return first > 0 && bytes[first - 1] == (byte)'\r' ? "\r\n" : "\n";
     }
 
@@ -650,18 +650,18 @@ public static class OkfCaptureWriter
     {
         try
         {
-            var reader = new Utf8JsonReader(bytes, isFinalBlock: true, state: default);
+            Utf8JsonReader reader = new Utf8JsonReader(bytes, isFinalBlock: true, state: default);
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
             {
                 return null;
             }
 
-            var version = 0;
+            int version = 0;
             LocatedManifest? manifest = null;
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
-                var name = reader.GetString();
-                var propertyStart = (int)reader.TokenStartIndex;
+                string? name = reader.GetString();
+                int propertyStart = (int)reader.TokenStartIndex;
                 if (!reader.Read())
                 {
                     return null;
@@ -692,8 +692,8 @@ public static class OkfCaptureWriter
 
     private static LocatedManifest ReadCaptures(ref Utf8JsonReader reader, string capturesIndent, string newline)
     {
-        var arrayStart = (int)reader.TokenStartIndex;
-        var entries = new List<LocatedEntry>();
+        int arrayStart = (int)reader.TokenStartIndex;
+        List<LocatedEntry> entries = new List<LocatedEntry>();
 
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
@@ -712,18 +712,18 @@ public static class OkfCaptureWriter
 
     private static LocatedEntry ReadEntry(ref Utf8JsonReader reader)
     {
-        var start = (int)reader.TokenStartIndex;
-        var id = string.Empty;
-        var paths = new List<string>();
-        var ingested = false;
+        int start = (int)reader.TokenStartIndex;
+        string id = string.Empty;
+        List<string> paths = new List<string>();
+        bool ingested = false;
         int? ingestionKey = null;
         int? ingestionStart = null;
         int? ingestionEnd = null;
 
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
-            var name = reader.GetString();
-            var keyStart = (int)reader.TokenStartIndex;
+            string? name = reader.GetString();
+            int keyStart = (int)reader.TokenStartIndex;
             reader.Read();
 
             if (string.Equals(name, "id", StringComparison.Ordinal) && reader.TokenType == JsonTokenType.String)
@@ -772,7 +772,7 @@ public static class OkfCaptureWriter
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
-                var name = reader.GetString();
+                string? name = reader.GetString();
                 reader.Read();
                 if (string.Equals(name, "path", StringComparison.Ordinal)
                     && reader.TokenType == JsonTokenType.String

@@ -42,13 +42,13 @@ internal sealed record ScopeSettings(OkfScopeKind Scope, string Layer)
             // No project vault; the global layer and the default still apply.
         }
 
-        var project = projectConfigPath is null ? null : OkfConfig.TryLoad(projectConfigPath);
+        OkfConfig? project = projectConfigPath is null ? null : OkfConfig.TryLoad(projectConfigPath);
         if (project?.SearchScope is { } fromProject)
         {
             return new ScopeSettings(fromProject, project.Source);
         }
 
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
+        OkfConfig? global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
         return global?.SearchScope is { } fromGlobal
             ? new ScopeSettings(fromGlobal, global.Source)
             : new ScopeSettings(OkfScopeKind.Project, DefaultsLayerName);

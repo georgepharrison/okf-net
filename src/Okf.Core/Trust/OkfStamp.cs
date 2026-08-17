@@ -66,16 +66,16 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(text);
         Validate(actor);
 
-        var before = OkfDocument.NormalizeVerified(OkfDocument.Parse(text).Frontmatter).Count;
+        int before = OkfDocument.NormalizeVerified(OkfDocument.Parse(text).Frontmatter).Count;
         if (TryInsert(text, VerifiedEntry(actor, at)) is { } inserted
             && Accepts(inserted, actor, before))
         {
             return inserted;
         }
 
-        var document = OkfDocument.Parse(text);
+        OkfDocument document = OkfDocument.Parse(text);
         Verify(document, actor, at);
-        var emitted = document.Serialize();
+        string emitted = document.Serialize();
         if (!Accepts(emitted, actor, before))
         {
             // The fallback is held to the same terms as the insertion. It is the less
@@ -105,9 +105,9 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(document);
         Validate(actor);
 
-        var frontmatter = document.Frontmatter;
+        OkfMapping frontmatter = document.Frontmatter;
         OkfSequence events;
-        if (frontmatter.TryGetValue(VerifiedKey, out var existing) && existing is OkfSequence sequence)
+        if (frontmatter.TryGetValue(VerifiedKey, out OkfValue? existing) && existing is OkfSequence sequence)
         {
             events = sequence;
         }
@@ -126,7 +126,7 @@ public static class OkfStamp
             frontmatter[VerifiedKey] = events;
         }
 
-        var entry = new OkfMapping { Style = OkfCollectionStyle.Flow };
+        OkfMapping entry = new OkfMapping { Style = OkfCollectionStyle.Flow };
         entry.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
         entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
         events.Add(entry);
@@ -146,7 +146,7 @@ public static class OkfStamp
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
-        var stamped = VerifyText(File.ReadAllText(path), actor, at);
+        string stamped = VerifyText(File.ReadAllText(path), actor, at);
 
         // UTF-8 with no byte-order mark, the same encoding `okf index` writes, so no
         // okf-written file ever grows one.
@@ -174,16 +174,16 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(text);
         Validate(actor);
 
-        var stamp = OkfCanonicalTimestamp.ToCanonical(at);
+        string stamp = OkfCanonicalTimestamp.ToCanonical(at);
         if (TryStampGenerated(text, GeneratedEntry(actor, at)) is { } inserted
             && AcceptsGenerated(inserted, actor, stamp))
         {
             return inserted;
         }
 
-        var document = OkfDocument.Parse(text);
+        OkfDocument document = OkfDocument.Parse(text);
         StampGenerated(document, actor, at);
-        var emitted = document.Serialize();
+        string emitted = document.Serialize();
         if (!AcceptsGenerated(emitted, actor, stamp))
         {
             throw new OkfDocumentException(
@@ -208,7 +208,7 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(document);
         Validate(actor);
 
-        var stamp = new OkfMapping { Style = OkfCollectionStyle.Flow };
+        OkfMapping stamp = new OkfMapping { Style = OkfCollectionStyle.Flow };
         stamp.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
         stamp.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
 
@@ -230,7 +230,7 @@ public static class OkfStamp
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
-        var stamped = StampGeneratedText(File.ReadAllText(path), actor, at);
+        string stamped = StampGeneratedText(File.ReadAllText(path), actor, at);
         File.WriteAllText(path, stamped, FileText.Utf8NoBom);
     }
 
@@ -242,12 +242,12 @@ public static class OkfStamp
     {
         try
         {
-            return OkfDocument.Parse(text).Frontmatter.TryGetValue(GeneratedKey, out var generated)
+            return OkfDocument.Parse(text).Frontmatter.TryGetValue(GeneratedKey, out OkfValue? generated)
                 && generated is OkfMapping mapping
-                && mapping.TryGetValue("by", out var by)
+                && mapping.TryGetValue("by", out OkfValue? by)
                 && by is OkfScalar actorValue
                 && string.Equals(actorValue.Value, actor, StringComparison.Ordinal)
-                && mapping.TryGetValue("at", out var at)
+                && mapping.TryGetValue("at", out OkfValue? at)
                 && at is OkfScalar instant
                 && string.Equals(instant.Value, stamp, StringComparison.Ordinal);
         }
@@ -268,17 +268,17 @@ public static class OkfStamp
     {
         // Line endings are preserved exactly as `TryInsert` preserves them, and for the
         // same reason: a restamp that rewrites every line of a file is not a restamp.
-        var lines = text.Split('\n').ToList();
+        List<string> lines = text.Split('\n').ToList();
 
         if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
         {
             return null;
         }
 
-        var carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
+        string carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
 
-        var fence = -1;
-        for (var i = 1; i < lines.Count; i++)
+        int fence = -1;
+        for (int i = 1; i < lines.Count; i++)
         {
             if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
             {
@@ -292,7 +292,7 @@ public static class OkfStamp
             return null;
         }
 
-        var key = Enumerable.Range(1, fence - 1)
+        int key = Enumerable.Range(1, fence - 1)
             .FirstOrDefault(i => lines[i].StartsWith(GeneratedKey + ":", StringComparison.Ordinal), -1);
 
         if (key < 0)
@@ -301,11 +301,11 @@ public static class OkfStamp
             return string.Join('\n', lines);
         }
 
-        var inline = lines[key][(GeneratedKey.Length + 1)..].Trim();
+        string inline = lines[key][(GeneratedKey.Length + 1)..].Trim();
 
         // Where the value ends: the next top-level key, or the closing fence.
-        var stop = fence;
-        for (var i = key + 1; i < fence; i++)
+        int stop = fence;
+        for (int i = key + 1; i < fence; i++)
         {
             if (lines[i].Length > 0 && !char.IsWhiteSpace(lines[i][0]))
             {
@@ -314,7 +314,7 @@ public static class OkfStamp
             }
         }
 
-        var region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
+        List<int> region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
         if (region.Count > 0 || !inline.StartsWith('{') || !inline.EndsWith('}'))
         {
             return null;
@@ -343,9 +343,9 @@ public static class OkfStamp
     {
         try
         {
-            var events = OkfDocument.NormalizeVerified(OkfDocument.Parse(text).Frontmatter);
+            IReadOnlyList<OkfMapping> events = OkfDocument.NormalizeVerified(OkfDocument.Parse(text).Frontmatter);
             return events.Count == before + 1
-                && events[^1].TryGetValue("by", out var by)
+                && events[^1].TryGetValue("by", out OkfValue? by)
                 && by is OkfScalar scalar
                 && string.Equals(scalar.Value, actor, StringComparison.Ordinal);
         }
@@ -372,7 +372,7 @@ public static class OkfStamp
         // body — an acknowledgment arriving as a whole-file diff, which is the thing this
         // path exists to avoid. Every read below either trims or only inspects a prefix,
         // so the retained '\r' changes no decision.
-        var lines = text.Split('\n').ToList();
+        List<string> lines = text.Split('\n').ToList();
 
         if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
         {
@@ -381,10 +381,10 @@ public static class OkfStamp
 
         // The ending the inserted lines get: the one the opening fence carries, which is
         // the frontmatter's own convention rather than the file's most common one.
-        var carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
+        string carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
 
-        var fence = -1;
-        for (var i = 1; i < lines.Count; i++)
+        int fence = -1;
+        for (int i = 1; i < lines.Count; i++)
         {
             if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
             {
@@ -400,7 +400,7 @@ public static class OkfStamp
 
         // Top-level only: a `verified:` at column 0. A duplicate is not considered here
         // because the caller has already parsed the document, and YAML rejects one.
-        var key = Enumerable.Range(1, fence - 1)
+        int key = Enumerable.Range(1, fence - 1)
             .FirstOrDefault(i => lines[i].StartsWith(VerifiedKey + ":", StringComparison.Ordinal), -1);
 
         if (key < 0)
@@ -410,11 +410,11 @@ public static class OkfStamp
             return string.Join('\n', lines);
         }
 
-        var inline = lines[key][(VerifiedKey.Length + 1)..].Trim();
+        string inline = lines[key][(VerifiedKey.Length + 1)..].Trim();
 
         // Where the value ends: the next top-level key, or the closing fence.
-        var stop = fence;
-        for (var i = key + 1; i < fence; i++)
+        int stop = fence;
+        for (int i = key + 1; i < fence; i++)
         {
             if (lines[i].Length > 0 && !char.IsWhiteSpace(lines[i][0]))
             {
@@ -423,7 +423,7 @@ public static class OkfStamp
             }
         }
 
-        var region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
+        List<int> region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
 
         if (inline.Length > 0)
         {
@@ -448,7 +448,7 @@ public static class OkfStamp
             return string.Join('\n', lines);
         }
 
-        var first = lines[region[0]];
+        string first = lines[region[0]];
         if (!first.TrimStart().StartsWith("- ", StringComparison.Ordinal))
         {
             // A block-style bare mapping (`verified:` then `by:`/`at:` lines). Turning it
@@ -460,7 +460,7 @@ public static class OkfStamp
         // Every later line of the region belongs to this sequence — a further item, or a
         // continuation of one — so the new item goes after the last of them, at the
         // indentation the author gave the first.
-        var indent = first[..(first.Length - first.TrimStart().Length)];
+        string indent = first[..(first.Length - first.TrimStart().Length)];
         lines.Insert(region[^1] + 1, $"{indent}- {entry}{carriage}");
         return string.Join('\n', lines);
     }

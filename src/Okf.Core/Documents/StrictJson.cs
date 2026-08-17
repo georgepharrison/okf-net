@@ -20,7 +20,7 @@ internal static class StrictJson
     /// <param name="name">The property name.</param>
     /// <returns>The value, or <see langword="null" />.</returns>
     public static string? String(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+        element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 }

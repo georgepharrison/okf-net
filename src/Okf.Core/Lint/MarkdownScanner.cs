@@ -56,19 +56,19 @@ internal static partial class MarkdownScanner
     /// <returns>The scan results, with file line numbers.</returns>
     public static MarkdownScan Scan(string body, int firstLineNumber)
     {
-        var scan = new MarkdownScan();
-        var lines = body.Split('\n');
-        var fence = (string?)null;
+        MarkdownScan scan = new MarkdownScan();
+        string[] lines = body.Split('\n');
+        string? fence = (string?)null;
 
-        for (var index = 0; index < lines.Length; index++)
+        for (int index = 0; index < lines.Length; index++)
         {
-            var line = lines[index].TrimEnd('\r');
-            var lineNumber = firstLineNumber + index;
-            var trimmed = line.TrimStart();
+            string line = lines[index].TrimEnd('\r');
+            int lineNumber = firstLineNumber + index;
+            string trimmed = line.TrimStart();
 
             if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
             {
-                var marker = trimmed[..3];
+                string marker = trimmed[..3];
                 if (fence is null)
                 {
                     fence = marker;
@@ -91,7 +91,7 @@ internal static partial class MarkdownScanner
                 scan.HasContent = true;
             }
 
-            var heading = HeadingRegex().Match(line);
+            Match heading = HeadingRegex().Match(line);
             if (heading.Success)
             {
                 // A heading is scanned for links and footnote labels like any other line:
@@ -104,34 +104,34 @@ internal static partial class MarkdownScanner
                     lineNumber));
             }
 
-            var bullet = BulletRegex().Match(line);
+            Match bullet = BulletRegex().Match(line);
             if (bullet.Success)
             {
                 scan.Bullets.Add(new MarkdownBullet(bullet.Groups["text"].Value.Trim(), lineNumber));
             }
 
-            foreach (var match in FootnoteRegex().Matches(line).Cast<Match>())
+            foreach (Match match in FootnoteRegex().Matches(line).Cast<Match>())
             {
                 // A definition is `[^label]:` opening a line. The colon is what makes it
                 // one: `[^label]` alone on its own line is a reference — the form Google's
                 // ga4 bundle uses to cite a source under a SQL block — and counting it as
                 // a definition would let OKF0102 call a genuinely cited source uncited.
-                var isDefinition = line[..match.Index].Trim().Length == 0
+                bool isDefinition = line[..match.Index].Trim().Length == 0
                     && match.Index + match.Length < line.Length
                     && line[match.Index + match.Length] == ':';
                 scan.Footnotes.Add(new MarkdownFootnote(match.Groups["label"].Value, lineNumber, isDefinition));
             }
 
-            foreach (var match in InlineLinkRegex().Matches(line).Cast<Match>())
+            foreach (Match match in InlineLinkRegex().Matches(line).Cast<Match>())
             {
-                var destination = match.Groups["dest"].Value;
+                string destination = match.Groups["dest"].Value;
                 if (destination.Length > 0)
                 {
                     scan.Links.Add(new MarkdownLink(Unbracket(destination), lineNumber));
                 }
             }
 
-            var definition = LinkDefinitionRegex().Match(line);
+            Match definition = LinkDefinitionRegex().Match(line);
             if (definition.Success)
             {
                 scan.Links.Add(new MarkdownLink(Unbracket(definition.Groups["dest"].Value), lineNumber));

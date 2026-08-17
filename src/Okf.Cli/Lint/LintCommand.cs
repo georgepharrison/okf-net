@@ -72,14 +72,14 @@ internal static class LintCommand
         TextWriter output,
         TextWriter error)
     {
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
 
         // PRD CLI-4: CLI args > project config > global config, with the built-in
         // defaults underneath. OKF_HOME is not a layer here — it moves the personal
         // vault (and therefore which bundles are linted), never a severity.
-        var layers = new List<OkfSeverityLayer>();
-        var global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
-        var projectPath = arguments.ConfigPath is { } explicitConfig
+        List<OkfSeverityLayer> layers = new List<OkfSeverityLayer>();
+        OkfConfig? global = OkfConfig.TryLoad(environment.GlobalConfigPath, globalLayer: true);
+        string? projectPath = arguments.ConfigPath is { } explicitConfig
             ? Path.GetFullPath(Path.Combine(environment.CurrentDirectory, explicitConfig))
             : workingSet.ProjectConfigPath;
 
@@ -88,9 +88,9 @@ internal static class LintCommand
             throw new OkfConfigException($"No such config file: '{projectPath}'.");
         }
 
-        var project = projectPath is null ? null : OkfConfig.TryLoad(projectPath);
+        OkfConfig? project = projectPath is null ? null : OkfConfig.TryLoad(projectPath);
 
-        foreach (var config in new[] { global, project })
+        foreach (OkfConfig? config in new[] { global, project })
         {
             if (config is not null && !config.Severities.IsEmpty)
             {
@@ -103,7 +103,7 @@ internal static class LintCommand
             layers.Add(arguments.CommandLine);
         }
 
-        var options = new OkfLintOptions
+        OkfLintOptions options = new OkfLintOptions
         {
             Severities = new OkfSeverityResolver(layers),
             TagRegistry = project?.TagRegistry ?? global?.TagRegistry,
@@ -121,8 +121,8 @@ internal static class LintCommand
             WriteVerbose(error, workingSet, global, project, projectPath, options.Severities);
         }
 
-        var result = new OkfLinter(options).Lint(workingSet.Bundles);
-        var reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
+        OkfLintResult result = new OkfLinter(options).Lint(workingSet.Bundles);
+        List<OkfDiagnostic> reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
 
         if (arguments.Json)
         {
@@ -166,9 +166,9 @@ internal static class LintCommand
         // Every rule, not only the reconfigured ones: a rule sitting at a default the
         // reader did not expect is exactly as surprising as one a config layer moved, and
         // "which rules are live" is the question a clean run raises (friction #11).
-        foreach (var rule in OkfRules.All)
+        foreach (OkfRule rule in OkfRules.All)
         {
-            var (severity, source) = severities.ResolveWithSource(rule.Id);
+            (OkfSeverity severity, string source) = severities.ResolveWithSource(rule.Id);
             error.WriteLine(
                 $"okf: severity {rule.Id} = {severity.ToConfigString()} (from {source}) {rule.Nickname}");
         }
@@ -191,7 +191,7 @@ internal static class LintCommand
 
     private static void WriteRules(TextWriter output)
     {
-        foreach (var rule in OkfRules.All)
+        foreach (OkfRule rule in OkfRules.All)
         {
             output.WriteLine($"{rule.Id}  {rule.DefaultSeverity.ToConfigString(),-7}  {rule.Nickname}");
             output.WriteLine($"          {rule.Title}");

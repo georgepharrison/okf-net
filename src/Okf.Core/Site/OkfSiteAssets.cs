@@ -42,13 +42,13 @@ public static class OkfSiteAssets
 
     private static string Read(string resource)
     {
-        var assembly = typeof(OkfSiteAssets).Assembly;
-        using var stream = assembly.GetManifestResourceStream(resource)
+        Assembly assembly = typeof(OkfSiteAssets).Assembly;
+        using Stream stream = assembly.GetManifestResourceStream(resource)
             ?? throw new InvalidOperationException(
                 $"The embedded site asset '{resource}' is missing from {assembly.GetName().Name}. " +
                 "It is declared as an EmbeddedResource in Okf.Core.csproj.");
 
-        using var reader = new StreamReader(stream, Encoding.UTF8);
+        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
 }

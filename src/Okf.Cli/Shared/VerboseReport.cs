@@ -38,12 +38,12 @@ internal static class VerboseReport
         IReadOnlyList<string>? notes = null)
     {
         error.WriteLine($"okf: resolved {workingSet.Resolution}");
-        foreach (var note in notes ?? [])
+        foreach (string note in notes ?? [])
         {
             error.WriteLine($"okf: {note}");
         }
 
-        foreach (var bundle in workingSet.Bundles)
+        foreach (OkfBundle bundle in workingSet.Bundles)
         {
             error.WriteLine($"okf: bundle {bundle.Root}");
         }

@@ -31,12 +31,12 @@ internal static class McpCommand
         TextWriter error)
     {
         string? path = null;
-        var verbose = false;
+        bool verbose = false;
         OkfScopeKind? requested = null;
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
+            string argument = args[index];
             switch (argument.StartsWith("--scope=", StringComparison.Ordinal) ? "--scope" : argument)
             {
                 case "--help" or "-h":
@@ -48,10 +48,10 @@ internal static class McpCommand
                     break;
 
                 case "--scope":
-                    var value = argument.StartsWith("--scope=", StringComparison.Ordinal)
+                    string? value = argument.StartsWith("--scope=", StringComparison.Ordinal)
                         ? argument["--scope=".Length..]
                         : index + 1 < args.Length ? args[++index] : null;
-                    if (!OkfScopeKindExtensions.TryParse(value, out var scope))
+                    if (!OkfScopeKindExtensions.TryParse(value, out OkfScopeKind scope))
                     {
                         error.WriteLine(
                             $"okf: error: Unknown --scope value '{value}'; expected one of " +
@@ -105,14 +105,14 @@ internal static class McpCommand
 
         // AD-30: the scope is fixed here, at launch, and no tool argument can widen it. A
         // client that wants a different scope launches a different server.
-        var tools = new McpToolset(environment, path, settings.Scope);
+        McpToolset tools = new McpToolset(environment, path, settings.Scope);
 
         try
         {
             // Resolution is checked before a single byte of protocol is spoken: a server that
             // cannot say which bundles it serves is a startup failure (exit 2, PRD §3's CLI
             // surface table), not a run of tools that all fail the same way.
-            var workingSet = tools.Resolve();
+            OkfWorkingSet workingSet = tools.Resolve();
             if (verbose)
             {
                 VerboseReport.Scope(error, settings);

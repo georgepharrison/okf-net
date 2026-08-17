@@ -201,7 +201,7 @@ public static class OkfScaffold
     {
         ArgumentNullException.ThrowIfNull(environment);
 
-        var target = Path.TrimEndingDirectorySeparator(
+        string target = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path ?? ".")));
 
         return Directory.Exists(Path.Combine(target, OkfDiscovery.BundlesDirectoryName))
@@ -222,7 +222,7 @@ public static class OkfScaffold
         ArgumentException.ThrowIfNullOrEmpty(vaultRoot);
         options ??= new OkfScaffoldOptions();
 
-        var vault = Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
+        string vault = Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
         RefuseBundleRoot(vault);
 
         if (File.Exists(vault))
@@ -230,18 +230,18 @@ public static class OkfScaffold
             throw new OkfScaffoldException($"'{vault}' is a file; okf init needs a directory.");
         }
 
-        var name = BundleName(vault, options.BundleName);
-        var bundleRoot = Path.Combine(vault, OkfDiscovery.BundlesDirectoryName, name);
-        var stamp = OkfCanonicalTimestamp.ToCanonical(options.Now);
-        var day = options.Now.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        string name = BundleName(vault, options.BundleName);
+        string bundleRoot = Path.Combine(vault, OkfDiscovery.BundlesDirectoryName, name);
+        string stamp = OkfCanonicalTimestamp.ToCanonical(options.Now);
+        string day = options.Now.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
         Directory.CreateDirectory(bundleRoot);
         Directory.CreateDirectory(Path.Combine(vault, CustodianDirectoryName));
         Directory.CreateDirectory(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName));
 
-        var pointers = SkillPointers(vault);
+        IReadOnlyList<OkfSkillPointer> pointers = SkillPointers(vault);
 
-        var files = new List<OkfScaffoldFile>
+        List<OkfScaffoldFile> files = new List<OkfScaffoldFile>
         {
             Write(Path.Combine(vault, "README.md"), VaultReadme(name)),
             Write(Path.Combine(vault, OkfDiscovery.ConfigFileName), ProjectConfig(name)),
@@ -268,14 +268,14 @@ public static class OkfScaffold
     /// </summary>
     private static OkfScaffoldFile WriteRootIndex(string bundleRoot)
     {
-        var path = Path.Combine(bundleRoot, OkfBundle.IndexFileName);
+        string path = Path.Combine(bundleRoot, OkfBundle.IndexFileName);
         if (File.Exists(path))
         {
             return new OkfScaffoldFile(path, OkfScaffoldStatus.Exists);
         }
 
-        var bundle = new OkfBundle(bundleRoot);
-        var index = OkfIndexGenerator.Plan(bundle).For(bundleRoot)
+        OkfBundle bundle = new OkfBundle(bundleRoot);
+        OkfIndex index = OkfIndexGenerator.Plan(bundle).For(bundleRoot)
             ?? throw new OkfScaffoldException(
                 $"'{bundleRoot}' has nothing to index; okf init writes {AboutThisBundleFileName} first.");
 
@@ -313,14 +313,14 @@ public static class OkfScaffold
     /// </remarks>
     private static void RefuseBundleRoot(string vault)
     {
-        var real = RealPath(vault);
-        var shown = string.Equals(real, vault, StringComparison.Ordinal)
+        string real = RealPath(vault);
+        string shown = string.Equals(real, vault, StringComparison.Ordinal)
             ? $"'{vault}'"
             : $"'{vault}' (which resolves to '{real}')";
 
-        for (var directory = new DirectoryInfo(real); directory is not null; directory = directory.Parent)
+        for (DirectoryInfo? directory = new DirectoryInfo(real); directory is not null; directory = directory.Parent)
         {
-            var parent = directory.Parent;
+            DirectoryInfo? parent = directory.Parent;
             if (parent is null
                 || !string.Equals(parent.Name, OkfDiscovery.BundlesDirectoryName, StringComparison.Ordinal)
                 || parent.Parent is null)
@@ -328,7 +328,7 @@ public static class OkfScaffold
                 continue;
             }
 
-            var relation = string.Equals(directory.FullName, real, StringComparison.Ordinal)
+            string relation = string.Equals(directory.FullName, real, StringComparison.Ordinal)
                 ? "is a bundle root"
                 : $"sits inside the bundle root '{directory.FullName}'";
 
@@ -347,13 +347,13 @@ public static class OkfScaffold
     /// </summary>
     private static string RealPath(string path)
     {
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-        var pending = new Stack<string>();
-        var existing = full;
+        Stack<string> pending = new Stack<string>();
+        string existing = full;
         while (!Directory.Exists(existing) && !File.Exists(existing))
         {
-            var parent = Path.GetDirectoryName(existing);
+            string? parent = Path.GetDirectoryName(existing);
             if (string.IsNullOrEmpty(parent))
             {
                 return full;
@@ -363,8 +363,8 @@ public static class OkfScaffold
             existing = parent;
         }
 
-        var budget = MaxLinkDepth;
-        var resolved = Resolve(existing, ref budget);
+        int budget = MaxLinkDepth;
+        string resolved = Resolve(existing, ref budget);
         while (pending.Count > 0)
         {
             resolved = Path.Combine(resolved, pending.Pop());
@@ -380,13 +380,13 @@ public static class OkfScaffold
     /// </summary>
     private static string Resolve(string path, ref int budget)
     {
-        var parent = Path.GetDirectoryName(path);
+        string? parent = Path.GetDirectoryName(path);
         if (string.IsNullOrEmpty(parent) || budget <= 0)
         {
             return path;
         }
 
-        var candidate = Path.Combine(Resolve(parent, ref budget), Path.GetFileName(path));
+        string candidate = Path.Combine(Resolve(parent, ref budget), Path.GetFileName(path));
         if (LinkTarget(candidate) is not { } target)
         {
             return candidate;
@@ -435,8 +435,8 @@ public static class OkfScaffold
             return Validate(requested, "The --name given");
         }
 
-        var parent = Path.GetFileName(Path.GetDirectoryName(vault) ?? string.Empty);
-        var derived = Sanitize(parent);
+        string parent = Path.GetFileName(Path.GetDirectoryName(vault) ?? string.Empty);
+        string derived = Sanitize(parent);
         return derived.Length > 0
             ? derived
             : throw new OkfScaffoldException(
@@ -465,8 +465,8 @@ public static class OkfScaffold
     /// </summary>
     private static string Sanitize(string text)
     {
-        var builder = new StringBuilder(text.Length);
-        foreach (var character in text)
+        StringBuilder builder = new StringBuilder(text.Length);
+        foreach (char character in text)
         {
             if (char.IsLetterOrDigit(character) || character is '.' or '_')
             {
@@ -634,14 +634,14 @@ public static class OkfScaffold
 
     private static string MarkdownLintConfig(string vault)
     {
-        var host = HostMarkdownLintConfig(vault);
+        string? host = HostMarkdownLintConfig(vault);
 
         // A nested config REPLACES the parent rather than merging with it, so a vault
         // config written without `extends` silently switches every rule the host repo
         // turned off back on (dogfood friction #19-6). The line is emitted only when
         // there is something to extend: `extends` naming a file that does not exist is
         // an error, which would break markdownlint for a repo that had no config at all.
-        var extends = host is null
+        string extends = host is null
             ? string.Empty
             : $"""
                 # A nested config REPLACES the repository-root one rather than merging with it,
@@ -675,7 +675,7 @@ public static class OkfScaffold
 
     private static string? HostMarkdownLintConfig(string vault)
     {
-        var host = Path.GetDirectoryName(vault);
+        string? host = Path.GetDirectoryName(vault);
         if (host is null)
         {
             return null;
@@ -752,13 +752,13 @@ public static class OkfScaffold
     /// </remarks>
     private static IReadOnlyList<OkfSkillPointer> SkillPointers(string vault)
     {
-        var projectRoot = Path.GetDirectoryName(vault);
+        string? projectRoot = Path.GetDirectoryName(vault);
 
         return
         [
             .. RecipeSkills.Select(skill =>
             {
-                var relative = projectRoot is null
+                string? relative = projectRoot is null
                     ? null
                     : OkfSkillInstaller.ProjectRelativeCandidates(skill.Name).FirstOrDefault(candidate =>
                         File.Exists(Path.Combine(projectRoot, candidate.Replace('/', Path.DirectorySeparatorChar))));

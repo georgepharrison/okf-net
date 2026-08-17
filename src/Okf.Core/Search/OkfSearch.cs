@@ -214,7 +214,7 @@ public static class OkfSearchEngine
         ArgumentNullException.ThrowIfNull(query);
         options ??= new OkfSearchOptions();
 
-        var bundleList = bundles.ToList();
+        List<OkfBundle> bundleList = bundles.ToList();
 
         if (query.IsEmpty)
         {
@@ -233,12 +233,12 @@ public static class OkfSearchEngine
             };
         }
 
-        var skipped = 0;
-        var corpus = new List<Concept>();
+        int skipped = 0;
+        List<Concept> corpus = new List<Concept>();
 
-        foreach (var bundle in bundleList)
+        foreach (OkfBundle bundle in bundleList)
         {
-            foreach (var file in bundle.MarkdownFiles())
+            foreach (string file in bundle.MarkdownFiles())
             {
                 // Reserved files are not concepts (spec §3.1); everything else in the tree
                 // is, which is what makes a foreign bundle searchable without cooperation.
@@ -247,7 +247,7 @@ public static class OkfSearchEngine
                     continue;
                 }
 
-                var text = options.ReadText?.Invoke(file) ?? File.ReadAllText(file);
+                string text = options.ReadText?.Invoke(file) ?? File.ReadAllText(file);
                 OkfDocument document;
                 try
                 {
@@ -263,20 +263,20 @@ public static class OkfSearchEngine
             }
         }
 
-        var terms = query.Terms;
-        var statistics = Statistics.Of(corpus, terms);
-        var candidates = corpus.Where(concept => concept.Passes(query)).ToList();
+        IReadOnlyList<string> terms = query.Terms;
+        Statistics statistics = Statistics.Of(corpus, terms);
+        List<Concept> candidates = corpus.Where(concept => concept.Passes(query)).ToList();
 
-        var (matched, mode) = Match(candidates, terms);
+        (List<Concept> matched, OkfSearchMatchMode mode) = Match(candidates, terms);
 
-        var ranked = matched
+        List<(Concept Concept, double Score)> ranked = matched
             .Select(concept => (Concept: concept, Score: Score(concept, terms, statistics)))
             .OrderByDescending(scored => scored.Score)
             .ThenBy(scored => scored.Concept.Bundle.Root, StringComparer.Ordinal)
             .ThenBy(scored => scored.Concept.RelativePath, StringComparer.Ordinal)
             .ToList();
 
-        var limited = options.Limit > 0 ? ranked.Take(options.Limit) : ranked;
+        IEnumerable<(Concept Concept, double Score)> limited = options.Limit > 0 ? ranked.Take(options.Limit) : ranked;
 
         return new OkfSearchOutcome
         {
@@ -301,7 +301,7 @@ public static class OkfSearchEngine
             return (candidates, OkfSearchMatchMode.Filter);
         }
 
-        var all = candidates.Where(concept => terms.All(concept.Matches)).ToList();
+        List<Concept> all = candidates.Where(concept => terms.All(concept.Matches)).ToList();
         if (all.Count > 0 || terms.Count == 1)
         {
             // With one term, AND and OR are the same query, so there is no fallback to
@@ -309,22 +309,22 @@ public static class OkfSearchEngine
             return (all, OkfSearchMatchMode.All);
         }
 
-        var any = candidates.Where(concept => terms.Any(concept.Matches)).ToList();
+        List<Concept> any = candidates.Where(concept => terms.Any(concept.Matches)).ToList();
         return any.Count > 0 ? (any, OkfSearchMatchMode.Any) : (all, OkfSearchMatchMode.All);
     }
 
     private static double Score(Concept concept, IReadOnlyList<string> terms, Statistics statistics)
     {
-        var score = 0.0;
-        foreach (var term in terms)
+        double score = 0.0;
+        foreach (string term in terms)
         {
-            var frequency = concept.Weighted.GetValueOrDefault(term);
+            double frequency = concept.Weighted.GetValueOrDefault(term);
             if (frequency <= 0)
             {
                 continue;
             }
 
-            var normalization = K1 * (1 - B + (B * concept.Length / statistics.AverageLength));
+            double normalization = K1 * (1 - B + (B * concept.Length / statistics.AverageLength));
             score += statistics.InverseDocumentFrequency(term) * frequency * (K1 + 1) / (frequency + normalization);
         }
 
@@ -337,62 +337,62 @@ public static class OkfSearchEngine
     /// </summary>
     private static string Snippet(Concept concept, IReadOnlyList<string> matchedTerms)
     {
-        var body = Extract(concept.Body, matchedTerms);
+        (string Text, bool Matched) body = Extract(concept.Body, matchedTerms);
         if (body.Matched)
         {
             return body.Text;
         }
 
-        var description = Extract(concept.Description, matchedTerms);
+        (string Text, bool Matched) description = Extract(concept.Description, matchedTerms);
         return description.Matched || description.Text.Length > 0 ? description.Text : body.Text;
     }
 
     private static (string Text, bool Matched) Extract(string? source, IReadOnlyList<string> terms)
     {
-        var flat = Flatten(source);
+        string flat = Flatten(source);
         if (flat.Length == 0)
         {
             return (string.Empty, false);
         }
 
-        var tokens = OkfTokenizer.TokenizeWithOffsets(flat);
-        var wanted = new HashSet<string>(terms, StringComparer.Ordinal);
-        var hits = tokens.Where(token => wanted.Contains(token.Token)).ToList();
+        List<(string Token, int Start, int Length)> tokens = OkfTokenizer.TokenizeWithOffsets(flat);
+        HashSet<string> wanted = new HashSet<string>(terms, StringComparer.Ordinal);
+        List<(string Token, int Start, int Length)> hits = tokens.Where(token => wanted.Contains(token.Token)).ToList();
         if (hits.Count == 0)
         {
             return (Head(flat), false);
         }
 
-        var anchor = BestAnchor(hits);
+        int anchor = BestAnchor(hits);
 
         // A little lead-in makes the window readable, but never at the cost of a half
         // word: the start snaps forward to the next token boundary.
-        var start = Math.Max(0, hits[anchor].Start - SnippetLeadIn);
+        int start = Math.Max(0, hits[anchor].Start - SnippetLeadIn);
         if (start > 0)
         {
-            var first = tokens.FirstOrDefault(token => token.Start >= start, hits[anchor]);
+            (string Token, int Start, int Length) first = tokens.FirstOrDefault(token => token.Start >= start, hits[anchor]);
             start = Math.Min(first.Start, hits[anchor].Start);
         }
 
-        var end = Math.Min(flat.Length, start + SnippetLength);
+        int end = Math.Min(flat.Length, start + SnippetLength);
         if (end < flat.Length)
         {
-            var last = tokens.LastOrDefault(token => token.Start + token.Length <= end);
-            var trimmed = last.Length > 0 ? last.Start + last.Length : end;
+            (string Token, int Start, int Length) last = tokens.LastOrDefault(token => token.Start + token.Length <= end);
+            int trimmed = last.Length > 0 ? last.Start + last.Length : end;
 
             // A token end is already a character boundary; the raw limit is not, so it is
             // snapped back off the tail of a surrogate pair.
             end = trimmed > hits[anchor].Start ? trimmed : SnapToCharacter(flat, end);
         }
 
-        var builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
         if (start > 0)
         {
             builder.Append(Ellipsis);
         }
 
-        var cursor = start;
-        foreach (var hit in hits)
+        int cursor = start;
+        foreach ((string Token, int Start, int Length) hit in hits)
         {
             if (hit.Start < cursor || hit.Start + hit.Length > end)
             {
@@ -419,14 +419,14 @@ public static class OkfSearchEngine
     /// </summary>
     private static int BestAnchor(List<(string Token, int Start, int Length)> hits)
     {
-        var best = 0;
-        var bestCount = 0;
+        int best = 0;
+        int bestCount = 0;
 
-        for (var i = 0; i < hits.Count; i++)
+        for (int i = 0; i < hits.Count; i++)
         {
-            var end = hits[i].Start + SnippetLength;
-            var distinct = new HashSet<string>(StringComparer.Ordinal);
-            for (var j = i; j < hits.Count && hits[j].Start + hits[j].Length <= end; j++)
+            int end = hits[i].Start + SnippetLength;
+            HashSet<string> distinct = new HashSet<string>(StringComparer.Ordinal);
+            for (int j = i; j < hits.Count && hits[j].Start + hits[j].Length <= end; j++)
             {
                 distinct.Add(hits[j].Token);
             }
@@ -446,8 +446,8 @@ public static class OkfSearchEngine
 
     private static string TrimToWord(string flat)
     {
-        var limit = SnapToCharacter(flat, SnippetLength);
-        var cut = limit;
+        int limit = SnapToCharacter(flat, SnippetLength);
+        int cut = limit;
         while (cut > 0 && !char.IsWhiteSpace(flat[cut]))
         {
             cut--;
@@ -491,13 +491,13 @@ public static class OkfSearchEngine
             return string.Empty;
         }
 
-        var plain = new StringBuilder(text.Length);
-        foreach (var raw in text.Split('\n'))
+        StringBuilder plain = new StringBuilder(text.Length);
+        foreach (string raw in text.Split('\n'))
         {
-            var line = raw.Trim();
-            var start = 0;
+            string line = raw.Trim();
+            int start = 0;
 
-            var hashes = 0;
+            int hashes = 0;
             while (hashes < line.Length && line[hashes] == '#')
             {
                 hashes++;
@@ -532,9 +532,9 @@ public static class OkfSearchEngine
             plain.Append(' ');
         }
 
-        var builder = new StringBuilder(plain.Length);
-        var pendingSpace = false;
-        foreach (var character in plain.ToString())
+        StringBuilder builder = new StringBuilder(plain.Length);
+        bool pendingSpace = false;
+        foreach (char character in plain.ToString())
         {
             if (char.IsWhiteSpace(character))
             {
@@ -568,7 +568,7 @@ public static class OkfSearchEngine
             return false;
         }
 
-        var close = line.IndexOf(']', start + 1);
+        int close = line.IndexOf(']', start + 1);
         return close > start + 1 && close + 1 < line.Length && line[close + 1] == ':';
     }
 
@@ -584,15 +584,15 @@ public static class OkfSearchEngine
     /// <param name="start">Where the line's content begins, after its block markers.</param>
     private static void AppendFlattened(StringBuilder plain, string line, int start)
     {
-        for (var i = start; i < line.Length; i++)
+        for (int i = start; i < line.Length; i++)
         {
-            var character = line[i];
+            char character = line[i];
             if (character == '*')
             {
                 continue;
             }
 
-            if (character is '[' or '!' && TryLink(line, i, out var text, out var end))
+            if (character is '[' or '!' && TryLink(line, i, out string? text, out int end))
             {
                 // The text is flattened in turn: it may carry emphasis, and a nested
                 // image (`[![alt](img)](href)`) is a link inside a link.
@@ -618,15 +618,15 @@ public static class OkfSearchEngine
         text = string.Empty;
         end = index;
 
-        var open = line[index] == '!' ? index + 1 : index;
+        int open = line[index] == '!' ? index + 1 : index;
         if (open >= line.Length || line[open] != '[' || (open + 1 < line.Length && line[open + 1] == '^'))
         {
             return false;
         }
 
-        var depth = 0;
-        var close = -1;
-        for (var i = open; i < line.Length; i++)
+        int depth = 0;
+        int close = -1;
+        for (int i = open; i < line.Length; i++)
         {
             if (line[i] == '[')
             {
@@ -644,14 +644,14 @@ public static class OkfSearchEngine
             return false;
         }
 
-        var opener = line[close + 1];
-        var closer = opener switch { '(' => ')', '[' => ']', _ => '\0' };
+        char opener = line[close + 1];
+        char closer = opener switch { '(' => ')', '[' => ']', _ => '\0' };
         if (closer == '\0')
         {
             return false;
         }
 
-        var target = line.IndexOf(closer, close + 2);
+        int target = line.IndexOf(closer, close + 2);
         if (target < 0)
         {
             return false;
@@ -665,7 +665,7 @@ public static class OkfSearchEngine
     /// <summary>The collection statistics BM25 needs, taken over the whole corpus.</summary>
     private sealed class Statistics
     {
-        private readonly Dictionary<string, double> idf = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, double> _idf = new(StringComparer.Ordinal);
 
         private Statistics(double averageLength) => AverageLength = averageLength;
 
@@ -673,24 +673,24 @@ public static class OkfSearchEngine
 
         public static Statistics Of(List<Concept> corpus, IReadOnlyList<string> terms)
         {
-            var total = corpus.Sum(concept => concept.Length);
-            var average = corpus.Count > 0 && total > 0 ? total / corpus.Count : 1;
-            var statistics = new Statistics(average);
+            double total = corpus.Sum(concept => concept.Length);
+            double average = corpus.Count > 0 && total > 0 ? total / corpus.Count : 1;
+            Statistics statistics = new Statistics(average);
 
-            foreach (var term in terms)
+            foreach (string term in terms)
             {
-                var documentFrequency = (double)corpus.Count(concept => concept.Matches(term));
+                double documentFrequency = (double)corpus.Count(concept => concept.Matches(term));
 
                 // The non-negative IDF variant: a term in every document scores ~0 rather
                 // than pushing the score down.
-                statistics.idf[term] = Math.Log(
+                statistics._idf[term] = Math.Log(
                     1 + ((corpus.Count - documentFrequency + 0.5) / (documentFrequency + 0.5)));
             }
 
             return statistics;
         }
 
-        public double InverseDocumentFrequency(string term) => this.idf.GetValueOrDefault(term);
+        public double InverseDocumentFrequency(string term) => _idf.GetValueOrDefault(term);
     }
 
     /// <summary>One corpus entry: a parsed concept plus its weighted term frequencies.</summary>
@@ -738,14 +738,14 @@ public static class OkfSearchEngine
 
         public static Concept Of(OkfBundle bundle, string path, OkfDocument document)
         {
-            var frontmatter = document.Frontmatter;
-            var weighted = new Dictionary<string, double>(StringComparer.Ordinal);
-            var length = 0.0;
+            OkfMapping frontmatter = document.Frontmatter;
+            Dictionary<string, double> weighted = new Dictionary<string, double>(StringComparer.Ordinal);
+            double length = 0.0;
 
             Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "title"), TitleWeight);
             Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "type"), TypeWeight);
             Index(weighted, ref length, FrontmatterValues.Scalar(frontmatter, "description"), DescriptionWeight);
-            foreach (var tag in FrontmatterValues.Tags(frontmatter))
+            foreach (string tag in FrontmatterValues.Tags(frontmatter))
             {
                 Index(weighted, ref length, tag, TagWeight);
             }
@@ -775,7 +775,7 @@ public static class OkfSearchEngine
 
         public OkfSearchResult ToResult(double score, IReadOnlyList<string> terms, DateOnly today)
         {
-            var matchedTerms = terms.Where(Matches).Distinct(StringComparer.Ordinal).ToList();
+            List<string> matchedTerms = terms.Where(Matches).Distinct(StringComparer.Ordinal).ToList();
 
             return new OkfSearchResult
             {
@@ -806,7 +806,7 @@ public static class OkfSearchEngine
             string? text,
             double weight)
         {
-            foreach (var token in OkfTokenizer.Tokenize(text))
+            foreach (string token in OkfTokenizer.Tokenize(text))
             {
                 weighted[token] = weighted.GetValueOrDefault(token) + weight;
                 length += weight;

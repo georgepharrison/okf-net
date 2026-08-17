@@ -65,7 +65,7 @@ internal static class SkillsCommand
     {
         if (arguments.Names)
         {
-            foreach (var name in OkfSkills.Names)
+            foreach (string name in OkfSkills.Names)
             {
                 output.WriteLine(name);
             }
@@ -73,8 +73,8 @@ internal static class SkillsCommand
             return CliApplication.ExitSuccess;
         }
 
-        var width = OkfSkills.Names.Max(name => name.Length);
-        foreach (var skill in OkfSkills.All)
+        int width = OkfSkills.Names.Max(name => name.Length);
+        foreach (OkfSkill skill in OkfSkills.All)
         {
             output.WriteLine($"{skill.Name.PadRight(width)}  {skill.Description}");
         }
@@ -88,7 +88,7 @@ internal static class SkillsCommand
         TextWriter output,
         TextWriter error)
     {
-        var name = arguments.SkillName!;
+        string name = arguments.SkillName!;
         if (OkfSkills.Find(name) is null)
         {
             error.WriteLine(
@@ -135,14 +135,14 @@ internal static class SkillsCommand
             return CliApplication.ExitUsage;
         }
 
-        foreach (var file in files)
+        foreach (OkfSkillInstallFile file in files)
         {
             output.WriteLine(
                 $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
         }
 
-        var written = files.Count(file => file.Status == OkfSkillInstallStatus.Written);
-        var skipped = files.Count(file => file.Status == OkfSkillInstallStatus.SkippedModified);
+        int written = files.Count(file => file.Status == OkfSkillInstallStatus.Written);
+        int skipped = files.Count(file => file.Status == OkfSkillInstallStatus.SkippedModified);
 
         output.WriteLine(
             $"{DiagnosticWriter.Plural(OkfSkills.All.Count, "skill")} in " +

@@ -56,7 +56,7 @@ public static class OkfActor
         // `<producer>/<version>`: a colon anywhere else would be a mistyped prefix
         // (`human/ringo`, `Human:ringo`), and letting it through as a producer name is how
         // a person silently stops counting as one.
-        var separator = actor.IndexOf('/', StringComparison.Ordinal);
+        int separator = actor.IndexOf('/', StringComparison.Ordinal);
         return separator > 0
             && separator < actor.Length - 1
             && !actor.Contains(':', StringComparison.Ordinal);
@@ -71,7 +71,7 @@ public static class OkfActor
     public static string ToHuman(string id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        var trimmed = id.Trim();
+        string trimmed = id.Trim();
         return IsHuman(trimmed) ? trimmed : HumanPrefix + trimmed;
     }
 }

@@ -20,18 +20,18 @@ internal static class DiagnosticWriter
         string baseDirectory,
         TextWriter output)
     {
-        foreach (var diagnostic in diagnostics)
+        foreach (OkfDiagnostic diagnostic in diagnostics)
         {
-            var location = diagnostic.Line is { } line
+            string location = diagnostic.Line is { } line
                 ? $"{Display(diagnostic.Path, baseDirectory)}:{line.ToString(CultureInfo.InvariantCulture)}"
                 : Display(diagnostic.Path, baseDirectory);
             output.WriteLine(
                 $"{location}: {diagnostic.Severity.ToConfigString()} {diagnostic.RuleId}: {diagnostic.Message}");
         }
 
-        var errors = result.Count(OkfSeverity.Error);
-        var warnings = result.Count(OkfSeverity.Warning);
-        var infos = result.Count(OkfSeverity.Info);
+        int errors = result.Count(OkfSeverity.Error);
+        int warnings = result.Count(OkfSeverity.Warning);
+        int infos = result.Count(OkfSeverity.Info);
 
         // What ran is part of the result: "0 errors" from a run with every rule hidden
         // reads exactly like "0 errors" from a run with all of them live, and a
@@ -52,7 +52,7 @@ internal static class DiagnosticWriter
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
-            foreach (var diagnostic in diagnostics)
+            foreach (OkfDiagnostic diagnostic in diagnostics)
             {
                 writer.WriteStartObject();
                 writer.WriteString("id", diagnostic.RuleId);
@@ -87,7 +87,7 @@ internal static class DiagnosticWriter
     /// <returns>The display form.</returns>
     public static string Display(string path, string baseDirectory)
     {
-        var relative = Path.GetRelativePath(baseDirectory, path);
+        string relative = Path.GetRelativePath(baseDirectory, path);
         return relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)
             ? path
             : relative.Replace(Path.DirectorySeparatorChar, '/');

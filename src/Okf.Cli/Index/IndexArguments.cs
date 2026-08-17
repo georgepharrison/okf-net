@@ -37,12 +37,12 @@ internal sealed class IndexArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static IndexArguments Parse(string[] args)
     {
-        var parsed = new IndexArguments();
+        IndexArguments parsed = new IndexArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -63,7 +63,7 @@ internal sealed class IndexArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    string format = inlineValue ?? CliArguments.Next(args, ref index, name);
                     parsed.Json = CliArguments.ParseFormat(format);
                     break;
 

@@ -75,11 +75,11 @@ internal static class OkfSiteMarkdown
         ArgumentNullException.ThrowIfNull(markdown);
         ArgumentNullException.ThrowIfNull(resolve);
 
-        var document = Markdown.Parse(markdown, Pipeline);
-        var links = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        MarkdownDocument document = Markdown.Parse(markdown, Pipeline);
+        List<string> links = new List<string>();
+        HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var link in document.Descendants<LinkInline>())
+        foreach (LinkInline link in document.Descendants<LinkInline>())
         {
             if (link.Url is not { Length: > 0 } url)
             {
@@ -97,7 +97,7 @@ internal static class OkfSiteMarkdown
                 continue;
             }
 
-            var resolved = resolve(url);
+            OkfSiteLink resolved = resolve(url);
 
             if (!link.IsImage && resolved.Href is { Length: > 0 } href)
             {
@@ -109,7 +109,7 @@ internal static class OkfSiteMarkdown
                 links.Add(target);
             }
 
-            var attributes = link.GetAttributes();
+            HtmlAttributes attributes = link.GetAttributes();
             if (resolved.CssClass is { Length: > 0 } cssClass)
             {
                 attributes.AddClass(cssClass);
@@ -126,7 +126,7 @@ internal static class OkfSiteMarkdown
         // above nor `DisableHtml` has seen `<javascript:alert(1)>`. It carries its own
         // destination as its own text, so a blocked one becomes exactly the text it was
         // written as, with no anchor around it.
-        foreach (var autolink in document.Descendants<AutolinkInline>().ToList())
+        foreach (AutolinkInline autolink in document.Descendants<AutolinkInline>().ToList())
         {
             if (Blocked(autolink.IsEmail ? "mailto:" + autolink.Url : autolink.Url))
             {
@@ -137,9 +137,9 @@ internal static class OkfSiteMarkdown
         // Read before rendering: `Order` is assigned while the document is parsed, and it
         // is exactly the number the rendered `fn:N` anchors carry, so the scan does not
         // depend on what the footnote-group renderer does to the group on its way out.
-        var orders = new Dictionary<string, int>(StringComparer.Ordinal);
-        var position = 0;
-        foreach (var footnote in document.Descendants<Footnote>())
+        Dictionary<string, int> orders = new Dictionary<string, int>(StringComparer.Ordinal);
+        int position = 0;
+        foreach (Footnote footnote in document.Descendants<Footnote>())
         {
             position++;
             if (Label(footnote.Label) is { Length: > 0 } label)
@@ -148,8 +148,8 @@ internal static class OkfSiteMarkdown
             }
         }
 
-        using var writer = new StringWriter { NewLine = "\n" };
-        var renderer = new HtmlRenderer(writer);
+        using StringWriter writer = new StringWriter { NewLine = "\n" };
+        HtmlRenderer renderer = new HtmlRenderer(writer);
         Pipeline.Setup(renderer);
         renderer.Render(document);
         writer.Flush();
@@ -177,8 +177,8 @@ internal static class OkfSiteMarkdown
     /// </remarks>
     private static string? Scheme(string url)
     {
-        var builder = new StringBuilder(url.Length);
-        foreach (var character in url)
+        StringBuilder builder = new StringBuilder(url.Length);
+        foreach (char character in url)
         {
             if (character > ' ' && character != '\u007f')
             {
@@ -186,8 +186,8 @@ internal static class OkfSiteMarkdown
             }
         }
 
-        var text = builder.ToString();
-        var end = 0;
+        string text = builder.ToString();
+        int end = 0;
         while (end < text.Length
                && (char.IsAsciiLetterOrDigit(text[end]) || text[end] is '+' or '-' or '.'))
         {
@@ -211,7 +211,7 @@ internal static class OkfSiteMarkdown
     /// <returns>The label without its footnote delimiters.</returns>
     private static string Label(string? label)
     {
-        var text = (label ?? string.Empty).Trim();
+        string text = (label ?? string.Empty).Trim();
         if (text.StartsWith('[') && text.EndsWith(']'))
         {
             text = text[1..^1];

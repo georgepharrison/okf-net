@@ -30,11 +30,11 @@ internal static class FileText
     /// <exception cref="UnauthorizedAccessException">The file could not be written.</exception>
     public static void WriteAtomic(string path, string text)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(path))
+        string directory = Path.GetDirectoryName(Path.GetFullPath(path))
             ?? throw new IOException($"'{path}' has no directory to write into.");
 
         Directory.CreateDirectory(directory);
-        var temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Path.GetRandomFileName()}");
+        string temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Path.GetRandomFileName()}");
 
         try
         {

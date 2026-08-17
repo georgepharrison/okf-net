@@ -6,8 +6,8 @@ namespace Okf.Cli.Capture;
 /// <summary>The parsed form of <c>okf capture</c>'s command line.</summary>
 internal sealed class CaptureArguments
 {
-    private readonly List<string> operands = [];
-    private readonly List<string> concepts = [];
+    private readonly List<string> _operands = [];
+    private readonly List<string> _concepts = [];
 
     private CaptureArguments()
     {
@@ -17,10 +17,10 @@ internal sealed class CaptureArguments
     public string? Verb { get; private set; }
 
     /// <summary>The item path (<c>add</c>) or the entry id or path (<c>close</c>).</summary>
-    public IReadOnlyList<string> Operands => this.operands;
+    public IReadOnlyList<string> Operands => _operands;
 
     /// <summary>The <c>--concept</c> values, in the order given.</summary>
-    public IReadOnlyList<string> Concepts => this.concepts;
+    public IReadOnlyList<string> Concepts => _concepts;
 
     /// <summary>The capturing or ingesting actor (<c>--by</c>), which is never defaulted.</summary>
     public string? By { get; private set; }
@@ -69,12 +69,12 @@ internal sealed class CaptureArguments
     public static CaptureArguments Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        var parsed = new CaptureArguments();
+        CaptureArguments parsed = new CaptureArguments();
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
-            var (name, inlineValue) = CliArguments.Split(argument);
+            string argument = args[index];
+            (string name, string? inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -112,7 +112,7 @@ internal sealed class CaptureArguments
                     break;
 
                 case "--concept":
-                    parsed.concepts.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
+                    parsed._concepts.Add(inlineValue ?? CliArguments.Next(args, ref index, name));
                     break;
 
                 case "--captured-at" or "--at":
@@ -136,7 +136,7 @@ internal sealed class CaptureArguments
                     }
                     else
                     {
-                        parsed.operands.Add(argument);
+                        parsed._operands.Add(argument);
                     }
 
                     break;

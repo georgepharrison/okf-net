@@ -64,14 +64,14 @@ internal sealed class TempBundle : IDisposable
 /// </summary>
 internal sealed class TempVault : IDisposable
 {
-    private readonly string parent;
+    private readonly string _parent;
 
     /// <summary>Creates an empty vault with one empty bundle in it.</summary>
     /// <param name="bundleName">The bundle directory's name.</param>
     public TempVault(string bundleName = "bundle")
     {
-        this.parent = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
-        Root = Path.Combine(this.parent, "okf");
+        _parent = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+        Root = Path.Combine(_parent, "okf");
         BundleRoot = Path.Combine(Root, "bundles", bundleName);
         Directory.CreateDirectory(BundleRoot);
         Directory.CreateDirectory(RawDirectory);
@@ -163,7 +163,7 @@ internal sealed class TempVault : IDisposable
     {
         try
         {
-            Directory.Delete(this.parent, recursive: true);
+            Directory.Delete(_parent, recursive: true);
         }
         catch (IOException)
         {

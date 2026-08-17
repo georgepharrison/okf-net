@@ -11,7 +11,7 @@ public sealed class OkfEnvironment
     /// <summary>The environment variable that overrides the personal vault location (decisions.md §6).</summary>
     public const string HomeVariable = "OKF_HOME";
 
-    private readonly Dictionary<string, string> variables;
+    private readonly Dictionary<string, string> _variables;
 
     /// <summary>Initializes an environment.</summary>
     /// <param name="currentDirectory">The working directory commands resolve from.</param>
@@ -20,10 +20,10 @@ public sealed class OkfEnvironment
     {
         ArgumentException.ThrowIfNullOrEmpty(currentDirectory);
         CurrentDirectory = System.IO.Path.GetFullPath(currentDirectory);
-        this.variables = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var entry in variables ?? [])
+        _variables = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, string> entry in variables ?? [])
         {
-            this.variables[entry.Key] = entry.Value;
+            _variables[entry.Key] = entry.Value;
         }
     }
 
@@ -65,7 +65,7 @@ public sealed class OkfEnvironment
         {
             if (OperatingSystem.IsWindows())
             {
-                var local = GetVariable("LOCALAPPDATA") is { Length: > 0 } appData
+                string local = GetVariable("LOCALAPPDATA") is { Length: > 0 } appData
                     ? appData
                     : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 return System.IO.Path.Combine(local, "okf");
@@ -94,12 +94,12 @@ public sealed class OkfEnvironment
     /// <returns>An environment reading the current process's working directory and variables.</returns>
     public static OkfEnvironment FromProcess()
     {
-        var variables = new List<KeyValuePair<string, string>>();
+        List<KeyValuePair<string, string>> variables = new List<KeyValuePair<string, string>>();
         // The GIT_CONFIG_* variables are captured for the one read that shells out to git
         // (`okf verify`'s identity fallback, decisions.md Q6). A child process would
         // inherit them anyway; carrying them here is what lets a caller *override* them,
         // which is how that read is made hermetic in a test.
-        foreach (var name in (string[])
+        foreach (string name in (string[])
                  [
                      "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "LOCALAPPDATA",
                      HomeVariable, "USERPROFILE",
@@ -122,5 +122,5 @@ public sealed class OkfEnvironment
     /// <summary>Reads one environment variable.</summary>
     /// <param name="name">The variable's name.</param>
     /// <returns>Its value, or <see langword="null" /> when unset.</returns>
-    public string? GetVariable(string name) => this.variables.GetValueOrDefault(name);
+    public string? GetVariable(string name) => _variables.GetValueOrDefault(name);
 }

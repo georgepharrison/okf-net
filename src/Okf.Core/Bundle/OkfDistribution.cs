@@ -246,7 +246,7 @@ public sealed class OkfDistributionManifest
 
         using (document)
         {
-            var root = document.RootElement;
+            JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || StrictJson.String(root, "generatedAt") is not { Length: > 0 } generatedAt
                 || StrictJson.String(root, "generator") is not { Length: > 0 } generator)
@@ -254,10 +254,10 @@ public sealed class OkfDistributionManifest
                 return null;
             }
 
-            var files = new List<OkfDistributionFile>();
-            if (root.TryGetProperty("files", out var recorded) && recorded.ValueKind == JsonValueKind.Array)
+            List<OkfDistributionFile> files = new List<OkfDistributionFile>();
+            if (root.TryGetProperty("files", out JsonElement recorded) && recorded.ValueKind == JsonValueKind.Array)
             {
-                foreach (var file in recorded.EnumerateArray())
+                foreach (JsonElement file in recorded.EnumerateArray())
                 {
                     if (file.ValueKind == JsonValueKind.Object
                         && StrictJson.String(file, "path") is { Length: > 0 } path
@@ -268,10 +268,10 @@ public sealed class OkfDistributionManifest
                 }
             }
 
-            var links = new List<OkfExternalLink>();
-            if (root.TryGetProperty("externalLinks", out var external) && external.ValueKind == JsonValueKind.Array)
+            List<OkfExternalLink> links = new List<OkfExternalLink>();
+            if (root.TryGetProperty("externalLinks", out JsonElement external) && external.ValueKind == JsonValueKind.Array)
             {
-                foreach (var link in external.EnumerateArray())
+                foreach (JsonElement link in external.EnumerateArray())
                 {
                     if (link.ValueKind == JsonValueKind.Object
                         && StrictJson.String(link, "from") is { Length: > 0 } from
@@ -282,10 +282,10 @@ public sealed class OkfDistributionManifest
                 }
             }
 
-            var bundles = new List<string>();
-            if (root.TryGetProperty("bundles", out var named) && named.ValueKind == JsonValueKind.Array)
+            List<string> bundles = new List<string>();
+            if (root.TryGetProperty("bundles", out JsonElement named) && named.ValueKind == JsonValueKind.Array)
             {
-                foreach (var bundle in named.EnumerateArray())
+                foreach (JsonElement bundle in named.EnumerateArray())
                 {
                     if (bundle.ValueKind == JsonValueKind.String && bundle.GetString() is { Length: > 0 } name)
                     {
@@ -301,7 +301,7 @@ public sealed class OkfDistributionManifest
                 bundles,
                 links,
                 files,
-                root.TryGetProperty("manifestVersion", out var version) && version.ValueKind == JsonValueKind.Number
+                root.TryGetProperty("manifestVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number
                     ? version.GetInt32()
                     : CurrentVersion,
                 StrictJson.String(root, "okfVersion") ?? SpecVersion);
@@ -312,14 +312,14 @@ public sealed class OkfDistributionManifest
     /// <returns>The JSON text, newline-terminated.</returns>
     public string ToJson()
     {
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
+        using MemoryStream buffer = new MemoryStream();
+        JsonWriterOptions options = new JsonWriterOptions
         {
             Indented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, options))
         {
             writer.WriteStartObject();
             writer.WriteNumber("manifestVersion", ManifestVersion);
@@ -337,7 +337,7 @@ public sealed class OkfDistributionManifest
             writer.WriteString("generatedAt", GeneratedAt);
 
             writer.WriteStartArray("bundles");
-            foreach (var bundle in Bundles)
+            foreach (string bundle in Bundles)
             {
                 writer.WriteStringValue(bundle);
             }
@@ -345,7 +345,7 @@ public sealed class OkfDistributionManifest
             writer.WriteEndArray();
 
             writer.WriteStartArray("externalLinks");
-            foreach (var link in ExternalLinks)
+            foreach (OkfExternalLink link in ExternalLinks)
             {
                 writer.WriteStartObject();
                 writer.WriteString("from", link.From);
@@ -365,7 +365,7 @@ public sealed class OkfDistributionManifest
             writer.WriteEndArray();
 
             writer.WriteStartArray("files");
-            foreach (var file in Files)
+            foreach (OkfDistributionFile file in Files)
             {
                 writer.WriteStartObject();
                 writer.WriteString("path", file.Path);

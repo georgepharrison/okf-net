@@ -25,14 +25,14 @@ public static class OkfTokenizer
     /// <returns>The tokens, lowercased, in order of appearance.</returns>
     public static IReadOnlyList<string> Tokenize(string? text)
     {
-        var tokens = new List<string>();
+        List<string> tokens = new List<string>();
         if (string.IsNullOrEmpty(text))
         {
             return tokens;
         }
 
-        var builder = new StringBuilder();
-        foreach (var rune in text.EnumerateRunes())
+        StringBuilder builder = new StringBuilder();
+        foreach (Rune rune in text.EnumerateRunes())
         {
             if (Rune.IsLetterOrDigit(rune))
             {
@@ -61,14 +61,14 @@ public static class OkfTokenizer
     /// <returns>Each token with its start offset and length in <paramref name="text" />.</returns>
     internal static List<(string Token, int Start, int Length)> TokenizeWithOffsets(string text)
     {
-        var tokens = new List<(string, int, int)>();
-        var builder = new StringBuilder();
-        var start = 0;
-        var index = 0;
+        List<(string, int, int)> tokens = new List<(string, int, int)>();
+        StringBuilder builder = new StringBuilder();
+        int start = 0;
+        int index = 0;
 
-        foreach (var rune in text.EnumerateRunes())
+        foreach (Rune rune in text.EnumerateRunes())
         {
-            var width = rune.Utf16SequenceLength;
+            int width = rune.Utf16SequenceLength;
             if (Rune.IsLetterOrDigit(rune))
             {
                 if (builder.Length == 0)
@@ -98,7 +98,7 @@ public static class OkfTokenizer
     private static void Append(StringBuilder builder, Rune rune)
     {
         Span<char> buffer = stackalloc char[2];
-        var written = Rune.ToLowerInvariant(rune).EncodeToUtf16(buffer);
+        int written = Rune.ToLowerInvariant(rune).EncodeToUtf16(buffer);
         builder.Append(buffer[..written]);
     }
 }
@@ -123,9 +123,9 @@ public sealed class OkfSearchQuery
     /// <summary>The prefix that marks a type filter in query text.</summary>
     public const string TypePrefix = "type:";
 
-    private readonly List<string> terms = [];
-    private readonly List<string> types = [];
-    private readonly List<string> tags = [];
+    private readonly List<string> _terms = [];
+    private readonly List<string> _types = [];
+    private readonly List<string> _tags = [];
 
     /// <summary>Initializes an empty query.</summary>
     public OkfSearchQuery()
@@ -133,19 +133,19 @@ public sealed class OkfSearchQuery
     }
 
     /// <summary>The bare terms, tokenized and lowercased, in the order they were written.</summary>
-    public IReadOnlyList<string> Terms => this.terms;
+    public IReadOnlyList<string> Terms => _terms;
 
     /// <summary>The <c>type:</c> filters, in the order they were written (OR-ed).</summary>
-    public IReadOnlyList<string> Types => this.types;
+    public IReadOnlyList<string> Types => _types;
 
     /// <summary>The <c>tag:</c> filters, in the order they were written (AND-ed).</summary>
-    public IReadOnlyList<string> Tags => this.tags;
+    public IReadOnlyList<string> Tags => _tags;
 
     /// <summary>
     /// Whether the query asks for nothing at all — no terms and no filters. The CLI treats
     /// this as a usage failure rather than as "every concept" (PRD CLI-14, exit 2).
     /// </summary>
-    public bool IsEmpty => this.terms.Count == 0 && this.types.Count == 0 && this.tags.Count == 0;
+    public bool IsEmpty => _terms.Count == 0 && _types.Count == 0 && _tags.Count == 0;
 
     /// <summary>
     /// Parses query text: whitespace-separated words, where a word beginning <c>tag:</c> or
@@ -156,13 +156,13 @@ public sealed class OkfSearchQuery
     /// <returns>The parsed query.</returns>
     public static OkfSearchQuery Parse(string? text)
     {
-        var query = new OkfSearchQuery();
+        OkfSearchQuery query = new OkfSearchQuery();
         if (string.IsNullOrWhiteSpace(text))
         {
             return query;
         }
 
-        foreach (var word in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        foreach (string word in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         {
             if (word.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase))
             {
@@ -174,7 +174,7 @@ public sealed class OkfSearchQuery
             }
             else
             {
-                query.terms.AddRange(OkfTokenizer.Tokenize(word));
+                query._terms.AddRange(OkfTokenizer.Tokenize(word));
             }
         }
 
@@ -186,14 +186,14 @@ public sealed class OkfSearchQuery
     /// (case-insensitively) are ignored.
     /// </summary>
     /// <param name="value">The type to restrict to.</param>
-    public void AddTypeFilter(string? value) => Add(this.types, value);
+    public void AddTypeFilter(string? value) => Add(_types, value);
 
     /// <summary>
     /// Adds a <c>tag:</c> filter, as <c>--tag</c> does. Blank values and duplicates
     /// (case-insensitively) are ignored.
     /// </summary>
     /// <param name="value">The tag to require.</param>
-    public void AddTagFilter(string? value) => Add(this.tags, value);
+    public void AddTagFilter(string? value) => Add(_tags, value);
 
     /// <summary>
     /// Renders the query in its canonical form — terms first, then <c>type:</c> and
@@ -202,13 +202,13 @@ public sealed class OkfSearchQuery
     /// <returns>The canonical query text.</returns>
     public override string ToString() => string.Join(
         ' ',
-        this.terms
-            .Concat(this.types.Select(type => TypePrefix + type))
-            .Concat(this.tags.Select(tag => TagPrefix + tag)));
+        _terms
+            .Concat(_types.Select(type => TypePrefix + type))
+            .Concat(_tags.Select(tag => TagPrefix + tag)));
 
     private static void Add(List<string> values, string? value)
     {
-        var trimmed = value?.Trim();
+        string? trimmed = value?.Trim();
         if (string.IsNullOrEmpty(trimmed) || values.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
         {
             return;

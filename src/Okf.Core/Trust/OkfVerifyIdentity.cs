@@ -73,7 +73,7 @@ public static class OkfVerifyIdentity
 
         // PRD CLI-4's precedence, minus the layers that cannot carry an identity: project
         // configuration wins over the global file.
-        foreach (var config in new[] { project, global })
+        foreach (OkfConfig? config in new[] { project, global })
         {
             if (config?.VerifyActor is { Length: > 0 } configured)
             {
@@ -104,7 +104,7 @@ public static class OkfVerifyIdentity
     {
         ArgumentNullException.ThrowIfNull(environment);
 
-        var startInfo = new ProcessStartInfo("git")
+        ProcessStartInfo startInfo = new ProcessStartInfo("git")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -112,12 +112,12 @@ public static class OkfVerifyIdentity
             CreateNoWindow = true,
         };
 
-        foreach (var argument in (string[])["config", "--global", "--get", "user.email"])
+        foreach (string argument in (string[])["config", "--global", "--get", "user.email"])
         {
             startInfo.ArgumentList.Add(argument);
         }
 
-        foreach (var name in GitVariables)
+        foreach (string name in GitVariables)
         {
             if (environment.GetVariable(name) is { Length: > 0 } value)
             {
@@ -127,13 +127,13 @@ public static class OkfVerifyIdentity
 
         try
         {
-            using var process = Process.Start(startInfo);
+            using Process? process = Process.Start(startInfo);
             if (process is null)
             {
                 return null;
             }
 
-            var output = process.StandardOutput.ReadToEnd();
+            string output = process.StandardOutput.ReadToEnd();
             process.StandardError.ReadToEnd();
 
             // Bounded: `git config` is a file read, and a command that never returns must
@@ -167,7 +167,7 @@ public static class OkfVerifyIdentity
     /// </summary>
     private static string FromConfig(string configured, string source)
     {
-        var trimmed = configured.Trim();
+        string trimmed = configured.Trim();
         if (trimmed.Length == 0)
         {
             throw new OkfConfigException($"Config file '{source}': `verify.actor` must not be empty.");

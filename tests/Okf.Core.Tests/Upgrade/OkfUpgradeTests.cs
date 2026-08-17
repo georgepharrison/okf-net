@@ -752,11 +752,11 @@ public sealed class OkfUpgradeTests
     {
         public const string BaseUrl = "https://fixture.example/okf";
 
-        private readonly string assetBytes;
+        private readonly string _assetBytes;
 
         public FakeHost(string assetBytes)
         {
-            this.assetBytes = assetBytes;
+            _assetBytes = assetBytes;
             Manifest = ManifestFor("1.1.0-rc.1", Digest(assetBytes));
         }
 
@@ -777,7 +777,7 @@ public sealed class OkfUpgradeTests
             }
 
             OnAsset?.Invoke();
-            return new MemoryStream(Encoding.UTF8.GetBytes(ServeInstead ?? this.assetBytes));
+            return new MemoryStream(Encoding.UTF8.GetBytes(ServeInstead ?? _assetBytes));
         }
 
         public static string ManifestFor(string version, string digest) =>

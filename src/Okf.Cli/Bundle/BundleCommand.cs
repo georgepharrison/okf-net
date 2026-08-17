@@ -71,8 +71,8 @@ internal static class BundleCommand
         TextWriter error)
     {
         // PRD CLI-1: the same working set every other command resolves.
-        var workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
-        var plan = OkfBundler.Plan(
+        OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
+        OkfDistributionPlan plan = OkfBundler.Plan(
             workingSet,
             new OkfBundlerOptions
             {
@@ -85,13 +85,13 @@ internal static class BundleCommand
                 Generator = $"okf/{CliApplication.Version}",
             });
 
-        var format = arguments.EffectiveFormat();
-        var destination = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Output!));
+        OkfDistributionFormat format = arguments.EffectiveFormat();
+        string destination = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, arguments.Output!));
 
         if (arguments.Verbose)
         {
             error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (var bundle in plan.Bundles)
+            foreach (OkfBundle bundle in plan.Bundles)
             {
                 error.WriteLine($"okf: packaging {bundle.Root}");
             }
@@ -105,7 +105,7 @@ internal static class BundleCommand
         // is a warning and never a refusal — but an unannounced dangling link is a
         // consumer's surprise, so every one of them is said out loud here and recorded in
         // the manifest.
-        foreach (var link in plan.ExternalLinks)
+        foreach (OkfExternalLink link in plan.ExternalLinks)
         {
             error.WriteLine($"okf: warning: {Describe(link)}");
         }
@@ -140,8 +140,8 @@ internal static class BundleCommand
         TextWriter output,
         TextWriter error)
     {
-        var directory = format == OkfDistributionFormat.Directory ? destination : null;
-        var temporary = directory is null
+        string? directory = format == OkfDistributionFormat.Directory ? destination : null;
+        string? temporary = directory is null
             ? Path.Combine(Path.GetTempPath(), "okf-bundle", Path.GetRandomFileName())
             : null;
 
@@ -155,13 +155,13 @@ internal static class BundleCommand
                 directory = temporary;
             }
 
-            var bundles = plan.Bundles
+            List<OkfBundle> bundles = plan.Bundles
                 .Select(bundle => new OkfBundle(
                     Path.Combine(directory!, OkfDiscovery.BundlesDirectoryName, bundle.Name)))
                 .ToList();
 
-            var result = new OkfLinter(new OkfLintOptions()).Lint(bundles);
-            var reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
+            OkfLintResult result = new OkfLinter(new OkfLintOptions()).Lint(bundles);
+            List<OkfDiagnostic> reported = result.Diagnostics.Where(d => d.Severity != OkfSeverity.Hidden).ToList();
 
             output.WriteLine();
             output.WriteLine("Linting the distribution as a consumer would (default severities, no config):");
@@ -187,11 +187,11 @@ internal static class BundleCommand
 
     private static int Verify(string target, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        var full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, target));
-        var result = OkfBundler.Verify(full);
-        var display = DiagnosticWriter.Display(full, environment.CurrentDirectory);
+        string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, target));
+        OkfDistributionVerification result = OkfBundler.Verify(full);
+        string display = DiagnosticWriter.Display(full, environment.CurrentDirectory);
 
-        foreach (var finding in result.Findings)
+        foreach (OkfDistributionFinding finding in result.Findings)
         {
             output.WriteLine($"{finding.Path}: {Name(finding.Issue)}: {finding.Detail}");
         }
@@ -217,7 +217,7 @@ internal static class BundleCommand
 
     private static string Describe(OkfExternalLink link)
     {
-        var location = link.Line > 0
+        string location = link.Line > 0
             ? $"{link.From}:{link.Line.ToString(CultureInfo.InvariantCulture)}"
             : link.From;
 

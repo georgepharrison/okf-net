@@ -63,7 +63,7 @@ public sealed class OkfUpgradeAsset
 /// </remarks>
 public sealed class OkfUpgradeManifest
 {
-    private readonly Dictionary<string, OkfUpgradeAsset> assets;
+    private readonly Dictionary<string, OkfUpgradeAsset> _assets;
 
     private OkfUpgradeManifest(
         string version,
@@ -74,7 +74,7 @@ public sealed class OkfUpgradeManifest
         Version = version;
         Tag = tag;
         GeneratedAt = generatedAt;
-        this.assets = assets;
+        _assets = assets;
     }
 
     /// <summary>The release's version, without a leading <c>v</c>.</summary>
@@ -87,13 +87,13 @@ public sealed class OkfUpgradeManifest
     public string? GeneratedAt { get; }
 
     /// <summary>Every asset in the manifest, keyed by name.</summary>
-    public IReadOnlyDictionary<string, OkfUpgradeAsset> Assets => this.assets;
+    public IReadOnlyDictionary<string, OkfUpgradeAsset> Assets => _assets;
 
     /// <summary>Finds one asset by name.</summary>
     /// <param name="name">The asset's name.</param>
     /// <returns>The asset, or <see langword="null" /> when this release has none by that name.</returns>
     public OkfUpgradeAsset? Find(string name) =>
-        name is null ? null : this.assets.GetValueOrDefault(name);
+        name is null ? null : _assets.GetValueOrDefault(name);
 
     /// <summary>Reads a manifest from its JSON text.</summary>
     /// <param name="json">The manifest's bytes, as text.</param>
@@ -119,7 +119,7 @@ public sealed class OkfUpgradeManifest
 
         using (document)
         {
-            var root = document.RootElement;
+            JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
                 throw new OkfUpgradeException("the release manifest is not a JSON object.");
@@ -131,18 +131,18 @@ public sealed class OkfUpgradeManifest
                     "the release manifest names no version — is it a release manifest?");
             }
 
-            var assets = new Dictionary<string, OkfUpgradeAsset>(StringComparer.Ordinal);
-            if (root.TryGetProperty("assets", out var map) && map.ValueKind == JsonValueKind.Object)
+            Dictionary<string, OkfUpgradeAsset> assets = new Dictionary<string, OkfUpgradeAsset>(StringComparer.Ordinal);
+            if (root.TryGetProperty("assets", out JsonElement map) && map.ValueKind == JsonValueKind.Object)
             {
-                foreach (var entry in map.EnumerateObject())
+                foreach (JsonProperty entry in map.EnumerateObject())
                 {
                     if (entry.Value.ValueKind != JsonValueKind.Object)
                     {
                         continue;
                     }
 
-                    var path = StrictJson.String(entry.Value, "path");
-                    var sha256 = StrictJson.String(entry.Value, "sha256");
+                    string? path = StrictJson.String(entry.Value, "path");
+                    string? sha256 = StrictJson.String(entry.Value, "sha256");
                     if (path is not { Length: > 0 } || sha256 is not { Length: > 0 })
                     {
                         // Left out of the map rather than kept with holes: an asset that
@@ -152,9 +152,9 @@ public sealed class OkfUpgradeManifest
                         continue;
                     }
 
-                    var size = entry.Value.TryGetProperty("size", out var sizeValue)
+                    long size = entry.Value.TryGetProperty("size", out JsonElement sizeValue)
                         && sizeValue.ValueKind == JsonValueKind.Number
-                        && sizeValue.TryGetInt64(out var bytes)
+                        && sizeValue.TryGetInt64(out long bytes)
                             ? bytes
                             : 0L;
 

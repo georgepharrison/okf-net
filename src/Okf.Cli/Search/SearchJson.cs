@@ -29,7 +29,7 @@ internal static class SearchJson
             // A bare array, not an envelope: PRD CLI-11 and MCP-2 read the same records,
             // and every field a result needs to be judged travels on the result itself.
             writer.WriteStartArray();
-            foreach (var result in outcome.Results)
+            foreach (OkfSearchResult result in outcome.Results)
             {
                 writer.WriteStartObject();
                 writer.WriteString("id", result.Id);
@@ -41,7 +41,7 @@ internal static class SearchJson
                 JsonOutput.WriteStringOrNull(writer, "type", result.Type);
                 JsonOutput.WriteStringOrNull(writer, "description", result.Description);
                 writer.WriteStartArray("tags");
-                foreach (var tag in result.Tags)
+                foreach (string tag in result.Tags)
                 {
                     writer.WriteStringValue(tag);
                 }
@@ -56,7 +56,7 @@ internal static class SearchJson
                 // an OR fallback is something an agent must be able to see.
                 writer.WriteString("matchMode", MatchMode(outcome.MatchMode));
                 writer.WriteStartArray("matchedTerms");
-                foreach (var term in result.MatchedTerms)
+                foreach (string term in result.MatchedTerms)
                 {
                     writer.WriteStringValue(term);
                 }

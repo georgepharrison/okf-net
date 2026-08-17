@@ -184,28 +184,28 @@ public class OkfVerifyIdentityTests
 /// </summary>
 internal sealed class TempGitConfig : IDisposable
 {
-    private readonly string root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
 
-    public TempGitConfig() => Directory.CreateDirectory(this.root);
+    public TempGitConfig() => Directory.CreateDirectory(_root);
 
     /// <summary>The tree's root, usable as a working directory for a git read.</summary>
-    public string Root => this.root;
+    public string Root => _root;
 
     /// <summary>The global config file the tests point <c>GIT_CONFIG_GLOBAL</c> at.</summary>
-    public string GlobalConfigPath => Path.Combine(this.root, "gitconfig");
+    public string GlobalConfigPath => Path.Combine(_root, "gitconfig");
 
     /// <summary>Writes <c>$HOME/.gitconfig</c>, which git reads when GIT_CONFIG_GLOBAL is unset.</summary>
     /// <param name="email">The email to record.</param>
     public void WriteHomeGitConfig(string email) =>
-        File.WriteAllText(Path.Combine(this.root, ".gitconfig"), $"[user]\n\temail = {email}\n");
+        File.WriteAllText(Path.Combine(_root, ".gitconfig"), $"[user]\n\temail = {email}\n");
 
     /// <summary>An environment carrying HOME and no GIT_CONFIG_GLOBAL.</summary>
     /// <returns>The environment.</returns>
     public OkfEnvironment HomeOnlyEnvironment() =>
         new(
-            this.root,
+            _root,
             [
-                new KeyValuePair<string, string>("HOME", this.root),
+                new KeyValuePair<string, string>("HOME", _root),
                 new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", string.Empty),
                 new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
             ]);
@@ -226,15 +226,15 @@ internal sealed class TempGitConfig : IDisposable
     /// <returns>The environment.</returns>
     public OkfEnvironment XdgOnlyEnvironment() =>
         new(
-            this.root,
+            _root,
             [
-                new KeyValuePair<string, string>("HOME", this.root),
+                new KeyValuePair<string, string>("HOME", _root),
                 new KeyValuePair<string, string>("XDG_CONFIG_HOME", XdgConfigHome),
                 new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", string.Empty),
                 new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
             ]);
 
-    private string XdgConfigHome => Path.Combine(this.root, "xdg");
+    private string XdgConfigHome => Path.Combine(_root, "xdg");
 
     /// <summary>Writes the global git config, with or without a <c>user.email</c>.</summary>
     /// <param name="email">The email to record, or null to write a config that sets none.</param>
@@ -246,7 +246,7 @@ internal sealed class TempGitConfig : IDisposable
     /// <returns>The repository's path.</returns>
     public string CreateRepositoryWithLocalEmail(string email)
     {
-        var repository = Path.Combine(this.root, "repo");
+        var repository = Path.Combine(_root, "repo");
         Directory.CreateDirectory(repository);
         Run(repository, "init", "--quiet");
         Run(repository, "config", "--local", "user.email", email);
@@ -264,8 +264,8 @@ internal sealed class TempGitConfig : IDisposable
         new(
             workingDirectory,
             [
-                new KeyValuePair<string, string>("HOME", this.root),
-                new KeyValuePair<string, string>("XDG_CONFIG_HOME", Path.Combine(this.root, ".config")),
+                new KeyValuePair<string, string>("HOME", _root),
+                new KeyValuePair<string, string>("XDG_CONFIG_HOME", Path.Combine(_root, ".config")),
                 new KeyValuePair<string, string>("GIT_CONFIG_GLOBAL", GlobalConfigPath),
                 new KeyValuePair<string, string>("GIT_CONFIG_NOSYSTEM", "1"),
             ]);
@@ -274,7 +274,7 @@ internal sealed class TempGitConfig : IDisposable
     {
         try
         {
-            Directory.Delete(this.root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (IOException)
         {

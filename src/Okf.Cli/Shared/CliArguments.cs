@@ -17,7 +17,7 @@ internal static class CliArguments
     public static (string Name, string? Value) Split(string argument)
     {
         ArgumentNullException.ThrowIfNull(argument);
-        var separator = argument.IndexOf('=', StringComparison.Ordinal);
+        int separator = argument.IndexOf('=', StringComparison.Ordinal);
         return argument.StartsWith("--", StringComparison.Ordinal) && separator > 0
             ? (argument[..separator], argument[(separator + 1)..])
             : (argument, null);

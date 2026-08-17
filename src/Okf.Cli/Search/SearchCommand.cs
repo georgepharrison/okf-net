@@ -71,7 +71,7 @@ internal static class SearchCommand
         TextWriter output,
         TextWriter error)
     {
-        var query = arguments.ToQuery();
+        OkfSearchQuery query = arguments.ToQuery();
         if (query.IsEmpty)
         {
             // Nothing to match and nothing to filter by. Returning the whole vault would
@@ -84,7 +84,7 @@ internal static class SearchCommand
         // PRD CLI-1/CLI-3: search resolves its working set exactly as `okf lint` does, so
         // the two commands never disagree about which bundles they are looking at, and the
         // default scope is the project vault — identical results on every machine.
-        var scope = ScopeSettings.Resolve(arguments.Scope, environment);
+        ScopeSettings scope = ScopeSettings.Resolve(arguments.Scope, environment);
         if (arguments.Path is not null && scope.Scope != OkfScopeKind.Project && arguments.Scope is not null)
         {
             // A path names the bundles; a scope names how to find them. Honouring one would
@@ -97,19 +97,19 @@ internal static class SearchCommand
             return CliApplication.ExitUsage;
         }
 
-        var resolution = arguments.Path is not null
+        OkfScopeResolution resolution = arguments.Path is not null
             ? new OkfScopeResolution(OkfDiscovery.Resolve(arguments.Path, environment), [])
             : OkfScope.Resolve(scope.Scope, environment);
-        var workingSet = resolution.WorkingSet;
+        OkfWorkingSet workingSet = resolution.WorkingSet;
 
-        foreach (var note in resolution.Notes)
+        foreach (string note in resolution.Notes)
         {
             // Reported once, on stderr, and never an error: a laptop that has not been set
             // up the same way must not fail a query (PRD CLI-2).
             error.WriteLine($"okf: {note}");
         }
 
-        var outcome = OkfSearchEngine.Search(
+        OkfSearchOutcome outcome = OkfSearchEngine.Search(
             workingSet.Bundles,
             query,
             new OkfSearchOptions
@@ -180,7 +180,7 @@ internal static class SearchCommand
         string baseDirectory,
         TextWriter output)
     {
-        var roots = Roots(workingSet);
+        IReadOnlyList<string> roots = Roots(workingSet);
         if (outcome.UsedFallback)
         {
             output.WriteLine(
@@ -188,11 +188,11 @@ internal static class SearchCommand
                 "showing concepts matching any of them.");
         }
 
-        var rank = 0;
-        foreach (var result in outcome.Results)
+        int rank = 0;
+        foreach (OkfSearchResult result in outcome.Results)
         {
             rank++;
-            var type = result.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
+            string type = result.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
             output.WriteLine(
                 $"{rank.ToString(CultureInfo.InvariantCulture)}. " +
                 $"{result.Score.ToString("F4", CultureInfo.InvariantCulture)}  " +
@@ -205,7 +205,7 @@ internal static class SearchCommand
             }
         }
 
-        var summary = new StringBuilder()
+        StringBuilder summary = new StringBuilder()
             .Append("Found ")
             .Append(DiagnosticWriter.Plural(outcome.TotalMatches, "result"))
             .Append(" in ")

@@ -52,12 +52,12 @@ internal sealed class RegistryArguments
     /// <exception cref="OkfConfigException">An argument is unknown, malformed, or repeated.</exception>
     public static RegistryArguments Parse(string[] args, string verb, bool subcommands)
     {
-        var parsed = new RegistryArguments();
-        var actionSeen = false;
+        RegistryArguments parsed = new RegistryArguments();
+        bool actionSeen = false;
 
-        for (var index = 0; index < args.Length; index++)
+        for (int index = 0; index < args.Length; index++)
         {
-            var argument = args[index];
+            string argument = args[index];
             switch (argument)
             {
                 case "--help" or "-h":
@@ -73,7 +73,7 @@ internal sealed class RegistryArguments
                     break;
 
                 case "--format" or "--format=json" or "--format=text":
-                    var format = argument.Length > "--format".Length
+                    string format = argument.Length > "--format".Length
                         ? argument["--format=".Length..]
                         : CliArguments.Next(args, ref index, "--format");
                     parsed.Json = CliArguments.ParseFormat(format);

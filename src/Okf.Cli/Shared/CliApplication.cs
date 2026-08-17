@@ -56,14 +56,14 @@ internal static class CliApplication
 
         // The flag spellings of the two verbs that have them; everything else is a verb or
         // nothing.
-        var verb = args[0] switch
+        string verb = args[0] switch
         {
             "--help" or "-h" => "help",
             "--version" => "version",
             var word => word,
         };
 
-        foreach (var command in Commands)
+        foreach ((string Verb, CommandRunner Run) command in Commands)
         {
             if (string.Equals(command.Verb, verb, StringComparison.Ordinal))
             {
@@ -206,8 +206,8 @@ internal static class CliApplication
     /// <summary>Drops the <c>+</c> build metadata from an informational version.</summary>
     internal static string SemanticVersion(string? informationalVersion)
     {
-        var described = Describe(informationalVersion);
-        var metadata = described.IndexOf('+', StringComparison.Ordinal);
+        string described = Describe(informationalVersion);
+        int metadata = described.IndexOf('+', StringComparison.Ordinal);
         return metadata < 0 ? described : described[..metadata];
     }
 

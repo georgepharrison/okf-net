@@ -58,14 +58,14 @@ public sealed class OkfDocument
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        var lines = SplitLines(text);
+        List<string> lines = SplitLines(text);
         if (lines.Count == 0 || !IsDelimiter(lines[0]))
         {
             return new OkfDocument(new OkfMapping(), text);
         }
 
-        var end = -1;
-        for (var i = 1; i < lines.Count; i++)
+        int end = -1;
+        for (int i = 1; i < lines.Count; i++)
         {
             if (IsDelimiter(lines[i]))
             {
@@ -79,8 +79,8 @@ public sealed class OkfDocument
             throw new OkfDocumentException("Unterminated YAML frontmatter block");
         }
 
-        var frontmatterText = string.Join('\n', lines.GetRange(1, end - 1));
-        var loaded = YamlBridge.Load(frontmatterText);
+        string frontmatterText = string.Join('\n', lines.GetRange(1, end - 1));
+        OkfValue? loaded = YamlBridge.Load(frontmatterText);
 
         // The reference implementation writes `yaml.safe_load(fm_text) or {}`, so any
         // falsy document — null, `false`, `0`, `[]`, `{}`, "" — becomes empty
@@ -99,7 +99,7 @@ public sealed class OkfDocument
             throw new OkfDocumentException("Frontmatter must be a YAML mapping");
         }
 
-        var body = string.Join('\n', lines.GetRange(end + 1, lines.Count - end - 1));
+        string body = string.Join('\n', lines.GetRange(end + 1, lines.Count - end - 1));
         if (body.StartsWith('\n'))
         {
             body = body[1..];
@@ -115,8 +115,8 @@ public sealed class OkfDocument
     /// <returns>The serialized document.</returns>
     public string Serialize()
     {
-        var frontmatterText = YamlBridge.Emit(Frontmatter).TrimEnd();
-        var body = Body.EndsWith('\n') ? Body : Body + "\n";
+        string frontmatterText = YamlBridge.Emit(Frontmatter).TrimEnd();
+        string body = Body.EndsWith('\n') ? Body : Body + "\n";
         return $"{FrontmatterDelimiter}\n{frontmatterText}\n{FrontmatterDelimiter}\n\n{body}";
     }
 
@@ -124,8 +124,8 @@ public sealed class OkfDocument
     /// <exception cref="OkfDocumentException">A required frontmatter key is missing or empty.</exception>
     public void Validate()
     {
-        var missing = RequiredFrontmatterKeys
-            .Where(key => !(Frontmatter.TryGetValue(key, out var value) && value.IsTruthy))
+        List<string> missing = RequiredFrontmatterKeys
+            .Where(key => !(Frontmatter.TryGetValue(key, out OkfValue? value) && value.IsTruthy))
             .ToList();
 
         if (missing.Count > 0)
@@ -145,7 +145,7 @@ public sealed class OkfDocument
     {
         ArgumentNullException.ThrowIfNull(frontmatter);
 
-        if (!frontmatter.TryGetValue("verified", out var verified) || (verified is OkfScalar s && s.IsNull))
+        if (!frontmatter.TryGetValue("verified", out OkfValue? verified) || (verified is OkfScalar s && s.IsNull))
         {
             return [];
         }
@@ -163,13 +163,13 @@ public sealed class OkfDocument
     /// <returns>The derived tier.</returns>
     public static OkfTrustTier TrustTier(OkfMapping frontmatter)
     {
-        var events = NormalizeVerified(frontmatter);
+        IReadOnlyList<OkfMapping> events = NormalizeVerified(frontmatter);
         if (events.Count == 0)
         {
             return OkfTrustTier.Unverified;
         }
 
-        foreach (var verification in events)
+        foreach (OkfMapping verification in events)
         {
             if (Actor(verification).StartsWith(HumanActorPrefix, StringComparison.Ordinal))
             {
@@ -192,16 +192,16 @@ public sealed class OkfDocument
     {
         ArgumentNullException.ThrowIfNull(frontmatter);
 
-        if (!frontmatter.TryGetValue("stale_after", out var raw) || !raw.IsTruthy || raw is not OkfScalar scalar)
+        if (!frontmatter.TryGetValue("stale_after", out OkfValue? raw) || !raw.IsTruthy || raw is not OkfScalar scalar)
         {
             return false;
         }
 
         // Only the date part is considered, so a YAML-native date, an ISO date
         // string, and a datetime all compare identically (PRD CORE-7).
-        var text = scalar.Value;
-        var head = text.Length >= 10 ? text[..10] : text;
-        if (!DateOnly.TryParseExact(head, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var staleAfter))
+        string text = scalar.Value;
+        string head = text.Length >= 10 ? text[..10] : text;
+        if (!DateOnly.TryParseExact(head, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly staleAfter))
         {
             return false;
         }
@@ -220,7 +220,7 @@ public sealed class OkfDocument
     }
 
     private static string Actor(OkfMapping verification) =>
-        verification.TryGetValue("by", out var by) && by is OkfScalar scalar && scalar.IsTruthy
+        verification.TryGetValue("by", out OkfValue? by) && by is OkfScalar scalar && scalar.IsTruthy
             ? scalar.Value
             : string.Empty;
 
@@ -231,9 +231,9 @@ public sealed class OkfDocument
     // U+0085, ...) are deliberately treated as ordinary characters.
     private static List<string> SplitLines(string text)
     {
-        var lines = new List<string>();
-        var start = 0;
-        for (var i = 0; i < text.Length; i++)
+        List<string> lines = new List<string>();
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
         {
             if (text[i] == '\r')
             {

@@ -98,12 +98,12 @@ internal static class CaptureCommand
             return CliApplication.ExitUsage;
         }
 
-        var manifestPath = OkfCaptureManifest.PathFor(vault);
-        var (current, mark) = File.Exists(manifestPath)
+        string manifestPath = OkfCaptureManifest.PathFor(vault);
+        (string current, bool mark) = File.Exists(manifestPath)
             ? ReadManifest(manifestPath)
             : (OkfCaptureWriter.EmptyManifest, false);
 
-        var result = OkfCaptureWriter.Add(
+        OkfCaptureWriteResult result = OkfCaptureWriter.Add(
             current,
             Path.Combine(vault, OkfCaptureManifest.RawDirectoryName),
             new OkfCaptureAddition
@@ -128,8 +128,8 @@ internal static class CaptureCommand
     /// </summary>
     private static (string Text, bool ByteOrderMark) ReadManifest(string path)
     {
-        var bytes = File.ReadAllBytes(path);
-        var mark = bytes is [0xEF, 0xBB, 0xBF, ..];
+        byte[] bytes = File.ReadAllBytes(path);
+        bool mark = bytes is [0xEF, 0xBB, 0xBF, ..];
         return (Encoding.UTF8.GetString(bytes, mark ? 3 : 0, bytes.Length - (mark ? 3 : 0)), mark);
     }
 
@@ -163,7 +163,7 @@ internal static class CaptureCommand
         // Every concept is checked before the manifest is touched: an ingestion pointing at
         // a file that is not there is the violation `check-manifest.py` reports, and a
         // half-closed entry cannot be reopened.
-        foreach (var concept in arguments.Concepts)
+        foreach (string concept in arguments.Concepts)
         {
             if (concept.StartsWith('/') || concept.Split('/', '\\').Contains(".."))
             {
@@ -182,15 +182,15 @@ internal static class CaptureCommand
             }
         }
 
-        var manifestPath = OkfCaptureManifest.PathFor(vault);
+        string manifestPath = OkfCaptureManifest.PathFor(vault);
         if (!File.Exists(manifestPath))
         {
             error.WriteLine($"okf: error: no capture manifest at '{manifestPath}'; nothing has been captured.");
             return CliApplication.ExitUsage;
         }
 
-        var (current, mark) = ReadManifest(manifestPath);
-        var result = OkfCaptureWriter.Close(
+        (string current, bool mark) = ReadManifest(manifestPath);
+        OkfCaptureWriteResult result = OkfCaptureWriter.Close(
             current,
             new OkfCaptureClosure
             {
@@ -213,7 +213,7 @@ internal static class CaptureCommand
         TextWriter output,
         TextWriter error)
     {
-        var display = DiagnosticWriter.Display(manifestPath, environment.CurrentDirectory);
+        string display = DiagnosticWriter.Display(manifestPath, environment.CurrentDirectory);
 
         if (!result.IsWritten)
         {
@@ -254,11 +254,11 @@ internal static class CaptureCommand
     /// </summary>
     private static string ToJson(OkfCaptureWriteResult result, string manifestPath)
     {
-        var entry = OkfCaptureManifest.Parse(result.Text!, manifestPath)!.Captures
+        OkfCaptureEntry entry = OkfCaptureManifest.Parse(result.Text!, manifestPath)!.Captures
             .First(candidate => string.Equals(candidate.Id, result.Id, StringComparison.Ordinal));
 
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(
+        using MemoryStream buffer = new MemoryStream();
+        using (Utf8JsonWriter writer = new Utf8JsonWriter(
             buffer,
             new JsonWriterOptions { Indented = true, IndentSize = 2, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
@@ -268,7 +268,7 @@ internal static class CaptureCommand
             writer.WriteString("id", entry.Id);
             writer.WriteBoolean("ingested", entry.IsIngested);
             writer.WriteStartArray("files");
-            foreach (var file in entry.Files)
+            foreach (OkfCaptureFile file in entry.Files)
             {
                 writer.WriteStartObject();
                 writer.WriteString("path", file.Path);
@@ -313,7 +313,7 @@ internal static class CaptureCommand
     /// <summary>The vault the manifest belongs to, discovered from the working directory.</summary>
     private static string? Vault(OkfEnvironment environment, TextWriter error)
     {
-        var vault = OkfDiscovery.Resolve(null, environment).VaultRoot;
+        string? vault = OkfDiscovery.Resolve(null, environment).VaultRoot;
         if (vault is null)
         {
             error.WriteLine(
