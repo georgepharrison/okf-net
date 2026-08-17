@@ -597,7 +597,7 @@ public static class OkfSearchEngine
             plain.Append(' ');
         }
 
-        return CollapseWhitespace(plain.ToString());
+        return TextWhitespace.Collapse(plain.ToString());
     }
 
     /// <summary>
@@ -639,31 +639,6 @@ public static class OkfSearchEngine
     private static bool OpensBlock(string line, int start) =>
         line[start] == '>'
         || (line[start] is '-' or '*' or '+' && start + 1 < line.Length && line[start + 1] == ' ');
-
-    /// <summary>Collapses every run of whitespace to one space, and trims both ends.</summary>
-    private static string CollapseWhitespace(string text)
-    {
-        StringBuilder builder = new StringBuilder(text.Length);
-        bool pendingSpace = false;
-        foreach (char character in text)
-        {
-            if (char.IsWhiteSpace(character))
-            {
-                pendingSpace = builder.Length > 0;
-                continue;
-            }
-
-            if (pendingSpace)
-            {
-                builder.Append(' ');
-                pendingSpace = false;
-            }
-
-            builder.Append(character);
-        }
-
-        return builder.ToString();
-    }
 
     /// <summary>
     /// Whether the line is a link reference definition, <c>[label]: destination</c> — a

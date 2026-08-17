@@ -672,36 +672,9 @@ public static class OkfIndexGenerator
         _ => null,
     };
 
-    private static string Flatten(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return string.Empty;
-        }
-
-        // A YAML block scalar can carry newlines; an index entry is one line. Runs of
-        // whitespace collapse to a single space so the rendered bullet stays a bullet.
-        StringBuilder builder = new StringBuilder(text.Length);
-        bool pendingSpace = false;
-        foreach (char character in text)
-        {
-            if (char.IsWhiteSpace(character))
-            {
-                pendingSpace = builder.Length > 0;
-                continue;
-            }
-
-            if (pendingSpace)
-            {
-                builder.Append(' ');
-                pendingSpace = false;
-            }
-
-            builder.Append(character);
-        }
-
-        return builder.ToString();
-    }
+    // A YAML block scalar can carry newlines; an index entry is one line. Runs of
+    // whitespace collapse to a single space so the rendered bullet stays a bullet.
+    private static string Flatten(string? text) => TextWhitespace.Collapse(text);
 
     /// <summary>
     /// What one walk of a bundle found: every directory an index could belong in, the
