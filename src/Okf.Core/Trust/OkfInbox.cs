@@ -263,41 +263,43 @@ public static class OkfInboxScanner
         options ??= new OkfInboxOptions();
 
         List<OkfBundle> list = bundles.ToList();
-        List<OkfInboxItem> items = new List<OkfInboxItem>();
-        int concepts = 0;
+        (List<OkfConcept> concepts, int skipped) = ReadConcepts(list, options.Today);
+        List<OkfInboxItem> items = concepts
+            .Select(concept => Classify(concept, options.Today))
+            .OfType<OkfInboxItem>()
+            .ToList();
+
+        return new OkfInboxResult(items, list, concepts.Count, skipped);
+    }
+
+    /// <summary>
+    /// Every concept in the bundles, plus how many files were skipped because their
+    /// frontmatter does not parse. <see cref="OkfBundle.MarkdownFiles" /> is already
+    /// ordinal by path and skips links out of the bundle, so the bundle order the working
+    /// set fixed is the whole ordering story.
+    /// </summary>
+    private static (List<OkfConcept> Concepts, int Skipped) ReadConcepts(List<OkfBundle> bundles, DateOnly today)
+    {
+        List<OkfConcept> concepts = new List<OkfConcept>();
         int skipped = 0;
 
-        foreach (OkfBundle bundle in list)
+        foreach (OkfBundle bundle in bundles)
         {
-            // MarkdownFiles() is already ordinal by path and skips links out of the bundle,
-            // so the bundle order the working set fixed is the whole ordering story.
-            foreach (string file in bundle.MarkdownFiles())
+            foreach (string file in bundle.MarkdownFiles().Where(file => !OkfBundle.IsReservedFile(file)))
             {
-                if (OkfBundle.IsReservedFile(file))
-                {
-                    continue;
-                }
-
-                OkfDocument document;
                 try
                 {
-                    document = OkfDocument.Parse(File.ReadAllText(file));
+                    OkfDocument document = OkfDocument.Parse(File.ReadAllText(file));
+                    concepts.Add(new OkfConcept(bundle, file, document, today));
                 }
                 catch (OkfDocumentException)
                 {
                     skipped++;
-                    continue;
-                }
-
-                concepts++;
-                if (Classify(new OkfConcept(bundle, file, document, options.Today), options.Today) is { } item)
-                {
-                    items.Add(item);
                 }
             }
         }
 
-        return new OkfInboxResult(items, list, concepts, skipped);
+        return (concepts, skipped);
     }
 
     /// <summary>Classifies one concept.</summary>
@@ -308,18 +310,32 @@ public static class OkfInboxScanner
     {
         ArgumentNullException.ThrowIfNull(concept);
 
-        OkfMapping frontmatter = concept.Frontmatter;
-        OkfMapping? generated = Nested(frontmatter, "generated");
-        string? generatedBy = generated is null ? null : FrontmatterValues.Scalar(generated, "by");
-        string? generatedAtText = generated is null ? null : FrontmatterValues.Scalar(generated, "at");
-        OkfLifecycleInstant? generatedAt = OkfLifecycleInstant.Parse(generatedAtText);
+        Lifecycle lifecycle = Lifecycle.Of(concept.Frontmatter);
+        List<OkfDriftedSource> drifted = DriftedSources(concept.Frontmatter, lifecycle.GeneratedAt);
+        List<OkfInboxReason> reasons = Reasons(concept, lifecycle, drifted);
 
-        (string? verifiedBy, string? verifiedAtText, OkfLifecycleInstant? verifiedAt) = LatestVerification(frontmatter);
-        string? status = FrontmatterValues.Scalar(frontmatter, "status");
-        string? staleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after");
+        return reasons.Count == 0 ? null : new OkfInboxItem(
+            concept,
+            reasons,
+            lifecycle.GeneratedBy,
+            lifecycle.GeneratedAtText,
+            lifecycle.VerifiedBy,
+            lifecycle.VerifiedAtText,
+            lifecycle.StaleAfter,
+            lifecycle.Status,
+            lifecycle.GeneratedAt?.DaysUntil(today),
+            concept.Stale ? OkfLifecycleInstant.Parse(lifecycle.StaleAfter)?.DaysUntil(today) : null,
+            drifted);
+    }
 
+    /// <summary>Why a concept is on the inbox, in report order; empty when it is not on it.</summary>
+    private static List<OkfInboxReason> Reasons(
+        OkfConcept concept,
+        Lifecycle lifecycle,
+        List<OkfDriftedSource> drifted)
+    {
         List<OkfInboxReason> reasons = new List<OkfInboxReason>();
-        if (IsUnacknowledged(concept, generated, generatedBy, generatedAt, verifiedAt, status))
+        if (IsUnacknowledged(concept, lifecycle))
         {
             reasons.Add(OkfInboxReason.Unacknowledged);
         }
@@ -329,29 +345,12 @@ public static class OkfInboxScanner
             reasons.Add(OkfInboxReason.Stale);
         }
 
-        List<OkfDriftedSource> drifted = DriftedSources(frontmatter, generatedAt);
         if (drifted.Count > 0)
         {
             reasons.Add(OkfInboxReason.SourceDrift);
         }
 
-        if (reasons.Count == 0)
-        {
-            return null;
-        }
-
-        return new OkfInboxItem(
-            concept,
-            reasons,
-            generatedBy,
-            generatedAtText,
-            verifiedBy,
-            verifiedAtText,
-            staleAfter,
-            status,
-            generatedAt?.DaysUntil(today),
-            concept.Stale ? OkfLifecycleInstant.Parse(staleAfter)?.DaysUntil(today) : null,
-            drifted);
+        return reasons;
     }
 
     /// <summary>
@@ -371,22 +370,16 @@ public static class OkfInboxScanner
     /// there is no stamp to be newer than a verification, and hand-written prose nobody
     /// dated is not something this command can say anything true about.
     /// </summary>
-    private static bool IsUnacknowledged(
-        OkfConcept concept,
-        OkfMapping? generated,
-        string? generatedBy,
-        OkfLifecycleInstant? generatedAt,
-        OkfLifecycleInstant? verifiedAt,
-        string? status)
+    private static bool IsUnacknowledged(OkfConcept concept, Lifecycle lifecycle)
     {
-        if (string.Equals(status, DraftStatus, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(lifecycle.Status, DraftStatus, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        if (verifiedAt is { } acknowledged)
+        if (lifecycle.VerifiedAt is { } acknowledged)
         {
-            return OkfLifecycleInstant.IsAfter(generatedAt, acknowledged);
+            return OkfLifecycleInstant.IsAfter(lifecycle.GeneratedAt, acknowledged);
         }
 
         // Verified, but by an event carrying no readable `at`. Someone stood behind this;
@@ -397,7 +390,7 @@ public static class OkfInboxScanner
             return false;
         }
 
-        return generated is not null && !OkfActor.IsHuman(generatedBy);
+        return lifecycle.Generated is not null && !OkfActor.IsHuman(lifecycle.GeneratedBy);
     }
 
     /// <summary>
@@ -468,4 +461,52 @@ public static class OkfInboxScanner
 
     private static OkfMapping? Nested(OkfMapping mapping, string key) =>
         mapping.TryGetValue(key, out OkfValue? value) ? value as OkfMapping : null;
+
+    /// <summary>
+    /// The lifecycle fields §5.2 records, read once per concept: the generation stamp, the
+    /// latest verification, and the two frontmatter values that speak for themselves. Each
+    /// timestamp is kept both as written — the inbox reports what the file says — and
+    /// parsed, which is what the comparisons need.
+    /// </summary>
+    /// <param name="Generated">The <c>generated</c> block, or <see langword="null" /> when the concept has none.</param>
+    /// <param name="GeneratedBy">The <c>generated.by</c> actor.</param>
+    /// <param name="GeneratedAtText">The <c>generated.at</c> value, as written.</param>
+    /// <param name="GeneratedAt">The parsed <c>generated.at</c>.</param>
+    /// <param name="VerifiedBy">The latest verification's actor.</param>
+    /// <param name="VerifiedAtText">The latest verification's timestamp, as written.</param>
+    /// <param name="VerifiedAt">The parsed latest verification timestamp.</param>
+    /// <param name="Status">The <c>status</c> value, as written.</param>
+    /// <param name="StaleAfter">The <c>stale_after</c> value, as written.</param>
+    private readonly record struct Lifecycle(
+        OkfMapping? Generated,
+        string? GeneratedBy,
+        string? GeneratedAtText,
+        OkfLifecycleInstant? GeneratedAt,
+        string? VerifiedBy,
+        string? VerifiedAtText,
+        OkfLifecycleInstant? VerifiedAt,
+        string? Status,
+        string? StaleAfter)
+    {
+        /// <summary>Reads one concept's lifecycle fields.</summary>
+        /// <param name="frontmatter">The concept's frontmatter.</param>
+        /// <returns>The fields.</returns>
+        public static Lifecycle Of(OkfMapping frontmatter)
+        {
+            OkfMapping? generated = Nested(frontmatter, "generated");
+            string? generatedAtText = generated is null ? null : FrontmatterValues.Scalar(generated, "at");
+            (string? by, string? at, OkfLifecycleInstant? parsed) = LatestVerification(frontmatter);
+
+            return new Lifecycle(
+                generated,
+                generated is null ? null : FrontmatterValues.Scalar(generated, "by"),
+                generatedAtText,
+                OkfLifecycleInstant.Parse(generatedAtText),
+                by,
+                at,
+                parsed,
+                FrontmatterValues.Scalar(frontmatter, "status"),
+                FrontmatterValues.Scalar(frontmatter, "stale_after"));
+        }
+    }
 }

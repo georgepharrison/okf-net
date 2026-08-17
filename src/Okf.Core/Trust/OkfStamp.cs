@@ -73,9 +73,7 @@ public static class OkfStamp
             return inserted;
         }
 
-        OkfDocument document = OkfDocument.Parse(text);
-        Verify(document, actor, at);
-        string emitted = document.Serialize();
+        string emitted = EmitVerified(text, actor, at);
         if (!Accepts(emitted, actor, before))
         {
             // The fallback is held to the same terms as the insertion. It is the less
@@ -105,31 +103,56 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(document);
         Validate(actor);
 
-        OkfMapping frontmatter = document.Frontmatter;
-        OkfSequence events;
+        EventList(document.Frontmatter).Add(EntryMapping(actor, at));
+    }
+
+    /// <summary>
+    /// The <c>verified</c> sequence an event is appended to, created when the key is
+    /// absent and — per §5.2, where a single verifier MAY be written as one mapping
+    /// without the list dash — wrapping a bare mapping already there, because appending
+    /// to that in place would silently drop the first verifier.
+    /// </summary>
+    private static OkfSequence EventList(OkfMapping frontmatter)
+    {
         if (frontmatter.TryGetValue(VerifiedKey, out OkfValue? existing) && existing is OkfSequence sequence)
         {
-            events = sequence;
+            return sequence;
         }
-        else
+
+        OkfSequence events = new OkfSequence { Style = OkfCollectionStyle.Block };
+        if (existing is OkfMapping bare)
         {
-            events = new OkfSequence { Style = OkfCollectionStyle.Block };
-            if (existing is OkfMapping bare)
-            {
-                // §5.2: a single verifier MAY be written as one mapping without the list
-                // dash. Appending to it in place would silently drop the first verifier.
-                events.Add(bare);
-            }
-
-            // The indexer replaces in place when the key exists and appends when it does
-            // not, so `verified` keeps whatever position the author gave it.
-            frontmatter[VerifiedKey] = events;
+            events.Add(bare);
         }
 
+        // The indexer replaces in place when the key exists and appends when it does not,
+        // so `verified` keeps whatever position the author gave it.
+        frontmatter[VerifiedKey] = events;
+        return events;
+    }
+
+    /// <summary>
+    /// The <c>{ by, at }</c> mapping §5.2 gives both keys, as the model rather than as the
+    /// text <see cref="Entry" /> renders.
+    /// </summary>
+    private static OkfMapping EntryMapping(string actor, DateTimeOffset at)
+    {
         OkfMapping entry = new OkfMapping { Style = OkfCollectionStyle.Flow };
         entry.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
         entry.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
-        events.Add(entry);
+        return entry;
+    }
+
+    /// <summary>
+    /// The emitter fallback for <see cref="VerifyText" />: parse, append, re-emit. Faithful
+    /// in the sense CORE-2 requires but not byte-faithful, which is why the text insertion
+    /// is tried first.
+    /// </summary>
+    private static string EmitVerified(string text, string actor, DateTimeOffset at)
+    {
+        OkfDocument document = OkfDocument.Parse(text);
+        Verify(document, actor, at);
+        return document.Serialize();
     }
 
     /// <summary>
@@ -181,9 +204,7 @@ public static class OkfStamp
             return inserted;
         }
 
-        OkfDocument document = OkfDocument.Parse(text);
-        StampGenerated(document, actor, at);
-        string emitted = document.Serialize();
+        string emitted = EmitGenerated(text, actor, at);
         if (!AcceptsGenerated(emitted, actor, stamp))
         {
             throw new OkfDocumentException(
@@ -208,13 +229,19 @@ public static class OkfStamp
         ArgumentNullException.ThrowIfNull(document);
         Validate(actor);
 
-        OkfMapping stamp = new OkfMapping { Style = OkfCollectionStyle.Flow };
-        stamp.Add(OkfValue.Scalar("by"), OkfValue.Scalar(actor, OkfScalarStyle.DoubleQuoted));
-        stamp.Add(OkfValue.Scalar("at"), OkfValue.Scalar(OkfCanonicalTimestamp.ToCanonical(at)));
-
         // The indexer replaces in place when the key exists and appends when it does not,
         // so `generated` keeps whatever position the author gave it.
-        document.Frontmatter[GeneratedKey] = stamp;
+        document.Frontmatter[GeneratedKey] = EntryMapping(actor, at);
+    }
+
+    /// <summary>
+    /// The emitter fallback for <see cref="StampGeneratedText" />: parse, stamp, re-emit.
+    /// </summary>
+    private static string EmitGenerated(string text, string actor, DateTimeOffset at)
+    {
+        OkfDocument document = OkfDocument.Parse(text);
+        StampGenerated(document, actor, at);
+        return document.Serialize();
     }
 
     /// <summary>
@@ -266,63 +293,29 @@ public static class OkfStamp
     /// </summary>
     private static string? TryStampGenerated(string text, string entry)
     {
-        // Line endings are preserved exactly as `TryInsert` preserves them, and for the
-        // same reason: a restamp that rewrites every line of a file is not a restamp.
-        List<string> lines = text.Split('\n').ToList();
-
-        if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
+        if (FrontmatterText.Of(text) is not { } frontmatter)
         {
             return null;
         }
 
-        string carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
-
-        int fence = -1;
-        for (int i = 1; i < lines.Count; i++)
+        if (frontmatter.Find(GeneratedKey) is not { } generated)
         {
-            if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
-            {
-                fence = i;
-                break;
-            }
+            frontmatter.Insert(frontmatter.Fence, $"{GeneratedKey}: {entry}");
+            return frontmatter.Joined();
         }
 
-        if (fence < 0)
+        if (generated.Region.Count > 0 || !IsFlowMapping(generated.Inline))
         {
             return null;
         }
 
-        int key = Enumerable.Range(1, fence - 1)
-            .FirstOrDefault(i => lines[i].StartsWith(GeneratedKey + ":", StringComparison.Ordinal), -1);
-
-        if (key < 0)
-        {
-            lines.Insert(fence, $"{GeneratedKey}: {entry}{carriage}");
-            return string.Join('\n', lines);
-        }
-
-        string inline = lines[key][(GeneratedKey.Length + 1)..].Trim();
-
-        // Where the value ends: the next top-level key, or the closing fence.
-        int stop = fence;
-        for (int i = key + 1; i < fence; i++)
-        {
-            if (lines[i].Length > 0 && !char.IsWhiteSpace(lines[i][0]))
-            {
-                stop = i;
-                break;
-            }
-        }
-
-        List<int> region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
-        if (region.Count > 0 || !inline.StartsWith('{') || !inline.EndsWith('}'))
-        {
-            return null;
-        }
-
-        lines[key] = $"{GeneratedKey}: {entry}{carriage}";
-        return string.Join('\n', lines);
+        frontmatter.Replace(generated.Line, $"{GeneratedKey}: {entry}");
+        return frontmatter.Joined();
     }
+
+    /// <summary>Whether a value is a one-line flow mapping, the only shape an edit replaces in place.</summary>
+    private static bool IsFlowMapping(string inline) =>
+        inline.StartsWith('{') && inline.EndsWith('}');
 
     private static void Validate(string actor)
     {
@@ -364,104 +357,196 @@ public static class OkfStamp
     /// </summary>
     private static string? TryInsert(string text, string entry)
     {
-        // Each line keeps its own carriage return: split on '\n' and joined back with
-        // '\n', the pieces reproduce the file byte for byte, so a line the insertion did
-        // not touch keeps the ending its author gave it. Deciding one ending for the whole
-        // file from "is there a '\r' anywhere in it" would rewrite every line of an
-        // LF-terminated concept that happens to carry one stray carriage return in its
-        // body — an acknowledgment arriving as a whole-file diff, which is the thing this
-        // path exists to avoid. Every read below either trims or only inspects a prefix,
-        // so the retained '\r' changes no decision.
-        List<string> lines = text.Split('\n').ToList();
-
-        if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
+        if (FrontmatterText.Of(text) is not { } frontmatter)
         {
             return null;
         }
 
-        // The ending the inserted lines get: the one the opening fence carries, which is
-        // the frontmatter's own convention rather than the file's most common one.
-        string carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
-
-        int fence = -1;
-        for (int i = 1; i < lines.Count; i++)
+        if (frontmatter.Find(VerifiedKey) is not { } verified)
         {
-            if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
-            {
-                fence = i;
-                break;
-            }
+            return OpenListWithFirstEvent(frontmatter, entry);
         }
 
-        if (fence < 0)
+        if (verified.Inline.Length > 0)
+        {
+            return NormalizeBareMappingIntoList(frontmatter, verified, entry);
+        }
+
+        return verified.Region.Count == 0
+            ? AppendEventUnderEmptyKey(frontmatter, verified, entry)
+            : AppendEventToSequence(frontmatter, verified, entry);
+    }
+
+    /// <summary>No <c>verified</c> key at all: the key and its one event end the block.</summary>
+    private static string OpenListWithFirstEvent(FrontmatterText frontmatter, string entry)
+    {
+        frontmatter.Insert(frontmatter.Fence, $"{VerifiedKey}:");
+        frontmatter.Insert(frontmatter.Fence + 1, $"  - {entry}");
+        return frontmatter.Joined();
+    }
+
+    /// <summary>
+    /// §5.2's bare mapping, written inline. It becomes the list's first element and the new
+    /// event its second, which is the normalization every consumer already performs when
+    /// reading. A value that is not a one-line flow mapping is left to the emitter.
+    /// </summary>
+    private static string? NormalizeBareMappingIntoList(
+        FrontmatterText frontmatter,
+        FrontmatterKey verified,
+        string entry)
+    {
+        if (verified.Region.Count > 0 || !IsFlowMapping(verified.Inline))
         {
             return null;
         }
 
-        // Top-level only: a `verified:` at column 0. A duplicate is not considered here
-        // because the caller has already parsed the document, and YAML rejects one.
-        int key = Enumerable.Range(1, fence - 1)
-            .FirstOrDefault(i => lines[i].StartsWith(VerifiedKey + ":", StringComparison.Ordinal), -1);
+        frontmatter.Replace(verified.Line, $"{VerifiedKey}:");
+        frontmatter.Insert(verified.Line + 1, $"  - {verified.Inline}");
+        frontmatter.Insert(verified.Line + 2, $"  - {entry}");
+        return frontmatter.Joined();
+    }
 
-        if (key < 0)
+    /// <summary><c>verified:</c> with no value: a null the spec reads as no events.</summary>
+    private static string AppendEventUnderEmptyKey(
+        FrontmatterText frontmatter,
+        FrontmatterKey verified,
+        string entry)
+    {
+        frontmatter.Insert(verified.Line + 1, $"  - {entry}");
+        return frontmatter.Joined();
+    }
+
+    /// <summary>
+    /// A block sequence of events. Every line of the value belongs to it — a further item,
+    /// or a continuation of one — so the new item goes after the last of them, at the
+    /// indentation the author gave the first. A value that does not open with a list dash
+    /// is a block-style bare mapping (<c>verified:</c> then <c>by:</c>/<c>at:</c> lines):
+    /// turning that into a list means re-indenting somebody else's frontmatter, so the
+    /// emitter can have it.
+    /// </summary>
+    private static string? AppendEventToSequence(
+        FrontmatterText frontmatter,
+        FrontmatterKey verified,
+        string entry)
+    {
+        string first = frontmatter.LineAt(verified.Region[0]);
+        if (!first.TrimStart().StartsWith("- ", StringComparison.Ordinal))
         {
-            lines.Insert(fence, $"{VerifiedKey}:{carriage}");
-            lines.Insert(fence + 1, $"  - {entry}{carriage}");
-            return string.Join('\n', lines);
+            return null;
         }
 
-        string inline = lines[key][(VerifiedKey.Length + 1)..].Trim();
+        string indent = first[..(first.Length - first.TrimStart().Length)];
+        frontmatter.Insert(verified.Region[^1] + 1, $"{indent}- {entry}");
+        return frontmatter.Joined();
+    }
 
-        // Where the value ends: the next top-level key, or the closing fence.
-        int stop = fence;
-        for (int i = key + 1; i < fence; i++)
+    /// <summary>
+    /// Where one top-level frontmatter key's value is written: the key's own line, the
+    /// value on that line, and the non-blank lines the value spills onto below it.
+    /// </summary>
+    /// <param name="Line">The index of the key's line.</param>
+    /// <param name="Inline">The value written after the colon, trimmed; empty when there is none.</param>
+    /// <param name="Region">The indexes of the non-blank lines the value continues onto.</param>
+    private readonly record struct FrontmatterKey(int Line, string Inline, List<int> Region);
+
+    /// <summary>
+    /// A concept's frontmatter block as the file's own lines, so an edit can put one line
+    /// in and leave every other byte alone.
+    /// </summary>
+    /// <remarks>
+    /// Each line keeps its own carriage return: split on <c>\n</c> and joined back with
+    /// <c>\n</c>, the pieces reproduce the file byte for byte, so a line an edit did not
+    /// touch keeps the ending its author gave it. Deciding one ending for the whole file
+    /// from "is there a <c>\r</c> anywhere in it" would rewrite every line of an
+    /// LF-terminated concept that happens to carry one stray carriage return in its body —
+    /// an acknowledgment arriving as a whole-file diff, which is the thing text surgery
+    /// exists to avoid. Every read here either trims or only inspects a prefix, so the
+    /// retained <c>\r</c> changes no decision.
+    /// </remarks>
+    private sealed class FrontmatterText
+    {
+        private readonly List<string> _lines;
+        private readonly string _carriage;
+
+        private FrontmatterText(List<string> lines, int fence, string carriage)
         {
-            if (lines[i].Length > 0 && !char.IsWhiteSpace(lines[i][0]))
-            {
-                stop = i;
-                break;
-            }
+            _lines = lines;
+            _carriage = carriage;
+            Fence = fence;
         }
 
-        List<int> region = Enumerable.Range(key + 1, stop - key - 1).Where(i => lines[i].Trim().Length > 0).ToList();
+        /// <summary>The index of the closing <c>---</c>.</summary>
+        public int Fence { get; }
 
-        if (inline.Length > 0)
+        /// <summary>
+        /// Locates the frontmatter block, or returns <see langword="null" /> when the text
+        /// does not open with one or never closes it — either way, a shape no edit reaches.
+        /// </summary>
+        /// <param name="text">The concept's full text.</param>
+        /// <returns>The block, or <see langword="null" />.</returns>
+        public static FrontmatterText? Of(string text)
         {
-            // §5.2's bare mapping, written inline. It becomes the list's first element and
-            // the new event its second, which is the normalization every consumer already
-            // performs when reading.
-            if (region.Count > 0 || !inline.StartsWith('{') || !inline.EndsWith('}'))
+            List<string> lines = text.Split('\n').ToList();
+            if (lines.Count == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
             {
                 return null;
             }
 
-            lines[key] = $"{VerifiedKey}:{carriage}";
-            lines.Insert(key + 1, $"  - {inline}{carriage}");
-            lines.Insert(key + 2, $"  - {entry}{carriage}");
-            return string.Join('\n', lines);
-        }
+            // The ending inserted lines get: the one the opening fence carries, which is
+            // the frontmatter's own convention rather than the file's most common one.
+            string carriage = lines[0].EndsWith('\r') ? "\r" : string.Empty;
 
-        if (region.Count == 0)
-        {
-            // `verified:` with no value: a null the spec reads as no events.
-            lines.Insert(key + 1, $"  - {entry}{carriage}");
-            return string.Join('\n', lines);
-        }
+            for (int i = 1; i < lines.Count; i++)
+            {
+                if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
+                {
+                    return new FrontmatterText(lines, i, carriage);
+                }
+            }
 
-        string first = lines[region[0]];
-        if (!first.TrimStart().StartsWith("- ", StringComparison.Ordinal))
-        {
-            // A block-style bare mapping (`verified:` then `by:`/`at:` lines). Turning it
-            // into a list means re-indenting somebody else's frontmatter; the emitter can
-            // have it.
             return null;
         }
 
-        // Every later line of the region belongs to this sequence — a further item, or a
-        // continuation of one — so the new item goes after the last of them, at the
-        // indentation the author gave the first.
-        string indent = first[..(first.Length - first.TrimStart().Length)];
-        lines.Insert(region[^1] + 1, $"{indent}- {entry}{carriage}");
-        return string.Join('\n', lines);
+        /// <summary>
+        /// Finds a top-level key — one at column 0. A duplicate is not considered because
+        /// the caller has already parsed the document, and YAML rejects one.
+        /// </summary>
+        /// <param name="key">The key to find.</param>
+        /// <returns>Where its value is written, or <see langword="null" /> when absent.</returns>
+        public FrontmatterKey? Find(string key)
+        {
+            int line = Enumerable.Range(1, Fence - 1)
+                .FirstOrDefault(i => _lines[i].StartsWith(key + ":", StringComparison.Ordinal), -1);
+
+            return line < 0
+                ? null
+                : new FrontmatterKey(line, _lines[line][(key.Length + 1)..].Trim(), ValueRegion(line));
+        }
+
+        public string LineAt(int index) => _lines[index];
+
+        public void Insert(int index, string line) => _lines.Insert(index, line + _carriage);
+
+        public void Replace(int index, string line) => _lines[index] = line + _carriage;
+
+        /// <summary>The lines joined back into the file's text.</summary>
+        /// <returns>The text.</returns>
+        public string Joined() => string.Join('\n', _lines);
+
+        private List<int> ValueRegion(int key)
+        {
+            // Where the value ends: the next top-level key, or the closing fence.
+            int stop = Fence;
+            for (int i = key + 1; i < Fence; i++)
+            {
+                if (_lines[i].Length > 0 && !char.IsWhiteSpace(_lines[i][0]))
+                {
+                    stop = i;
+                    break;
+                }
+            }
+
+            return Enumerable.Range(key + 1, stop - key - 1).Where(i => _lines[i].Trim().Length > 0).ToList();
+        }
     }
 }
