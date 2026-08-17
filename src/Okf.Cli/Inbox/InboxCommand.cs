@@ -23,15 +23,8 @@ internal static class InboxCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        InboxArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = InboxArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf inbox --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -45,22 +38,29 @@ internal static class InboxCommand
         {
             return Report(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static InboxArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return InboxArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf inbox --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or IOException or UnauthorizedAccessException;
 
     private static int Report(
         InboxArguments arguments,
@@ -75,66 +75,91 @@ internal static class InboxCommand
             workingSet.Bundles,
             new OkfInboxOptions { Today = DateOnly.FromDateTime(DateTime.Now) });
 
-        if (arguments.Verbose)
-        {
-            VerboseReport.WorkingSet(error, workingSet);
-
-            error.WriteLine(
-                $"okf: read {DiagnosticWriter.Plural(result.ConceptCount, "concept")}, " +
-                $"{DiagnosticWriter.Plural(result.Items.Count, "item")} on the inbox");
-        }
-
-        if (arguments.Json)
-        {
-            output.Write(InboxJson.Write(result, environment.CurrentDirectory));
-            output.Write(Environment.NewLine);
-        }
-        else
-        {
-            WriteText(result, environment.CurrentDirectory, output);
-        }
-
+        WriteVerbose(arguments, workingSet, result, error);
+        WriteReport(arguments, result, environment.CurrentDirectory, output);
         return arguments.FailIfAny && !result.IsEmpty
             ? CliApplication.ExitDiagnostics
             : CliApplication.ExitSuccess;
+    }
+
+    private static void WriteVerbose(
+        InboxArguments arguments,
+        OkfWorkingSet workingSet,
+        OkfInboxResult result,
+        TextWriter error)
+    {
+        if (!arguments.Verbose)
+        {
+            return;
+        }
+
+        VerboseReport.WorkingSet(error, workingSet);
+        error.WriteLine(
+            $"okf: read {DiagnosticWriter.Plural(result.ConceptCount, "concept")}, " +
+            $"{DiagnosticWriter.Plural(result.Items.Count, "item")} on the inbox");
+    }
+
+    private static void WriteReport(
+        InboxArguments arguments,
+        OkfInboxResult result,
+        string baseDirectory,
+        TextWriter output)
+    {
+        if (arguments.Json)
+        {
+            output.Write(InboxJson.Write(result, baseDirectory));
+            output.Write(Environment.NewLine);
+            return;
+        }
+
+        WriteText(result, baseDirectory, output);
     }
 
     private static void WriteText(OkfInboxResult result, string baseDirectory, TextWriter output)
     {
         foreach (OkfInboxReason reason in OkfInboxReasonExtensions.All)
         {
-            List<OkfInboxItem> items = result.For(reason).ToList();
-            if (items.Count == 0)
-            {
-                continue;
-            }
-
-            output.WriteLine(
-                $"{reason.ToHeading()} ({items.Count.ToString(CultureInfo.InvariantCulture)})");
-            foreach (OkfInboxItem item in items)
-            {
-                string type = item.Concept.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
-                output.WriteLine(
-                    $"  {DiagnosticWriter.Display(item.Concept.AbsolutePath, baseDirectory)}  " +
-                    $"{item.Concept.Title}{type}");
-                output.WriteLine($"    {Detail(item, reason)}");
-            }
-
-            output.WriteLine();
+            WriteReason(result, reason, baseDirectory, output);
         }
 
+        WriteSummary(result, output);
+    }
+
+    private static void WriteReason(
+        OkfInboxResult result,
+        OkfInboxReason reason,
+        string baseDirectory,
+        TextWriter output)
+    {
+        List<OkfInboxItem> items = result.For(reason).ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        output.WriteLine(
+            $"{reason.ToHeading()} ({items.Count.ToString(CultureInfo.InvariantCulture)})");
+        foreach (OkfInboxItem item in items)
+        {
+            string type = item.Concept.Type is { Length: > 0 } value ? $" ({value})" : string.Empty;
+            output.WriteLine(
+                $"  {DiagnosticWriter.Display(item.Concept.AbsolutePath, baseDirectory)}  " +
+                $"{item.Concept.Title}{type}");
+            output.WriteLine($"    {Detail(item, reason)}");
+        }
+
+        output.WriteLine();
+    }
+
+    private static void WriteSummary(OkfInboxResult result, TextWriter output)
+    {
         string summary =
             $"Checked {DiagnosticWriter.Plural(result.ConceptCount, "concept")} in " +
             $"{DiagnosticWriter.Plural(result.Bundles.Count, "bundle")}: ";
 
         output.WriteLine(result.IsEmpty
             ? summary + "nothing needs attention."
-            : summary
-                + $"{DiagnosticWriter.Plural(result.Items.Count, "concept")} "
-                + $"{(result.Items.Count == 1 ? "needs" : "need")} attention "
-                + $"({result.Count(OkfInboxReason.Unacknowledged).ToString(CultureInfo.InvariantCulture)} unacknowledged, "
-                + $"{result.Count(OkfInboxReason.Stale).ToString(CultureInfo.InvariantCulture)} stale, "
-                + $"{result.Count(OkfInboxReason.SourceDrift).ToString(CultureInfo.InvariantCulture)} with source drift).");
+            : summary + Attention(result));
 
         if (result.SkippedCount > 0)
         {
@@ -143,6 +168,13 @@ internal static class InboxCommand
                 "parse (run `okf lint`).");
         }
     }
+
+    private static string Attention(OkfInboxResult result) =>
+        $"{DiagnosticWriter.Plural(result.Items.Count, "concept")} " +
+        $"{(result.Items.Count == 1 ? "needs" : "need")} attention " +
+        $"({result.Count(OkfInboxReason.Unacknowledged).ToString(CultureInfo.InvariantCulture)} unacknowledged, " +
+        $"{result.Count(OkfInboxReason.Stale).ToString(CultureInfo.InvariantCulture)} stale, " +
+        $"{result.Count(OkfInboxReason.SourceDrift).ToString(CultureInfo.InvariantCulture)} with source drift).";
 
     /// <summary>The one line under a row that says what the reason actually is for this concept.</summary>
     private static string Detail(OkfInboxItem item, OkfInboxReason reason) => reason switch

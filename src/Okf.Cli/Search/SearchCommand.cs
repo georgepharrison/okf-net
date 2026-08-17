@@ -18,15 +18,8 @@ internal static class SearchCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        SearchArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = SearchArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf search --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -40,12 +33,7 @@ internal static class SearchCommand
         {
             return Search(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (OkfConfigException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             // Scope resolution reads okf.json and, beyond `--scope project`, the registry:
             // a malformed one of either is an environment failure the caller can repair
@@ -53,17 +41,24 @@ internal static class SearchCommand
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
-        catch (IOException exception)
+    }
+
+    private static SearchArguments? Parse(string[] args, TextWriter error)
+    {
+        try
         {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            return SearchArguments.Parse(args);
         }
-        catch (UnauthorizedAccessException exception)
+        catch (OkfConfigException exception)
         {
             error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            error.WriteLine("Run `okf search --help` for usage.");
+            return null;
         }
     }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or OkfConfigException or IOException or UnauthorizedAccessException;
 
     private static int Search(
         SearchArguments arguments,
@@ -71,19 +66,70 @@ internal static class SearchCommand
         TextWriter output,
         TextWriter error)
     {
-        OkfSearchQuery query = arguments.ToQuery();
-        if (query.IsEmpty)
+        if (Query(arguments, error) is not { } query)
         {
-            // Nothing to match and nothing to filter by. Returning the whole vault would
-            // be a listing command, which this is not.
-            error.WriteLine("okf: error: no query. Give at least one search term or a `type:`/`tag:` filter.");
-            error.WriteLine("Run `okf search --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
-        // PRD CLI-1/CLI-3: search resolves its working set exactly as `okf lint` does, so
-        // the two commands never disagree about which bundles they are looking at, and the
-        // default scope is the project vault — identical results on every machine.
+        if (Resolve(arguments, environment, error) is not { } resolved)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        OkfSearchOutcome outcome = Rank(arguments, resolved.WorkingSet, query);
+        if (arguments.Verbose)
+        {
+            WriteVerbose(error, new VerboseSearch(resolved.WorkingSet, resolved.Scope, query, outcome));
+        }
+
+        WriteReport(new SearchReport(arguments, outcome, resolved.WorkingSet, environment.CurrentDirectory), output);
+
+        // PRD CLI-11 and the §3 CLI-surface table: an empty result set is not an error, so
+        // the grep convention (1 = no matches) deliberately does not apply here. 1 stays
+        // reserved for diagnostics at error severity (CLI-14).
+        return CliApplication.ExitSuccess;
+    }
+
+    private static OkfSearchOutcome Rank(
+        SearchArguments arguments,
+        OkfWorkingSet workingSet,
+        OkfSearchQuery query) =>
+        OkfSearchEngine.Search(
+            workingSet.Bundles,
+            query,
+            new OkfSearchOptions
+            {
+                Limit = arguments.Limit,
+                Today = DateOnly.FromDateTime(DateTime.Now),
+            });
+
+    private static OkfSearchQuery? Query(SearchArguments arguments, TextWriter error)
+    {
+        OkfSearchQuery query = arguments.ToQuery();
+        if (!query.IsEmpty)
+        {
+            return query;
+        }
+
+        // Nothing to match and nothing to filter by. Returning the whole vault would
+        // be a listing command, which this is not.
+        error.WriteLine("okf: error: no query. Give at least one search term or a `type:`/`tag:` filter.");
+        error.WriteLine("Run `okf search --help` for usage.");
+        return null;
+    }
+
+    private sealed record ResolvedSearch(OkfWorkingSet WorkingSet, ScopeSettings Scope);
+
+    /// <summary>
+    /// PRD CLI-1/CLI-3: search resolves its working set exactly as `okf lint` does, so
+    /// the two commands never disagree about which bundles they are looking at, and the
+    /// default scope is the project vault — identical results on every machine.
+    /// </summary>
+    private static ResolvedSearch? Resolve(
+        SearchArguments arguments,
+        OkfEnvironment environment,
+        TextWriter error)
+    {
         ScopeSettings scope = ScopeSettings.Resolve(arguments.Scope, environment);
         if (arguments.Path is not null && scope.Scope != OkfScopeKind.Project && arguments.Scope is not null)
         {
@@ -94,67 +140,61 @@ internal static class SearchCommand
                 $"okf: error: `--scope {scope.Scope.ToScopeString()}` and an explicit path are exclusive; " +
                 "a path already says which bundles to search.");
             error.WriteLine("Run `okf search --help` for usage.");
-            return CliApplication.ExitUsage;
+            return null;
         }
 
         OkfScopeResolution resolution = arguments.Path is not null
             ? new OkfScopeResolution(OkfDiscovery.Resolve(arguments.Path, environment), [])
             : OkfScope.Resolve(scope.Scope, environment);
-        OkfWorkingSet workingSet = resolution.WorkingSet;
+        WriteNotes(resolution, error);
+        return new ResolvedSearch(resolution.WorkingSet, scope);
+    }
 
+    private static void WriteNotes(OkfScopeResolution resolution, TextWriter error)
+    {
         foreach (string note in resolution.Notes)
         {
             // Reported once, on stderr, and never an error: a laptop that has not been set
             // up the same way must not fail a query (PRD CLI-2).
             error.WriteLine($"okf: {note}");
         }
-
-        OkfSearchOutcome outcome = OkfSearchEngine.Search(
-            workingSet.Bundles,
-            query,
-            new OkfSearchOptions
-            {
-                Limit = arguments.Limit,
-                Today = DateOnly.FromDateTime(DateTime.Now),
-            });
-
-        if (arguments.Verbose)
-        {
-            WriteVerbose(error, workingSet, scope, query, outcome);
-        }
-
-        if (arguments.Json)
-        {
-            output.Write(SearchJson.Write(outcome));
-            output.Write(Environment.NewLine);
-        }
-        else
-        {
-            WriteText(outcome, workingSet, environment.CurrentDirectory, output);
-        }
-
-        // PRD CLI-11 and the §3 CLI-surface table: an empty result set is not an error, so
-        // the grep convention (1 = no matches) deliberately does not apply here. 1 stays
-        // reserved for diagnostics at error severity (CLI-14).
-        return CliApplication.ExitSuccess;
     }
 
-    private static void WriteVerbose(
-        TextWriter error,
-        OkfWorkingSet workingSet,
-        ScopeSettings scope,
-        OkfSearchQuery query,
-        OkfSearchOutcome outcome)
-    {
-        VerboseReport.Scope(error, scope);
-        VerboseReport.WorkingSet(error, workingSet);
+    private sealed record SearchReport(
+        SearchArguments Arguments,
+        OkfSearchOutcome Outcome,
+        OkfWorkingSet WorkingSet,
+        string BaseDirectory);
 
-        error.WriteLine($"okf: query {query}");
-        error.WriteLine($"okf: match mode {SearchJson.MatchMode(outcome.MatchMode)}");
-        if (outcome.SkippedCount > 0)
+    private static void WriteReport(SearchReport report, TextWriter output)
+    {
+        if (report.Arguments.Json)
+        {
+            output.Write(SearchJson.Write(report.Outcome));
+            output.Write(Environment.NewLine);
+            return;
+        }
+
+        WriteText(report.Outcome, report.WorkingSet, report.BaseDirectory, output);
+    }
+
+    private sealed record VerboseSearch(
+        OkfWorkingSet WorkingSet,
+        ScopeSettings Scope,
+        OkfSearchQuery Query,
+        OkfSearchOutcome Outcome);
+
+    private static void WriteVerbose(TextWriter error, VerboseSearch search)
+    {
+        VerboseReport.Scope(error, search.Scope);
+        VerboseReport.WorkingSet(error, search.WorkingSet);
+
+        error.WriteLine($"okf: query {search.Query}");
+        error.WriteLine($"okf: match mode {SearchJson.MatchMode(search.Outcome.MatchMode)}");
+        if (search.Outcome.SkippedCount > 0)
         {
             error.WriteLine(
-                $"okf: skipped {DiagnosticWriter.Plural(outcome.SkippedCount, "file")} whose frontmatter does not " +
+                $"okf: skipped {DiagnosticWriter.Plural(search.Outcome.SkippedCount, "file")} whose frontmatter does not " +
                 "parse (run `okf lint`)");
         }
     }
@@ -181,13 +221,29 @@ internal static class SearchCommand
         TextWriter output)
     {
         IReadOnlyList<string> roots = Roots(workingSet);
-        if (outcome.UsedFallback)
+        WriteFallback(outcome, output);
+        WriteHits(outcome, roots, baseDirectory, output);
+        output.WriteLine(Summary(outcome, roots));
+    }
+
+    private static void WriteFallback(OkfSearchOutcome outcome, TextWriter output)
+    {
+        if (!outcome.UsedFallback)
         {
-            output.WriteLine(
-                $"No concept matched all {DiagnosticWriter.Plural(outcome.Query.Terms.Count, "term")}; " +
-                "showing concepts matching any of them.");
+            return;
         }
 
+        output.WriteLine(
+            $"No concept matched all {DiagnosticWriter.Plural(outcome.Query.Terms.Count, "term")}; " +
+            "showing concepts matching any of them.");
+    }
+
+    private static void WriteHits(
+        OkfSearchOutcome outcome,
+        IReadOnlyList<string> roots,
+        string baseDirectory,
+        TextWriter output)
+    {
         int rank = 0;
         foreach (OkfSearchResult result in outcome.Results)
         {
@@ -196,7 +252,7 @@ internal static class SearchCommand
             output.WriteLine(
                 $"{rank.ToString(CultureInfo.InvariantCulture)}. " +
                 $"{result.Score.ToString("F4", CultureInfo.InvariantCulture)}  " +
-                $"{(roots.Count > 1 ? result.AbsolutePath : DiagnosticWriter.Display(result.AbsolutePath, baseDirectory))}  " +
+                $"{HitPath(result, roots, baseDirectory)}  " +
                 $"{result.Title}{type}  [{Markers(result)}]");
 
             if (result.Snippet.Length > 0)
@@ -204,7 +260,13 @@ internal static class SearchCommand
                 output.WriteLine($"    {result.Snippet}");
             }
         }
+    }
 
+    private static string HitPath(OkfSearchResult result, IReadOnlyList<string> roots, string baseDirectory) =>
+        roots.Count > 1 ? result.AbsolutePath : DiagnosticWriter.Display(result.AbsolutePath, baseDirectory);
+
+    private static string Summary(OkfSearchOutcome outcome, IReadOnlyList<string> roots)
+    {
         StringBuilder summary = new StringBuilder()
             .Append("Found ")
             .Append(DiagnosticWriter.Plural(outcome.TotalMatches, "result"))
@@ -224,7 +286,7 @@ internal static class SearchCommand
                 .Append(outcome.Results.Count.ToString(CultureInfo.InvariantCulture));
         }
 
-        output.WriteLine(summary.Append('.').ToString());
+        return summary.Append('.').ToString();
     }
 
     /// <summary>The trust and staleness markers a result carries, e.g. <c>human-reviewed, stale</c>.</summary>

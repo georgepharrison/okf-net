@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Site;
@@ -20,15 +21,8 @@ internal static class SiteCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        SiteArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = SiteArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf site --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -42,22 +36,29 @@ internal static class SiteCommand
         {
             return Generate(parsed, environment, output, error);
         }
-        catch (OkfDiscoveryException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static SiteArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return SiteArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf site --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfDiscoveryException or IOException or UnauthorizedAccessException;
 
     private static int Generate(
         SiteArguments arguments,
@@ -69,7 +70,25 @@ internal static class SiteCommand
         OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
         string outputDirectory = Path.GetFullPath(
             Path.Combine(environment.CurrentDirectory, arguments.Out!));
+        if (RefuseDestination(workingSet, outputDirectory, error) is { } refused)
+        {
+            return refused;
+        }
 
+        WriteVerbose(arguments, workingSet, outputDirectory, error);
+        OkfSitePlan plan = OkfSiteGenerator.Plan(workingSet, Options(arguments));
+        if (RefuseCollision(plan, outputDirectory, workingSet, error) is { } collision)
+        {
+            return collision;
+        }
+
+        OkfSiteGenerator.Apply(plan, outputDirectory);
+        WriteOutcome(new SiteOutcome(arguments, plan, outputDirectory, environment), output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static int? RefuseDestination(OkfWorkingSet workingSet, string outputDirectory, TextWriter error)
+    {
         if (File.Exists(outputDirectory))
         {
             error.WriteLine($"okf: error: '{outputDirectory}' is a file; --out names a directory.");
@@ -90,49 +109,75 @@ internal static class SiteCommand
             }
         }
 
-        if (arguments.Verbose)
-        {
-            VerboseReport.WorkingSet(error, workingSet);
+        return null;
+    }
 
-            error.WriteLine(arguments.SingleFile
-                ? $"okf: writing one self-contained file into {outputDirectory}"
-                : $"okf: writing a multi-page site into {outputDirectory}");
+    private static void WriteVerbose(
+        SiteArguments arguments,
+        OkfWorkingSet workingSet,
+        string outputDirectory,
+        TextWriter error)
+    {
+        if (!arguments.Verbose)
+        {
+            return;
         }
 
-        OkfSitePlan plan = OkfSiteGenerator.Plan(workingSet, new OkfSiteOptions
+        VerboseReport.WorkingSet(error, workingSet);
+        error.WriteLine(arguments.SingleFile
+            ? $"okf: writing one self-contained file into {outputDirectory}"
+            : $"okf: writing a multi-page site into {outputDirectory}");
+    }
+
+    private static OkfSiteOptions Options(SiteArguments arguments) =>
+        new OkfSiteOptions
         {
             Name = arguments.Name,
             SingleFile = arguments.SingleFile,
             Today = DateOnly.FromDateTime(DateTime.Now),
-        });
+        };
 
-        // The directory check above catches `--out` pointing *into* a bundle. It does not
-        // catch `--out` pointing at a bundle's parent, where the site's own per-bundle
-        // subdirectory lands back inside it: `--out <vault>/bundles` writes
-        // `<vault>/bundles/<slug>/**.html` straight into the bundle slugged `<slug>`. The
-        // planned paths answer that exactly, and nothing has been written yet.
-        if (Collision(plan, outputDirectory, workingSet) is { } collision)
+    /// <summary>
+    /// The directory check above catches `--out` pointing *into* a bundle. It does not
+    /// catch `--out` pointing at a bundle's parent, where the site's own per-bundle
+    /// subdirectory lands back inside it: `--out <vault>/bundles` writes
+    /// `<vault>/bundles/<slug>/**.html` straight into the bundle slugged `<slug>`. The
+    /// planned paths answer that exactly, and nothing has been written yet.
+    /// </summary>
+    private static int? RefuseCollision(
+        OkfSitePlan plan,
+        string outputDirectory,
+        OkfWorkingSet workingSet,
+        TextWriter error)
+    {
+        if (Collision(plan, outputDirectory, workingSet) is not { } collision)
         {
-            error.WriteLine(
-                $"okf: error: --out '{outputDirectory}' would write '{collision.Path}' " +
-                $"inside bundle '{collision.Root}'. " +
-                "Generate the site outside the bundles it renders.");
-            return CliApplication.ExitUsage;
+            return null;
         }
 
-        OkfSiteGenerator.Apply(plan, outputDirectory);
+        error.WriteLine(
+            $"okf: error: --out '{outputDirectory}' would write '{collision.Path}' " +
+            $"inside bundle '{collision.Root}'. " +
+            "Generate the site outside the bundles it renders.");
+        return CliApplication.ExitUsage;
+    }
 
-        string landing = Path.Combine(outputDirectory, OkfSiteBuilder.IndexHref);
-        if (arguments.Json)
+    private sealed record SiteOutcome(
+        SiteArguments Arguments,
+        OkfSitePlan Plan,
+        string OutputDirectory,
+        OkfEnvironment Environment);
+
+    private static void WriteOutcome(SiteOutcome outcome, TextWriter output)
+    {
+        string landing = Path.Combine(outcome.OutputDirectory, OkfSiteBuilder.IndexHref);
+        if (outcome.Arguments.Json)
         {
-            output.Write(ToJson(plan, outputDirectory, landing));
-        }
-        else
-        {
-            WriteReport(plan, outputDirectory, landing, environment.CurrentDirectory, output);
+            output.Write(ToJson(outcome.Plan, outcome.OutputDirectory, landing));
+            return;
         }
 
-        return CliApplication.ExitSuccess;
+        WriteReport(new SiteTextReport(outcome.Plan, outcome.OutputDirectory, landing, outcome.Environment.CurrentDirectory), output);
     }
 
     /// <summary>The first planned file that would land inside a bundle being rendered.</summary>
@@ -162,19 +207,21 @@ internal static class SiteCommand
         return null;
     }
 
-    private static void WriteReport(
-        OkfSitePlan plan,
-        string outputDirectory,
-        string landing,
-        string baseDirectory,
-        TextWriter output)
+    private sealed record SiteTextReport(
+        OkfSitePlan Plan,
+        string OutputDirectory,
+        string Landing,
+        string BaseDirectory);
+
+    private static void WriteReport(SiteTextReport report, TextWriter output)
     {
+        OkfSitePlan plan = report.Plan;
         OkfSiteCounts counts = plan.Model.Counts;
         StringBuilder summary = new StringBuilder()
             .Append("Generated ")
             .Append(DiagnosticWriter.Plural(plan.Files.Count, "file"))
             .Append(" in ")
-            .Append(DiagnosticWriter.Display(outputDirectory, baseDirectory))
+            .Append(DiagnosticWriter.Display(report.OutputDirectory, report.BaseDirectory))
             .Append(": ")
             .Append(DiagnosticWriter.Plural(counts.Concepts, "concept"))
             .Append(" in ")
@@ -187,7 +234,7 @@ internal static class SiteCommand
             $"{Number(counts.MachineConfirmed)} machine-confirmed, " +
             $"{Number(counts.Unverified)} unverified; " +
             $"{Number(counts.Stale)} stale, {Number(counts.Draft)} draft.");
-        output.WriteLine($"Open {DiagnosticWriter.Display(landing, baseDirectory)}");
+        output.WriteLine($"Open {DiagnosticWriter.Display(report.Landing, report.BaseDirectory)}");
     }
 
     private static string ToJson(OkfSitePlan plan, string outputDirectory, string landing)
@@ -196,37 +243,50 @@ internal static class SiteCommand
         return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
-            writer.WriteString("out", outputDirectory);
-            writer.WriteString("entry", landing);
-            writer.WriteString("name", plan.Model.Name);
-            writer.WriteBoolean("singleFile", plan.Model.SingleFile);
-            writer.WriteNumber("files", plan.Files.Count);
-            writer.WriteNumber("pages", plan.Model.Pages.Count);
-            writer.WriteNumber("edges", plan.Model.Edges.Count);
-
-            writer.WriteStartObject("counts");
-            writer.WriteNumber("bundles", counts.Bundles);
-            writer.WriteNumber("concepts", counts.Concepts);
-            writer.WriteNumber("humanReviewed", counts.HumanReviewed);
-            writer.WriteNumber("machineConfirmed", counts.MachineConfirmed);
-            writer.WriteNumber("unverified", counts.Unverified);
-            writer.WriteNumber("stale", counts.Stale);
-            writer.WriteNumber("draft", counts.Draft);
-            writer.WriteEndObject();
-
-            writer.WriteStartArray("bundles");
-            foreach (OkfSiteBundle bundle in plan.Model.Bundles)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("name", bundle.Name);
-                writer.WriteString("slug", bundle.Slug);
-                writer.WriteNumber("concepts", bundle.Concepts);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
+            WriteSite(writer, plan, outputDirectory, landing);
+            WriteCounts(writer, counts);
+            WriteBundles(writer, plan);
             writer.WriteEndObject();
         }) + Environment.NewLine;
+    }
+
+    private static void WriteSite(Utf8JsonWriter writer, OkfSitePlan plan, string outputDirectory, string landing)
+    {
+        writer.WriteString("out", outputDirectory);
+        writer.WriteString("entry", landing);
+        writer.WriteString("name", plan.Model.Name);
+        writer.WriteBoolean("singleFile", plan.Model.SingleFile);
+        writer.WriteNumber("files", plan.Files.Count);
+        writer.WriteNumber("pages", plan.Model.Pages.Count);
+        writer.WriteNumber("edges", plan.Model.Edges.Count);
+    }
+
+    private static void WriteCounts(Utf8JsonWriter writer, OkfSiteCounts counts)
+    {
+        writer.WriteStartObject("counts");
+        writer.WriteNumber("bundles", counts.Bundles);
+        writer.WriteNumber("concepts", counts.Concepts);
+        writer.WriteNumber("humanReviewed", counts.HumanReviewed);
+        writer.WriteNumber("machineConfirmed", counts.MachineConfirmed);
+        writer.WriteNumber("unverified", counts.Unverified);
+        writer.WriteNumber("stale", counts.Stale);
+        writer.WriteNumber("draft", counts.Draft);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteBundles(Utf8JsonWriter writer, OkfSitePlan plan)
+    {
+        writer.WriteStartArray("bundles");
+        foreach (OkfSiteBundle bundle in plan.Model.Bundles)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", bundle.Name);
+            writer.WriteString("slug", bundle.Slug);
+            writer.WriteNumber("concepts", bundle.Concepts);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
     }
 
     private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);

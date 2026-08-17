@@ -46,15 +46,8 @@ internal static class RegistryCommand
         TextWriter error,
         Func<RegistryArguments, OkfEnvironment, TextWriter, TextWriter, int> action)
     {
-        RegistryArguments parsed;
-        try
+        if (Parse(args, verb, subcommands, error) is not { } parsed)
         {
-            parsed = RegistryArguments.Parse(args, verb, subcommands);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine($"Run `okf {verb} --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -78,6 +71,20 @@ internal static class RegistryCommand
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
+        }
+    }
+
+    private static RegistryArguments? Parse(string[] args, string verb, bool subcommands, TextWriter error)
+    {
+        try
+        {
+            return RegistryArguments.Parse(args, verb, subcommands);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine($"Run `okf {verb} --help` for usage.");
+            return null;
         }
     }
 
@@ -154,6 +161,12 @@ internal static class RegistryCommand
             return CliApplication.ExitSuccess;
         }
 
+        WriteEntries(registry, path, output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static void WriteEntries(OkfRegistry registry, string path, TextWriter output)
+    {
         int width = registry.Entries.Max(entry => entry.Id.Length);
         int missing = 0;
         foreach (OkfRegistryEntry entry in registry.Entries)
@@ -167,15 +180,15 @@ internal static class RegistryCommand
                 (present ? string.Empty : "  (missing)"));
         }
 
-        output.WriteLine(
-            $"{DiagnosticWriter.Plural(registry.Entries.Count, "entry", "entries")} in '{path}'" +
-            (missing == 0
-                ? "."
-                : $"; {DiagnosticWriter.Plural(missing, "path")} missing — `okf registry prune` removes " +
-                  (missing == 1 ? "it." : "them.")));
-
-        return CliApplication.ExitSuccess;
+        output.WriteLine(ListSummary(registry, path, missing));
     }
+
+    private static string ListSummary(OkfRegistry registry, string path, int missing) =>
+        $"{DiagnosticWriter.Plural(registry.Entries.Count, "entry", "entries")} in '{path}'" +
+        (missing == 0
+            ? "."
+            : $"; {DiagnosticWriter.Plural(missing, "path")} missing — `okf registry prune` removes " +
+              (missing == 1 ? "it." : "them."));
 
     private static int Prune(OkfEnvironment environment, TextWriter output)
     {

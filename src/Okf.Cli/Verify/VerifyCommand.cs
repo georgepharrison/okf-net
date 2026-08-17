@@ -24,15 +24,8 @@ internal static class VerifyCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        VerifyArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = VerifyArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf verify --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -46,22 +39,29 @@ internal static class VerifyCommand
         {
             return Verify(parsed, environment, output, error);
         }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static VerifyArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return VerifyArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf verify --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfConfigException or IOException or UnauthorizedAccessException;
 
     private static int Verify(
         VerifyArguments arguments,
@@ -81,80 +81,155 @@ internal static class VerifyCommand
             return CliApplication.ExitUsage;
         }
 
+        WriteVerbose(arguments, actor, error);
+        if (CheckedConcepts(arguments, actor, environment, error) is not { } documents)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        Stamp(new StampRun(arguments, documents, actor, environment), output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static void WriteVerbose(VerifyArguments arguments, OkfActorResolution actor, TextWriter error)
+    {
         if (arguments.Verbose)
         {
             error.WriteLine($"okf: stamping as {actor.Actor} (from {actor.Source})");
         }
+    }
 
-        List<string> files = new List<string>();
+    /// <summary>
+    /// Every check runs against every named file before the first byte is written: a
+    /// three-concept run that refuses the third leaves the first two unstamped, because
+    /// a half-applied acknowledgment is worse than none.
+    /// </summary>
+    private static List<string>? CheckedConcepts(
+        VerifyArguments arguments,
+        OkfActorResolution actor,
+        OkfEnvironment environment,
+        TextWriter error)
+    {
+        List<string> documents = new List<string>();
         foreach (string path in arguments.Paths)
         {
-            string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
-            if (!File.Exists(full))
+            if (ExistingConcept(path, environment, error) is not { } file)
             {
-                error.WriteLine($"okf: error: no such concept: '{full}'.");
-                return CliApplication.ExitUsage;
+                return null;
             }
 
-            files.Add(full);
-        }
-
-        // Every check runs against every named file before the first byte is written: a
-        // three-concept run that refuses the third leaves the first two unstamped, because
-        // a half-applied acknowledgment is worse than none.
-        List<string> documents = new List<string>();
-        foreach (string file in files)
-        {
-            string text;
-            OkfDocument document;
-            try
+            if (!Accepts(file, actor.Actor!, environment, error))
             {
-                text = File.ReadAllText(file);
-                document = OkfDocument.Parse(text);
-            }
-            catch (OkfDocumentException exception)
-            {
-                error.WriteLine(
-                    $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has frontmatter " +
-                    $"that does not parse ({exception.Message}). Run `okf lint` on the bundle.");
-                return CliApplication.ExitUsage;
-            }
-
-            // `OkfDocument.Parse` hands back the whole text as the body, and nothing else,
-            // exactly when it found no frontmatter block — so this asks the parser rather
-            // than re-deciding what a fence looks like.
-            if (string.Equals(document.Body, text, StringComparison.Ordinal))
-            {
-                // A markdown file with no frontmatter is not a concept, and stamping one
-                // means *writing* it frontmatter: a `verified` block and nothing else,
-                // which is a document `okf lint` rejects for having no `type`, out of a
-                // file that was fine before the command ran. `okf verify README.md` is a
-                // typo, and a typo that rewrites a file is worse than one that stops.
-                error.WriteLine(
-                    $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has no " +
-                    "frontmatter, so it is not a concept. `okf verify` appends to a concept's `verified`; " +
-                    "it does not give a file frontmatter it never had.");
-                return CliApplication.ExitUsage;
-            }
-
-            if (SelfVerification(document, actor.Actor!) is { } generatedBy)
-            {
-                // decisions.md §7 and OKF0201: an actor may verify, but never its own
-                // output. Refused rather than warned about, because the command's whole
-                // product is the signal this would falsify.
-                error.WriteLine(
-                    $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' was generated by " +
-                    $"`{generatedBy}`, which is the actor this would verify as. A concept must not verify itself " +
-                    "(§5.3); verification is a second actor's act.");
-                return CliApplication.ExitUsage;
+                return null;
             }
 
             documents.Add(file);
         }
 
+        return documents;
+    }
+
+    private static string? ExistingConcept(string path, OkfEnvironment environment, TextWriter error)
+    {
+        string full = Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path));
+        if (File.Exists(full))
+        {
+            return full;
+        }
+
+        error.WriteLine($"okf: error: no such concept: '{full}'.");
+        return null;
+    }
+
+    private static bool Accepts(string file, string actor, OkfEnvironment environment, TextWriter error)
+    {
+        if (ParsedConcept(file, environment, error) is not { } document)
+        {
+            return false;
+        }
+
+        if (SelfVerification(document.Document, actor) is { } generatedBy)
+        {
+            RefuseSelfVerification(file, generatedBy, environment, error);
+            return false;
+        }
+
+        return true;
+    }
+
+    private sealed record ParsedConceptText(OkfDocument Document, string Text);
+
+    private static ParsedConceptText? ParsedConcept(string file, OkfEnvironment environment, TextWriter error)
+    {
+        string text;
+        OkfDocument document;
+        try
+        {
+            text = File.ReadAllText(file);
+            document = OkfDocument.Parse(text);
+        }
+        catch (OkfDocumentException exception)
+        {
+            error.WriteLine(
+                $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has frontmatter " +
+                $"that does not parse ({exception.Message}). Run `okf lint` on the bundle.");
+            return null;
+        }
+
+        // `OkfDocument.Parse` hands back the whole text as the body, and nothing else,
+        // exactly when it found no frontmatter block — so this asks the parser rather
+        // than re-deciding what a fence looks like.
+        if (string.Equals(document.Body, text, StringComparison.Ordinal))
+        {
+            RefuseFrontmatterless(file, environment, error);
+            return null;
+        }
+
+        return new ParsedConceptText(document, text);
+    }
+
+    /// <summary>
+    /// A markdown file with no frontmatter is not a concept, and stamping one
+    /// means *writing* it frontmatter: a `verified` block and nothing else,
+    /// which is a document `okf lint` rejects for having no `type`, out of a
+    /// file that was fine before the command ran. `okf verify README.md` is a
+    /// typo, and a typo that rewrites a file is worse than one that stops.
+    /// </summary>
+    private static void RefuseFrontmatterless(string file, OkfEnvironment environment, TextWriter error) =>
+        error.WriteLine(
+            $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' has no " +
+            "frontmatter, so it is not a concept. `okf verify` appends to a concept's `verified`; " +
+            "it does not give a file frontmatter it never had.");
+
+    /// <summary>
+    /// decisions.md §7 and OKF0201: an actor may verify, but never its own
+    /// output. Refused rather than warned about, because the command's whole
+    /// product is the signal this would falsify.
+    /// </summary>
+    private static void RefuseSelfVerification(
+        string file,
+        string generatedBy,
+        OkfEnvironment environment,
+        TextWriter error) =>
+        error.WriteLine(
+            $"okf: error: '{DiagnosticWriter.Display(file, environment.CurrentDirectory)}' was generated by " +
+            $"`{generatedBy}`, which is the actor this would verify as. A concept must not verify itself " +
+            "(§5.3); verification is a second actor's act.");
+
+    private sealed record StampRun(
+        VerifyArguments Arguments,
+        List<string> Documents,
+        OkfActorResolution Actor,
+        OkfEnvironment Environment);
+
+    private static void Stamp(StampRun run, TextWriter output)
+    {
+        VerifyArguments arguments = run.Arguments;
+        List<string> documents = run.Documents;
+        OkfActorResolution actor = run.Actor;
+        OkfEnvironment environment = run.Environment;
         DateTimeOffset at = DateTimeOffset.UtcNow;
         string stamp = OkfCanonicalTimestamp.ToCanonical(at);
-
         foreach (string path in documents)
         {
             string display = DiagnosticWriter.Display(path, environment.CurrentDirectory);
@@ -171,8 +246,6 @@ internal static class VerifyCommand
         output.WriteLine(arguments.DryRun
             ? $"Would verify {DiagnosticWriter.Plural(documents.Count, "concept")} as {actor.Actor} (--dry-run: nothing written)."
             : $"Verified {DiagnosticWriter.Plural(documents.Count, "concept")} as {actor.Actor}.");
-
-        return CliApplication.ExitSuccess;
     }
 
     /// <summary>

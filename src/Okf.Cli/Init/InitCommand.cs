@@ -16,15 +16,8 @@ internal static class InitCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        InitArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = InitArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf init --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -38,22 +31,29 @@ internal static class InitCommand
         {
             return Initialize(parsed, environment, output, error);
         }
-        catch (OkfScaffoldException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (IOException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
-        }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception) when (IsEnvironmentFailure(exception))
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
     }
+
+    private static InitArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return InitArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
+        {
+            error.WriteLine($"okf: error: {exception.Message}");
+            error.WriteLine("Run `okf init --help` for usage.");
+            return null;
+        }
+    }
+
+    private static bool IsEnvironmentFailure(Exception exception) =>
+        exception is OkfScaffoldException or IOException or UnauthorizedAccessException;
 
     private static int Initialize(
         InitArguments arguments,
@@ -64,61 +64,87 @@ internal static class InitCommand
         string vault = arguments.Personal
             ? environment.PersonalVault
             : OkfScaffold.ResolveVault(arguments.Path, environment);
+        WriteVerbose(arguments, vault, error);
+        OkfScaffoldResult result = OkfScaffold.Initialize(vault, Options(arguments));
+        WriteFiles(result, environment, output);
+        WriteAgentsMd(arguments, vault, environment, output);
+        WriteOutcome(result, environment, output);
+        WriteUnresolvedSkills(result, output);
+        return CliApplication.ExitSuccess;
+    }
 
-        if (arguments.Verbose)
+    private static void WriteVerbose(InitArguments arguments, string vault, TextWriter error)
+    {
+        if (!arguments.Verbose)
         {
-            error.WriteLine(arguments.Personal
-                ? $"okf: personal vault '{vault}' (OKF_HOME, else ~/okf)"
-                : $"okf: vault '{vault}'");
+            return;
         }
 
-        OkfScaffoldResult result = OkfScaffold.Initialize(
-            vault,
-            new OkfScaffoldOptions
-            {
-                // A project vault's bundle takes the project directory's name, which is
-                // the name a reader already associates with the knowledge. The personal
-                // vault has no such name — its parent is the home directory, so deriving
-                // one there would put the machine's account name on the bundle.
-                BundleName = arguments.Name ?? (arguments.Personal ? OkfScaffold.PersonalBundleName : null),
-                Now = DateTimeOffset.UtcNow,
+        error.WriteLine(arguments.Personal
+            ? $"okf: personal vault '{vault}' (OKF_HOME, else ~/okf)"
+            : $"okf: vault '{vault}'");
+    }
 
-                // The tool wrote these files, and `generated.by` says so: a scaffolded
-                // concept is machine-written and unverified, and attributing it to whoever
-                // happened to run the command would put a human actor on prose no human
-                // has read (decisions.md §7).
-                Actor = $"okf/{CliApplication.Version}",
-            });
+    private static OkfScaffoldOptions Options(InitArguments arguments) =>
+        new OkfScaffoldOptions
+        {
+            // A project vault's bundle takes the project directory's name, which is
+            // the name a reader already associates with the knowledge. The personal
+            // vault has no such name — its parent is the home directory, so deriving
+            // one there would put the machine's account name on the bundle.
+            BundleName = arguments.Name ?? (arguments.Personal ? OkfScaffold.PersonalBundleName : null),
+            Now = DateTimeOffset.UtcNow,
 
+            // The tool wrote these files, and `generated.by` says so: a scaffolded
+            // concept is machine-written and unverified, and attributing it to whoever
+            // happened to run the command would put a human actor on prose no human
+            // has read (decisions.md §7).
+            Actor = $"okf/{CliApplication.Version}",
+        };
+
+    private static void WriteFiles(OkfScaffoldResult result, OkfEnvironment environment, TextWriter output)
+    {
         foreach (OkfScaffoldFile file in result.Files)
         {
             output.WriteLine(
                 $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
         }
+    }
 
-        string bundle = Path.GetFileName(result.BundleRoot);
-        string vaultDisplay = DiagnosticWriter.Display(result.VaultRoot, environment.CurrentDirectory);
-
-        // The pointer lives at the *project* root — the vault's parent — deliberately
-        // outside okf/ (a widening of AD-2, decisions.md #56), and it is written whether or
-        // not this run touched the vault itself: a re-run on an already-initialized vault is
-        // exactly when a stale block (an older okf's wording) gets re-spliced current. The
-        // personal vault's parent is the home directory, which is not a project an agent
-        // should find AGENTS.md in, so only a project vault gets one.
-        if (!arguments.Personal && !arguments.NoAgentsMd)
+    /// <summary>
+    /// The pointer lives at the *project* root — the vault's parent — deliberately
+    /// outside okf/ (a widening of AD-2, decisions.md #56), and it is written whether or
+    /// not this run touched the vault itself: a re-run on an already-initialized vault is
+    /// exactly when a stale block (an older okf's wording) gets re-spliced current. The
+    /// personal vault's parent is the home directory, which is not a project an agent
+    /// should find AGENTS.md in, so only a project vault gets one.
+    /// </summary>
+    private static void WriteAgentsMd(
+        InitArguments arguments,
+        string vault,
+        OkfEnvironment environment,
+        TextWriter output)
+    {
+        if (arguments.Personal || arguments.NoAgentsMd)
         {
-            string projectRoot = Path.GetDirectoryName(vault)
-                ?? throw new OkfScaffoldException($"'{vault}' has no parent directory to write AGENTS.md into.");
-
-            AgentPointerReport.Write(projectRoot, environment, output);
+            return;
         }
 
+        string projectRoot = Path.GetDirectoryName(vault)
+            ?? throw new OkfScaffoldException($"'{vault}' has no parent directory to write AGENTS.md into.");
+        AgentPointerReport.Write(projectRoot, environment, output);
+    }
+
+    private static void WriteOutcome(OkfScaffoldResult result, OkfEnvironment environment, TextWriter output)
+    {
+        string bundle = Path.GetFileName(result.BundleRoot);
+        string vaultDisplay = DiagnosticWriter.Display(result.VaultRoot, environment.CurrentDirectory);
         if (result.IsNoOp)
         {
             output.WriteLine(
                 $"Vault {vaultDisplay} (bundle {bundle}) is already initialized: " +
                 $"{DiagnosticWriter.Plural(result.ExistingCount, "file")} already present, 0 written.");
-            return CliApplication.ExitSuccess;
+            return;
         }
 
         output.WriteLine(
@@ -126,22 +152,27 @@ internal static class InitCommand
             $"{DiagnosticWriter.Plural(result.CreatedCount, "file")} written, " +
             $"{result.ExistingCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} already present.");
         output.WriteLine($"Run `okf lint {vaultDisplay}` to check it.");
+    }
 
-        // The recipe names its skills as instructions when this project has no copy on
-        // disk, and an instruction nobody is told how to follow is a dangling pointer with
-        // better manners. Said here, at the one moment the file was written.
+    /// <summary>
+    /// The recipe names its skills as instructions when this project has no copy on
+    /// disk, and an instruction nobody is told how to follow is a dangling pointer with
+    /// better manners. Said here, at the one moment the file was written.
+    /// </summary>
+    private static void WriteUnresolvedSkills(OkfScaffoldResult result, TextWriter output)
+    {
         OkfSkillPointer[] unresolved = result.SkillPointers.Where(pointer => !pointer.IsPath).ToArray();
-        if (unresolved.Length > 0)
+        if (unresolved.Length == 0)
         {
-            output.WriteLine(
-                $"The custodian recipe names {string.Join(" and ", unresolved.Select(pointer => pointer.Name))} " +
-                "as instructions rather than paths: this project has no skills/ of its own.");
-            output.WriteLine(
-                "Run `okf skills install` to put them on this machine — they ship inside this binary — " +
-                $"and `okf skills path {unresolved[0].Name}` to print where one landed.");
+            return;
         }
 
-        return CliApplication.ExitSuccess;
+        output.WriteLine(
+            $"The custodian recipe names {string.Join(" and ", unresolved.Select(pointer => pointer.Name))} " +
+            "as instructions rather than paths: this project has no skills/ of its own.");
+        output.WriteLine(
+            "Run `okf skills install` to put them on this machine — they ship inside this binary — " +
+            $"and `okf skills path {unresolved[0].Name}` to print where one landed.");
     }
 
     private static string Verb(OkfScaffoldStatus status) => status switch

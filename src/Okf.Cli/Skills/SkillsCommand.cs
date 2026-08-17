@@ -22,15 +22,8 @@ internal static class SkillsCommand
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args, OkfEnvironment environment, TextWriter output, TextWriter error)
     {
-        SkillsArguments parsed;
-        try
+        if (Parse(args, error) is not { } parsed)
         {
-            parsed = SkillsArguments.Parse(args);
-        }
-        catch (OkfConfigException exception)
-        {
-            error.WriteLine($"okf: error: {exception.Message}");
-            error.WriteLine("Run `okf skills --help` for usage.");
             return CliApplication.ExitUsage;
         }
 
@@ -49,15 +42,24 @@ internal static class SkillsCommand
                 _ => WriteList(parsed, output),
             };
         }
-        catch (IOException exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             error.WriteLine($"okf: error: {exception.Message}");
             return CliApplication.ExitUsage;
         }
-        catch (UnauthorizedAccessException exception)
+    }
+
+    private static SkillsArguments? Parse(string[] args, TextWriter error)
+    {
+        try
+        {
+            return SkillsArguments.Parse(args);
+        }
+        catch (OkfConfigException exception)
         {
             error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            error.WriteLine("Run `okf skills --help` for usage.");
+            return null;
         }
     }
 
@@ -116,10 +118,25 @@ internal static class SkillsCommand
         TextWriter output,
         TextWriter error)
     {
-        IReadOnlyList<OkfSkillInstallFile> files;
+        if (Installed(arguments, environment, error) is not { } files)
+        {
+            return CliApplication.ExitUsage;
+        }
+
+        WriteFiles(files, environment, output);
+        WriteSummary(files, output);
+        WriteAgentsMd(arguments, environment, output);
+        return CliApplication.ExitSuccess;
+    }
+
+    private static IReadOnlyList<OkfSkillInstallFile>? Installed(
+        SkillsArguments arguments,
+        OkfEnvironment environment,
+        TextWriter error)
+    {
         try
         {
-            files = OkfSkillInstaller.Install(
+            return OkfSkillInstaller.Install(
                 environment,
                 new OkfSkillInstallOptions
                 {
@@ -132,18 +149,26 @@ internal static class SkillsCommand
         catch (ArgumentException exception)
         {
             error.WriteLine($"okf: error: {exception.Message}");
-            return CliApplication.ExitUsage;
+            return null;
         }
+    }
 
+    private static void WriteFiles(
+        IReadOnlyList<OkfSkillInstallFile> files,
+        OkfEnvironment environment,
+        TextWriter output)
+    {
         foreach (OkfSkillInstallFile file in files)
         {
             output.WriteLine(
                 $"{DiagnosticWriter.Display(file.Path, environment.CurrentDirectory)}: {Verb(file.Status)}");
         }
+    }
 
+    private static void WriteSummary(IReadOnlyList<OkfSkillInstallFile> files, TextWriter output)
+    {
         int written = files.Count(file => file.Status == OkfSkillInstallStatus.Written);
         int skipped = files.Count(file => file.Status == OkfSkillInstallStatus.SkippedModified);
-
         output.WriteLine(
             $"{DiagnosticWriter.Plural(OkfSkills.All.Count, "skill")} in " +
             $"{DiagnosticWriter.Plural(files.Count, "file")}: " +
@@ -158,15 +183,18 @@ internal static class SkillsCommand
             // failed install would make every installer run on that machine warn forever.
             output.WriteLine("Skipped files differ from the ones this okf carries; `--force` overwrites them.");
         }
+    }
 
-        // The context pointer belongs beside a *project*'s own copy of the skills — a
-        // user-scoped install has no project root to write AGENTS.md into.
+    /// <summary>
+    /// The context pointer belongs beside a *project*'s own copy of the skills — a
+    /// user-scoped install has no project root to write AGENTS.md into.
+    /// </summary>
+    private static void WriteAgentsMd(SkillsArguments arguments, OkfEnvironment environment, TextWriter output)
+    {
         if (arguments.Scope == OkfSkillScope.Project && !arguments.NoAgentsMd)
         {
             AgentPointerReport.Write(environment.CurrentDirectory, environment, output);
         }
-
-        return CliApplication.ExitSuccess;
     }
 
     private static string Verb(OkfSkillInstallStatus status) => status switch
