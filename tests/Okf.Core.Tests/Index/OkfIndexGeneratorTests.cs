@@ -501,6 +501,10 @@ public class OkfIndexGeneratorTests
         Assert.Equal(OkfIndexStatus.Orphaned, orphan.Status);
         Assert.Empty(orphan.Entries);
 
+        // An orphan renders to nothing, which is the other half of why it is never
+        // written: there is no generated file to replace it with.
+        Assert.Empty(orphan.Content);
+
         // Never written and never deleted: removing a file a human may still want is not
         // a generator's call.
         Assert.False(orphan.WouldWrite);
@@ -583,7 +587,8 @@ public class OkfIndexGeneratorTests
         // asking for concept text would silently turn one lint walk back into two.
         using var bundle = new TempBundle();
         bundle.Add("orders.md", Concept("BigQuery Table", "Orders", "The orders."))
-            .Add("sub/about.md", Concept("Overview", "About", "The subdirectory."));
+            .Add("sub/about.md", Concept("Overview", "About", "The subdirectory."))
+            .Add("index.md", $"{OkfIndexGenerator.GeneratedMarker}\n\n# BigQuery Table\n");
 
         var files = bundle.Bundle.MarkdownFiles();
         var asked = new List<string>();
@@ -604,7 +609,61 @@ public class OkfIndexGeneratorTests
             });
 
         Assert.NotEmpty(plan.Indexes);
+
+        // Not vacuous: with the supplied caches ignored the generator reads the files
+        // itself and `asked` stays empty, which `Assert.All` alone would call a pass.
+        Assert.NotEmpty(asked);
         Assert.All(asked, path => Assert.Equal(OkfBundle.IndexFileName, Path.GetFileName(path)));
+    }
+
+    [Fact]
+    public void TheSuppliedFileListIsTheTreeThePlanDescribes()
+    {
+        // The other half of the linter's seam: `okf lint` has already walked the bundle and
+        // hands that walk over, so the generator must index what it was given rather than
+        // walking again — otherwise the two commands could disagree about what is there.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"))
+            .Add("extra.md", Concept("Metric", "Extra"));
+
+        var plan = OkfIndexGenerator.Plan(
+            bundle.Bundle,
+            new OkfIndexOptions { Files = [Path.Combine(bundle.Root, "orders.md")] });
+
+        Assert.Equal(["Orders"], Assert.Single(plan.Indexes).Entries.Select(entry => entry.Title));
+    }
+
+    [Fact]
+    public void AnIndexPrintsAsItsPathAndStatus()
+    {
+        // The diagnostic form, and the only reason it is pinned: a plan is a list of these,
+        // and a failure that says which file and which status is worth more than one that
+        // says `Okf.Core.Index.OkfIndex`.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"));
+
+        Assert.Equal(
+            Path.Combine(bundle.Root, "index.md") + " (Created)",
+            Root(bundle).ToString());
+    }
+
+    [Fact]
+    public void APlanIsOrderedByBundleRelativePath()
+    {
+        // `okf index --json`'s output order, and the reason it is the same on every
+        // machine (PRD ACC-7): a plan sorts, rather than reporting whatever order the
+        // directory walk happened to accumulate.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("BigQuery Table", "Orders"))
+            .Add("zulu/one.md", Concept("Reference", "One"))
+            .Add("alpha/two.md", Concept("Reference", "Two"))
+            .Add("alpha/nested/three.md", Concept("Reference", "Three"));
+
+        var plan = OkfIndexGenerator.Plan(bundle.Bundle);
+
+        Assert.Equal(
+            ["alpha/index.md", "alpha/nested/index.md", "index.md", "zulu/index.md"],
+            plan.Indexes.Select(index => bundle.Bundle.RelativePath(index.Path).Replace('\\', '/')));
     }
 
     private static OkfIndex Root(TempBundle bundle) => Index(bundle, "index.md");

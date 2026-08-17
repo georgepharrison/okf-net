@@ -215,39 +215,64 @@ public static class OkfSearchEngine
         options ??= new OkfSearchOptions();
 
         List<OkfBundle> bundleList = bundles.ToList();
-
         if (query.IsEmpty)
         {
-            // A query with neither terms nor filters asks for nothing, and "nothing" is not
-            // a synonym for "the whole vault": listing a bundle is what an index is for
-            // (CORE-10). Nothing is read.
-            return new OkfSearchOutcome
-            {
-                Results = [],
-                Query = query,
-                MatchMode = OkfSearchMatchMode.Filter,
-                TotalMatches = 0,
-                ConceptCount = 0,
-                BundleCount = bundleList.Count,
-                SkippedCount = 0,
-            };
+            return NothingSearched(query, bundleList.Count);
         }
 
-        int skipped = 0;
-        List<Concept> corpus = new List<Concept>();
+        (List<Concept> corpus, int skipped) = ReadCorpus(bundleList, options);
+        Ranking ranking = Rank(corpus, query, options.Limit);
 
-        foreach (OkfBundle bundle in bundleList)
+        return new OkfSearchOutcome
         {
-            foreach (string file in bundle.MarkdownFiles())
-            {
-                // Reserved files are not concepts (spec §3.1); everything else in the tree
-                // is, which is what makes a foreign bundle searchable without cooperation.
-                if (OkfBundle.IsReservedFile(file))
-                {
-                    continue;
-                }
+            Results = [.. ranking.Ranked.Select(
+                scored => scored.Concept.ToResult(scored.Score, query.Terms, options.Today))],
+            Query = query,
+            MatchMode = ranking.Mode,
+            TotalMatches = ranking.TotalMatches,
+            ConceptCount = corpus.Count,
+            BundleCount = bundleList.Count,
+            SkippedCount = skipped,
+        };
+    }
 
+    /// <summary>
+    /// A query with neither terms nor filters asks for nothing, and "nothing" is not a
+    /// synonym for "the whole vault": listing a bundle is what an index is for (CORE-10).
+    /// Nothing is read.
+    /// </summary>
+    private static OkfSearchOutcome NothingSearched(OkfSearchQuery query, int bundleCount) => new OkfSearchOutcome
+    {
+        Results = [],
+        Query = query,
+        MatchMode = OkfSearchMatchMode.Filter,
+        TotalMatches = 0,
+        ConceptCount = 0,
+        BundleCount = bundleCount,
+        SkippedCount = 0,
+    };
+
+    /// <summary>
+    /// Every concept in the bundles, parsed and indexed, plus how many files were skipped
+    /// because their frontmatter does not parse. Reserved files are not concepts (spec
+    /// §3.1); everything else in the tree is, which is what makes a foreign bundle
+    /// searchable without cooperation.
+    /// </summary>
+    private static (List<Concept> Corpus, int Skipped) ReadCorpus(
+        List<OkfBundle> bundles,
+        OkfSearchOptions options)
+    {
+        List<Concept> corpus = new List<Concept>();
+        int skipped = 0;
+
+        foreach (OkfBundle bundle in bundles)
+        {
+            foreach (string file in bundle.MarkdownFiles().Where(file => !OkfBundle.IsReservedFile(file)))
+            {
                 string text = options.ReadText?.Invoke(file) ?? File.ReadAllText(file);
+
+                // Only the parse is guarded. Indexing what parsed cannot raise this, and
+                // if it ever did, counting it as an unreadable file would hide the bug.
                 OkfDocument document;
                 try
                 {
@@ -263,6 +288,18 @@ public static class OkfSearchEngine
             }
         }
 
+        return (corpus, skipped);
+    }
+
+    /// <summary>
+    /// Filters the corpus, scores what is left, and puts it in the total order results are
+    /// reported in: score descending, then bundle root, then bundle-relative path, both
+    /// ordinal. Collection statistics are taken over the whole corpus rather than over the
+    /// filtered candidates, so a filter changes which concepts come back but never how the
+    /// survivors rank.
+    /// </summary>
+    private static Ranking Rank(List<Concept> corpus, OkfSearchQuery query, int limit)
+    {
         IReadOnlyList<string> terms = query.Terms;
         Statistics statistics = Statistics.Of(corpus, terms);
         List<Concept> candidates = corpus.Where(concept => concept.Passes(query)).ToList();
@@ -276,19 +313,17 @@ public static class OkfSearchEngine
             .ThenBy(scored => scored.Concept.RelativePath, StringComparer.Ordinal)
             .ToList();
 
-        IEnumerable<(Concept Concept, double Score)> limited = options.Limit > 0 ? ranked.Take(options.Limit) : ranked;
-
-        return new OkfSearchOutcome
-        {
-            Results = [.. limited.Select(scored => scored.Concept.ToResult(scored.Score, terms, options.Today))],
-            Query = query,
-            MatchMode = mode,
-            TotalMatches = ranked.Count,
-            ConceptCount = corpus.Count,
-            BundleCount = bundleList.Count,
-            SkippedCount = skipped,
-        };
+        return new Ranking(limit > 0 ? ranked.Take(limit).ToList() : ranked, ranked.Count, mode);
     }
+
+    /// <summary>What ranking a corpus against a query produced.</summary>
+    /// <param name="Ranked">The survivors in report order, already limited.</param>
+    /// <param name="TotalMatches">How many matched before the limit was applied.</param>
+    /// <param name="Mode">How they were matched.</param>
+    private readonly record struct Ranking(
+        List<(Concept Concept, double Score)> Ranked,
+        int TotalMatches,
+        OkfSearchMatchMode Mode);
 
     private static (List<Concept> Matched, OkfSearchMatchMode Mode) Match(
         List<Concept> candidates,
@@ -363,38 +398,101 @@ public static class OkfSearchEngine
             return (Head(flat), false);
         }
 
-        int anchor = BestAnchor(hits);
+        SnippetWindow window = Window(flat, tokens, hits[BestAnchor(hits)]);
+        return (Marked(flat, hits, window), true);
+    }
 
-        // A little lead-in makes the window readable, but never at the cost of a half
-        // word: the start snaps forward to the next token boundary.
-        int start = Math.Max(0, hits[anchor].Start - SnippetLeadIn);
-        if (start > 0)
+    /// <summary>The span of flattened text a snippet shows.</summary>
+    /// <param name="Start">The offset the window opens at.</param>
+    /// <param name="End">The offset it closes at, exclusive.</param>
+    private readonly record struct SnippetWindow(int Start, int End);
+
+    /// <summary>The window built around one hit.</summary>
+    private static SnippetWindow Window(
+        string flat,
+        List<(string Token, int Start, int Length)> tokens,
+        (string Token, int Start, int Length) anchor)
+    {
+        int start = WindowStart(tokens, anchor);
+        return new SnippetWindow(start, WindowEnd(flat, tokens, anchor, start));
+    }
+
+    /// <summary>
+    /// Where the window opens: a little lead-in makes it readable, but never at the cost of
+    /// a half word, so the start snaps forward to the next token boundary.
+    /// </summary>
+    private static int WindowStart(
+        List<(string Token, int Start, int Length)> tokens,
+        (string Token, int Start, int Length) anchor)
+    {
+        int start = Math.Max(0, anchor.Start - SnippetLeadIn);
+        if (start == 0)
         {
-            (string Token, int Start, int Length) first = tokens.FirstOrDefault(token => token.Start >= start, hits[anchor]);
-            start = Math.Min(first.Start, hits[anchor].Start);
+            return 0;
         }
 
+        (string Token, int Start, int Length) first = tokens.FirstOrDefault(token => token.Start >= start, anchor);
+        return Math.Min(first.Start, anchor.Start);
+    }
+
+    /// <summary>
+    /// Where the window closes: at the end of the last whole token inside the length limit,
+    /// or at the limit itself when snapping back to a token would cut the anchor away.
+    /// </summary>
+    private static int WindowEnd(
+        string flat,
+        List<(string Token, int Start, int Length)> tokens,
+        (string Token, int Start, int Length) anchor,
+        int start)
+    {
         int end = Math.Min(flat.Length, start + SnippetLength);
-        if (end < flat.Length)
+        if (end >= flat.Length)
         {
-            (string Token, int Start, int Length) last = tokens.LastOrDefault(token => token.Start + token.Length <= end);
-            int trimmed = last.Length > 0 ? last.Start + last.Length : end;
-
-            // A token end is already a character boundary; the raw limit is not, so it is
-            // snapped back off the tail of a surrogate pair.
-            end = trimmed > hits[anchor].Start ? trimmed : SnapToCharacter(flat, end);
+            return end;
         }
 
+        (string Token, int Start, int Length) last = tokens.LastOrDefault(token => token.Start + token.Length <= end);
+        int trimmed = last.Length > 0 ? last.Start + last.Length : end;
+
+        // A token end is already a character boundary; the raw limit is not, so it is
+        // snapped back off the tail of a surrogate pair.
+        return trimmed > anchor.Start ? trimmed : SnapToCharacter(flat, end);
+    }
+
+    /// <summary>
+    /// The window as the snippet reads it: every hit inside it wrapped in <c>**</c>, and an
+    /// ellipsis at each end that was cut.
+    /// </summary>
+    private static string Marked(
+        string flat,
+        List<(string Token, int Start, int Length)> hits,
+        SnippetWindow window)
+    {
         StringBuilder builder = new StringBuilder();
-        if (start > 0)
+        if (window.Start > 0)
         {
             builder.Append(Ellipsis);
         }
 
-        int cursor = start;
+        AppendMarkedHits(builder, flat, hits, window);
+        if (window.End < flat.Length)
+        {
+            builder.Append(Ellipsis);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendMarkedHits(
+        StringBuilder builder,
+        string flat,
+        List<(string Token, int Start, int Length)> hits,
+        SnippetWindow window)
+    {
+        int cursor = window.Start;
         foreach ((string Token, int Start, int Length) hit in hits)
         {
-            if (hit.Start < cursor || hit.Start + hit.Length > end)
+            if (hit.Start < cursor || hit.Start + hit.Length > window.End)
             {
                 continue;
             }
@@ -404,13 +502,7 @@ public static class OkfSearchEngine
             cursor = hit.Start + hit.Length;
         }
 
-        builder.Append(flat, cursor, end - cursor);
-        if (end < flat.Length)
-        {
-            builder.Append(Ellipsis);
-        }
-
-        return (builder.ToString(), true);
+        builder.Append(flat, cursor, window.End - cursor);
     }
 
     /// <summary>
@@ -495,36 +587,9 @@ public static class OkfSearchEngine
         foreach (string raw in text.Split('\n'))
         {
             string line = raw.Trim();
-            int start = 0;
-
-            int hashes = 0;
-            while (hashes < line.Length && line[hashes] == '#')
-            {
-                hashes++;
-            }
-
-            if (hashes is > 0 and <= 6 && (hashes == line.Length || line[hashes] == ' '))
-            {
-                start = hashes;
-            }
-
-            while (start < line.Length && line[start] == ' ')
-            {
-                start++;
-            }
-
-            if (start < line.Length
-                && (line[start] == '>'
-                    || (line[start] is '-' or '*' or '+' && start + 1 < line.Length && line[start + 1] == ' ')))
-            {
-                start++;
-            }
-
+            int start = ContentStart(line);
             if (IsLinkReferenceDefinition(line, start))
             {
-                // `[label]: ../path.md` is address, not prose: every character of it is
-                // the target a snippet must not show. A footnote definition
-                // (`[^label]: …`) is the opposite — it is the note itself — and is kept.
                 continue;
             }
 
@@ -532,9 +597,55 @@ public static class OkfSearchEngine
             plain.Append(' ');
         }
 
-        StringBuilder builder = new StringBuilder(plain.Length);
+        return CollapseWhitespace(plain.ToString());
+    }
+
+    /// <summary>
+    /// Where a line's prose begins: past its heading marker and past one leading block
+    /// marker, with the spaces between them.
+    /// </summary>
+    /// <param name="line">The trimmed line.</param>
+    /// <returns>The offset the content starts at.</returns>
+    private static int ContentStart(string line)
+    {
+        int start = AfterHeadingMarker(line);
+        while (start < line.Length && line[start] == ' ')
+        {
+            start++;
+        }
+
+        return start < line.Length && OpensBlock(line, start) ? start + 1 : start;
+    }
+
+    /// <summary>
+    /// Where a heading's text begins — after up to six <c>#</c> followed by a space or by
+    /// nothing — or zero when the line is not a heading.
+    /// </summary>
+    private static int AfterHeadingMarker(string line)
+    {
+        int hashes = 0;
+        while (hashes < line.Length && line[hashes] == '#')
+        {
+            hashes++;
+        }
+
+        return hashes is > 0 and <= 6 && (hashes == line.Length || line[hashes] == ' ') ? hashes : 0;
+    }
+
+    /// <summary>
+    /// Whether a block marker sits at the offset: a block quote's <c>&gt;</c>, or a list
+    /// item's dash, star or plus followed by a space.
+    /// </summary>
+    private static bool OpensBlock(string line, int start) =>
+        line[start] == '>'
+        || (line[start] is '-' or '*' or '+' && start + 1 < line.Length && line[start + 1] == ' ');
+
+    /// <summary>Collapses every run of whitespace to one space, and trims both ends.</summary>
+    private static string CollapseWhitespace(string text)
+    {
+        StringBuilder builder = new StringBuilder(text.Length);
         bool pendingSpace = false;
-        foreach (char character in plain.ToString())
+        foreach (char character in text)
         {
             if (char.IsWhiteSpace(character))
             {
@@ -555,8 +666,10 @@ public static class OkfSearchEngine
     }
 
     /// <summary>
-    /// Whether the line is a link reference definition, <c>[label]: destination</c>. A
-    /// footnote definition is deliberately not one: it carries prose.
+    /// Whether the line is a link reference definition, <c>[label]: destination</c> — a
+    /// line the snippet drops whole, because every character of it is address rather than
+    /// prose and the address is what a snippet must not show. A footnote definition
+    /// (<c>[^label]: …</c>) is deliberately not one: it is the note itself.
     /// </summary>
     /// <param name="line">The trimmed line.</param>
     /// <param name="start">Where the line's content begins.</param>
@@ -619,13 +732,37 @@ public static class OkfSearchEngine
         end = index;
 
         int open = line[index] == '!' ? index + 1 : index;
-        if (open >= line.Length || line[open] != '[' || (open + 1 < line.Length && line[open + 1] == '^'))
+        if (!OpensLabel(line, open))
         {
             return false;
         }
 
+        int close = MatchingBracket(line, open);
+        if (close < 0 || close + 1 >= line.Length || TargetEnd(line, close) is not { } target)
+        {
+            return false;
+        }
+
+        text = line[(open + 1)..close];
+        end = target;
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a link label opens at the offset: a <c>[</c> that is not the <c>[^</c> of a
+    /// footnote reference.
+    /// </summary>
+    private static bool OpensLabel(string line, int open) =>
+        open < line.Length && line[open] == '[' && (open + 1 >= line.Length || line[open + 1] != '^');
+
+    /// <summary>
+    /// The offset of the <c>]</c> closing the label opened at <paramref name="open" />,
+    /// counting nesting so an image inside a link does not close it early; -1 when the
+    /// label never closes on this line.
+    /// </summary>
+    private static int MatchingBracket(string line, int open)
+    {
         int depth = 0;
-        int close = -1;
         for (int i = open; i < line.Length; i++)
         {
             if (line[i] == '[')
@@ -634,32 +771,28 @@ public static class OkfSearchEngine
             }
             else if (line[i] == ']' && --depth == 0)
             {
-                close = i;
-                break;
+                return i;
             }
         }
 
-        if (close < 0 || close + 1 >= line.Length)
-        {
-            return false;
-        }
+        return -1;
+    }
 
-        char opener = line[close + 1];
-        char closer = opener switch { '(' => ')', '[' => ']', _ => '\0' };
-        if (closer == '\0')
+    /// <summary>
+    /// The offset of the character closing the link's target — the <c>)</c> of an inline
+    /// link, the <c>]</c> of a reference one — or <see langword="null" /> when what follows
+    /// the label opens neither, or opens one that never closes.
+    /// </summary>
+    private static int? TargetEnd(string line, int close)
+    {
+        int target = line[close + 1] switch
         {
-            return false;
-        }
+            '(' => line.IndexOf(')', close + 2),
+            '[' => line.IndexOf(']', close + 2),
+            _ => -1,
+        };
 
-        int target = line.IndexOf(closer, close + 2);
-        if (target < 0)
-        {
-            return false;
-        }
-
-        text = line[(open + 1)..close];
-        end = target;
-        return true;
+        return target < 0 ? null : target;
     }
 
     /// <summary>The collection statistics BM25 needs, taken over the whole corpus.</summary>
@@ -736,6 +869,19 @@ public static class OkfSearchEngine
 
         public double Length { get; }
 
+        /// <summary>The concept ID: the bundle-relative path without its <c>.md</c> suffix (spec §2).</summary>
+        private string ConceptId => RelativePath.EndsWith(".md", StringComparison.Ordinal)
+            ? RelativePath[..^3]
+            : RelativePath;
+
+        /// <summary>
+        /// The frontmatter <c>title</c>, falling back to the filename stem when absent —
+        /// the same fallback generated indexes use (PRD CORE-9).
+        /// </summary>
+        private string DisplayTitle => FrontmatterValues.Scalar(Frontmatter, "title") is { Length: > 0 } title
+            ? title
+            : System.IO.Path.GetFileNameWithoutExtension(Path);
+
         public static Concept Of(OkfBundle bundle, string path, OkfDocument document)
         {
             OkfMapping frontmatter = document.Frontmatter;
@@ -779,16 +925,12 @@ public static class OkfSearchEngine
 
             return new OkfSearchResult
             {
-                Id = RelativePath.EndsWith(".md", StringComparison.Ordinal)
-                    ? RelativePath[..^3]
-                    : RelativePath,
+                Id = ConceptId,
                 Path = RelativePath,
                 AbsolutePath = Path,
                 Bundle = Bundle.Root,
                 BundleName = Bundle.Name,
-                Title = FrontmatterValues.Scalar(Frontmatter, "title") is { Length: > 0 } title
-                    ? title
-                    : System.IO.Path.GetFileNameWithoutExtension(Path),
+                Title = DisplayTitle,
                 Type = Type,
                 Description = Description,
                 Tags = Tags,

@@ -164,18 +164,7 @@ public sealed class OkfSearchQuery
 
         foreach (string word in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         {
-            if (word.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                query.AddTagFilter(word[TagPrefix.Length..]);
-            }
-            else if (word.StartsWith(TypePrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                query.AddTypeFilter(word[TypePrefix.Length..]);
-            }
-            else
-            {
-                query._terms.AddRange(OkfTokenizer.Tokenize(word));
-            }
+            query.AddWord(word);
         }
 
         return query;
@@ -205,6 +194,26 @@ public sealed class OkfSearchQuery
         _terms
             .Concat(_types.Select(type => TypePrefix + type))
             .Concat(_tags.Select(tag => TagPrefix + tag)));
+
+    /// <summary>
+    /// Reads one word of query text: a <c>tag:</c> or <c>type:</c> filter, or bare text
+    /// that tokenizes into terms.
+    /// </summary>
+    private void AddWord(string word)
+    {
+        if (word.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            AddTagFilter(word[TagPrefix.Length..]);
+        }
+        else if (word.StartsWith(TypePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            AddTypeFilter(word[TypePrefix.Length..]);
+        }
+        else
+        {
+            _terms.AddRange(OkfTokenizer.Tokenize(word));
+        }
+    }
 
     private static void Add(List<string> values, string? value)
     {

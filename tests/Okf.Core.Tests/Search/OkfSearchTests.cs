@@ -678,6 +678,9 @@ public class OkfSearchTests
     [InlineData("[a(b.md) unclosed", "[a(b.md) unclosed")]
     [InlineData("([unclosed)", "([unclosed)")]
     [InlineData("[text](unclosed", "[text](unclosed")]
+    // The target is looked for *after* the label, so a `)` inside the label's own text
+    // does not end the link early and leave its address in the snippet.
+    [InlineData("[a (b)](d.md)", "a (b)")]
     [InlineData("See [^note](notes.md) here.", "See [^note](notes.md) here.")]
     // A `!` that opens no image is just punctuation.
     [InlineData("Wow!", "Wow!")]
@@ -782,6 +785,28 @@ public class OkfSearchTests
         Assert.Equal(2, outcome.Results.Count);
         Assert.Equal(5, outcome.TotalMatches);
         Assert.True(outcome.Truncated);
+    }
+
+    [Fact]
+    public void SuppliedTextIsSearchedInsteadOfTheFileOnDisk()
+    {
+        // The seam a caller holding a warm cache uses (the MCP server, a future incremental
+        // index): what `ReadText` returns is the concept, and the file is not read again.
+        using var bundle = new TempBundle();
+        bundle.Add("orders.md", Concept("Reference", "Orders", "On disk."));
+
+        var read = new List<string>();
+        var options = Options();
+        options.ReadText = path =>
+        {
+            read.Add(path);
+            return Concept("Reference", "Orders", "Supplied, and phlogiston is only here.");
+        };
+
+        var outcome = OkfSearchEngine.Search([bundle.Bundle], OkfSearchQuery.Parse("phlogiston"), options);
+
+        Assert.NotEmpty(read);
+        Assert.Equal("orders.md", Assert.Single(outcome.Results).Path);
     }
 
     private static OkfSearchOutcome Search(TempBundle bundle, string query) =>

@@ -104,6 +104,25 @@ public static class OkfVerifyIdentity
     {
         ArgumentNullException.ThrowIfNull(environment);
 
+        ProcessStartInfo startInfo = UserEmailCommand(environment);
+        try
+        {
+            using Process? process = Process.Start(startInfo);
+            return process is null ? null : Answer(process);
+        }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or IOException)
+        {
+            // No git on the PATH is the common case, and it is not an error: it just means
+            // the chain falls through to its refusal, which says what to set.
+            return null;
+        }
+    }
+
+    private const int GitTimeoutMilliseconds = 5000;
+
+    /// <summary>The <c>git config --global --get user.email</c> invocation.</summary>
+    private static ProcessStartInfo UserEmailCommand(OkfEnvironment environment)
+    {
         ProcessStartInfo startInfo = new ProcessStartInfo("git")
         {
             RedirectStandardOutput = true,
@@ -117,6 +136,16 @@ public static class OkfVerifyIdentity
             startInfo.ArgumentList.Add(argument);
         }
 
+        PassThroughGitVariables(startInfo, environment);
+        return startInfo;
+    }
+
+    /// <summary>
+    /// Hands git the variables that decide which configuration files it reads, and only
+    /// those, so a test can point the read at a temporary file instead of the operator's.
+    /// </summary>
+    private static void PassThroughGitVariables(ProcessStartInfo startInfo, OkfEnvironment environment)
+    {
         foreach (string name in GitVariables)
         {
             if (environment.GetVariable(name) is { Length: > 0 } value)
@@ -124,39 +153,28 @@ public static class OkfVerifyIdentity
                 startInfo.Environment[name] = value;
             }
         }
-
-        try
-        {
-            using Process? process = Process.Start(startInfo);
-            if (process is null)
-            {
-                return null;
-            }
-
-            string output = process.StandardOutput.ReadToEnd();
-            process.StandardError.ReadToEnd();
-
-            // Bounded: `git config` is a file read, and a command that never returns must
-            // not become a command that never exits.
-            if (!process.WaitForExit(GitTimeoutMilliseconds))
-            {
-                process.Kill(entireProcessTree: true);
-                return null;
-            }
-
-            // Exit 1 is git's "the key is not set", which is a legitimate answer here and
-            // not a failure to report.
-            return process.ExitCode == 0 && output.Trim() is { Length: > 0 } email ? email : null;
-        }
-        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or IOException)
-        {
-            // No git on the PATH is the common case, and it is not an error: it just means
-            // the chain falls through to its refusal, which says what to set.
-            return null;
-        }
     }
 
-    private const int GitTimeoutMilliseconds = 5000;
+    /// <summary>
+    /// What the read produced, or <see langword="null" /> when it produced nothing usable.
+    /// Exit 1 is git's "the key is not set", which is a legitimate answer here and not a
+    /// failure to report.
+    /// </summary>
+    private static string? Answer(Process process)
+    {
+        string output = process.StandardOutput.ReadToEnd();
+        process.StandardError.ReadToEnd();
+
+        // Bounded: `git config` is a file read, and a command that never returns must not
+        // become a command that never exits.
+        if (!process.WaitForExit(GitTimeoutMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            return null;
+        }
+
+        return process.ExitCode == 0 && output.Trim() is { Length: > 0 } email ? email : null;
+    }
 
     /// <summary>
     /// Renders a configured <c>verify.actor</c> as the actor to stamp. It may be written
