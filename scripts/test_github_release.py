@@ -202,14 +202,28 @@ class GitHubReleaseTests(unittest.TestCase):
                 )
 
     def test_refuses_a_tag_that_is_not_stable_or_strict_rc(self):
-        with tempfile.TemporaryDirectory() as directory:
-            paths, _ = make_release_tree(Path(directory), "v2.3.0-rc.1-extra")
-            api = FakeApi({}, tag_sha=COMMIT)
+        for invalid_tag in (
+            "v2.3.0-rc.1-extra",
+            "v02.3.0",
+            "v2.03.0",
+            "v2.3.00",
+            "v2.3.0-rc.01",
+        ):
+            with self.subTest(tag=invalid_tag), tempfile.TemporaryDirectory() as directory:
+                paths, _ = make_release_tree(Path(directory), invalid_tag)
+                api = FakeApi({}, tag_sha=COMMIT)
 
-            with self.assertRaisesRegex(RuntimeError, "neither a stable semver tag"):
-                publish_github_release.publish(
-                    api, REPOSITORY, "v2.3.0-rc.1-extra", COMMIT, paths, attempts=1, interval=0
-                )
+                with self.assertRaisesRegex(RuntimeError, "neither a stable semver tag"):
+                    publish_github_release.publish(
+                        api,
+                        REPOSITORY,
+                        invalid_tag,
+                        COMMIT,
+                        paths,
+                        attempts=1,
+                        interval=0,
+                    )
+                self.assertIsNone(prepare_github_pages.version_key(invalid_tag))
 
     def test_refuses_a_download_url_outside_the_matching_github_release(self):
         with tempfile.TemporaryDirectory() as directory:

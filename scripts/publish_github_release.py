@@ -22,7 +22,8 @@ from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 
-STABLE_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
+SEMVER_NUMBER = r"(0|[1-9]\d*)"
+STABLE_TAG = re.compile(rf"^v{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}$")
 EXPECTED_ASSETS = (
     "okf-linux-x64",
     "okf-osx-arm64",
@@ -33,7 +34,9 @@ EXPECTED_ASSETS = (
     "install.sh",
     "install.ps1",
 )
-RC_TAG = re.compile(r"^v\d+\.\d+\.\d+-rc\.\d+$")
+RC_TAG = re.compile(
+    rf"^v{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}-rc\.{SEMVER_NUMBER}$"
+)
 
 
 def is_release_candidate(tag: str) -> bool:

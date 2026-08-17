@@ -23,8 +23,11 @@ from publish_github_release import (
 )
 
 
-STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-RC_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$")
+SEMVER_NUMBER = r"(0|[1-9]\d*)"
+STABLE_TAG = re.compile(rf"^v{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}$")
+RC_TAG = re.compile(
+    rf"^v{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}-rc\.{SEMVER_NUMBER}$"
+)
 SMALL_ASSETS = ("latest.json", "install.sh", "install.ps1")
 
 
