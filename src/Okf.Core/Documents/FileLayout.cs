@@ -77,8 +77,11 @@ internal sealed class FileLayout
         string body = string.Join('\n', lines.Skip(end + 1));
 
         // OkfDocument.Parse consumes a single newline after the closing fence, so the
-        // body's first line is the one after the blank separator when there is one.
-        bool consumesBlank = end + 1 < lines.Length && lines[end + 1].Length == 0;
+        // body's first line is the one after the blank separator when there is one. A
+        // frontmatter-only file leaves body empty with no leading newline to consume,
+        // matching OkfDocument.BodyAfter's own check rather than predicting it from the
+        // next line alone.
+        bool consumesBlank = body.StartsWith('\n');
 
         return consumesBlank
             ? new FileLayout(text, lines, end, body[1..], end + 3)
