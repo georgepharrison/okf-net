@@ -104,7 +104,7 @@ public static class OkfVerifyIdentity
     {
         ArgumentNullException.ThrowIfNull(environment);
 
-        ProcessStartInfo startInfo = ReadUserEmail(environment);
+        ProcessStartInfo startInfo = UserEmailCommand(environment);
         try
         {
             using Process? process = Process.Start(startInfo);
@@ -121,7 +121,7 @@ public static class OkfVerifyIdentity
     private const int GitTimeoutMilliseconds = 5000;
 
     /// <summary>The <c>git config --global --get user.email</c> invocation.</summary>
-    private static ProcessStartInfo ReadUserEmail(OkfEnvironment environment)
+    private static ProcessStartInfo UserEmailCommand(OkfEnvironment environment)
     {
         ProcessStartInfo startInfo = new ProcessStartInfo("git")
         {
