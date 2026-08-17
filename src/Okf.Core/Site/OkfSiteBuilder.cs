@@ -69,105 +69,156 @@ public static class OkfSiteBuilder
         ArgumentNullException.ThrowIfNull(workingSet);
         options ??= new OkfSiteOptions();
 
+        (List<OkfSiteBundle> bundles, List<OkfSitePage> pages) = ReadBundles(workingSet, options);
+        SortPages(pages);
+
+        Dictionary<string, OkfSitePage> byId = PageLookup(pages);
+        LinkGraph graph = RenderPages(pages, byId, options.SingleFile);
+        ApplyBacklinks(pages, graph.Backlinks);
+        List<OkfSitePage> concepts = pages.Where(page => page.IsConcept).ToList();
+        OkfSiteCounts counts = Count(concepts, bundles.Count);
+        return new OkfSiteModel(
+            SiteName(workingSet, options.Name),
+            options.Today,
+            options.SingleFile,
+            bundles,
+            pages,
+            graph.Edges,
+            counts);
+    }
+
+    private static void SortPages(List<OkfSitePage> pages) =>
+        pages.Sort(static (left, right) => string.CompareOrdinal(left.Href, right.Href));
+
+    private static Dictionary<string, OkfSitePage> PageLookup(IEnumerable<OkfSitePage> pages) =>
+        pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
+
+    private static (List<OkfSiteBundle> Bundles, List<OkfSitePage> Pages) ReadBundles(
+        OkfWorkingSet workingSet,
+        OkfSiteOptions options)
+    {
         List<OkfSitePage> pages = new List<OkfSitePage>();
         List<OkfSiteBundle> bundles = new List<OkfSiteBundle>();
-
-        // Seeded with the names the site itself occupies at its root, so a bundle called
-        // `assets` gets `assets-2` instead of having its pages overwrite the stylesheet.
-        HashSet<string> slugs = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "assets",
-            IndexHref,
-            DashboardHref,
-            GraphHref,
-        };
+        HashSet<string> slugs = TakenSlugs();
         OkfConceptOptions conceptOptions = new OkfConceptOptions { Today = options.Today, ReadText = options.ReadText };
 
         foreach (OkfBundle bundle in workingSet.Bundles)
         {
             string slug = UniqueSlug(bundle.Name, slugs);
             int first = pages.Count;
-
-            foreach (string file in bundle.MarkdownFiles())
-            {
-                string relative = bundle.RelativePath(file);
-                OkfConceptResult result = OkfConceptReader.Read(bundle, relative, conceptOptions);
-                if (result.Concept is not { } concept)
-                {
-                    // Frontmatter that does not parse is already an OKF0001 error; a page
-                    // built from it would render the error, not the knowledge.
-                    continue;
-                }
-
-                pages.Add(Page(slug, bundle.Name, relative, concept));
-            }
-
-            int conceptCount = pages.Skip(first).Count(page => page.IsConcept);
-            bundles.Add(new OkfSiteBundle(bundle.Name, slug, Href(slug, OkfBundle.IndexFileName), conceptCount));
+            AddBundlePages(bundle, slug, pages, conceptOptions);
+            bundles.Add(BundleSummary(bundle, slug, pages, first));
         }
 
-        pages.Sort(static (left, right) => string.CompareOrdinal(left.Href, right.Href));
+        return (bundles, pages);
+    }
 
-        Dictionary<string, OkfSitePage> byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
-        List<OkfSiteEdge> edges = new List<OkfSiteEdge>();
-        Dictionary<string, List<string>> backlinks = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+    private static HashSet<string> TakenSlugs() => new(StringComparer.Ordinal)
+    {
+        "assets",
+        IndexHref,
+        DashboardHref,
+        GraphHref,
+    };
 
+    private static void AddBundlePages(
+        OkfBundle bundle,
+        string slug,
+        List<OkfSitePage> pages,
+        OkfConceptOptions conceptOptions)
+    {
+        foreach (string file in bundle.MarkdownFiles())
+        {
+            AddPage(bundle, slug, file, pages, conceptOptions);
+        }
+    }
+
+    private static void AddPage(
+        OkfBundle bundle,
+        string slug,
+        string file,
+        List<OkfSitePage> pages,
+        OkfConceptOptions conceptOptions)
+    {
+        string relative = bundle.RelativePath(file);
+        OkfConceptResult result = OkfConceptReader.Read(bundle, relative, conceptOptions);
+        if (result.Concept is not { } concept)
+        {
+            return;
+        }
+
+        pages.Add(Page(slug, bundle.Name, relative, concept));
+    }
+
+    private static OkfSiteBundle BundleSummary(
+        OkfBundle bundle,
+        string slug,
+        List<OkfSitePage> pages,
+        int firstPageIndex)
+    {
+        int conceptCount = pages.Skip(firstPageIndex).Count(page => page.IsConcept);
+        return new OkfSiteBundle(bundle.Name, slug, Href(slug, OkfBundle.IndexFileName), conceptCount);
+    }
+
+    private static LinkGraph RenderPages(
+        IEnumerable<OkfSitePage> pages,
+        Dictionary<string, OkfSitePage> byId,
+        bool singleFile)
+    {
+        GraphBuilder graph = new GraphBuilder(byId);
         foreach (OkfSitePage page in pages)
         {
-            string source = Strip(page.Concept.Body, page.Kind);
-            OkfSiteBody body = OkfSiteMarkdown.Render(
-                source,
-                url => Resolve(url, page, byId, options.SingleFile, page.Href));
-
-            page.BodyHtml = body.Html;
-            page.LinksTo = body.LinksTo;
-            page.Sources = Sources(page.Concept.Frontmatter, body.FootnoteOrders);
-            page.Crumbs = Crumbs(page, byId, options.SingleFile);
-
-            // The landing page carries each bundle's root index inline, and that copy is read
-            // from the site root rather than from `<slug>/index.html`. Its relative links have
-            // to be resolved from there too, or every entry on the front door points one
-            // directory too high. Rendered a second time rather than rewritten afterwards:
-            // the destinations are resolved on the syntax tree, and text-level surgery on the
-            // output would have to re-implement the parser's idea of what a link is.
-            if (page.IsBundleIndex && !options.SingleFile)
-            {
-                page.RootBodyHtml = OkfSiteMarkdown
-                    .Render(source, url => Resolve(url, page, byId, options.SingleFile, IndexHref))
-                    .Html;
-            }
-            else if (page.IsBundleIndex)
-            {
-                // Single-file links are `#c=<id>`, which does not depend on where the body is
-                // read from; one render serves both copies.
-                page.RootBodyHtml = body.Html;
-            }
-
-            foreach (string target in body.LinksTo)
-            {
-                if (!page.IsConcept || !byId.TryGetValue(target, out OkfSitePage? other) || !other.IsConcept)
-                {
-                    continue;
-                }
-
-                edges.Add(new OkfSiteEdge(page.Id, target));
-                if (!backlinks.TryGetValue(target, out List<string>? citing))
-                {
-                    backlinks[target] = citing = [];
-                }
-
-                citing.Add(page.Id);
-            }
+            OkfSiteBody body = RenderPage(page, byId, singleFile);
+            graph.Add(page, body.LinksTo);
         }
 
+        return graph.Build();
+    }
+
+    private static OkfSiteBody RenderPage(
+        OkfSitePage page,
+        Dictionary<string, OkfSitePage> byId,
+        bool singleFile)
+    {
+        string source = Strip(page.Concept.Body, page.Kind);
+        LinkContext context = new LinkContext(page, byId, singleFile, page.Href);
+        OkfSiteBody body = OkfSiteMarkdown.Render(source, url => Resolve(url, context));
+        page.BodyHtml = body.Html;
+        page.LinksTo = body.LinksTo;
+        page.Sources = Sources(page.Concept.Frontmatter, body.FootnoteOrders);
+        page.Crumbs = Crumbs(page, byId, singleFile);
+        page.RootBodyHtml = RootBodyHtml(source, body, context);
+        return body;
+    }
+
+    private static string RootBodyHtml(string source, OkfSiteBody body, LinkContext context)
+    {
+        if (!context.Page.IsBundleIndex)
+        {
+            return string.Empty;
+        }
+
+        if (context.SingleFile)
+        {
+            return body.Html;
+        }
+
+        return OkfSiteMarkdown.Render(source, url => Resolve(url, context with { FromHref = IndexHref })).Html;
+    }
+
+    private static void ApplyBacklinks(
+        IEnumerable<OkfSitePage> pages,
+        Dictionary<string, List<string>> backlinks)
+    {
         foreach (OkfSitePage page in pages)
         {
             page.CitedBy = backlinks.TryGetValue(page.Id, out List<string>? citing) ? citing : [];
         }
+    }
 
-        List<OkfSitePage> concepts = pages.Where(page => page.IsConcept).ToList();
-        OkfSiteCounts counts = new OkfSiteCounts(
-            bundles.Count,
+    private static OkfSiteCounts Count(List<OkfSitePage> concepts, int bundleCount) =>
+        new(
+            bundleCount,
             concepts.Count,
             concepts.Count(page => page.TrustTier == OkfTrustTier.HumanReviewed),
             concepts.Count(page => page.TrustTier == OkfTrustTier.MachineConfirmed),
@@ -175,7 +226,9 @@ public static class OkfSiteBuilder
             concepts.Count(page => page.Stale),
             concepts.Count(page => string.Equals(page.Status, "draft", StringComparison.Ordinal)));
 
-        string name = options.Name is { Length: > 0 } given
+    private static string SiteName(OkfWorkingSet workingSet, string? configuredName)
+    {
+        string name = configuredName is { Length: > 0 } given
             ? given
             : workingSet.VaultRoot is { } vault
                 ? System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(vault))
@@ -183,14 +236,7 @@ public static class OkfSiteBuilder
                     ? workingSet.Bundles[0].Name
                     : string.Empty;
 
-        return new OkfSiteModel(
-            name is { Length: > 0 } ? name : "okf",
-            options.Today,
-            options.SingleFile,
-            bundles,
-            pages,
-            edges,
-            counts);
+        return name is { Length: > 0 } ? name : "okf";
     }
 
     /// <summary>
@@ -226,6 +272,12 @@ public static class OkfSiteBuilder
 
         string[] fromSegments = from.Split('/');
         string[] toSegments = to.Split('/');
+        int shared = SharedPrefixLength(fromSegments, toSegments);
+        return Backtrack(fromSegments, shared) + string.Join('/', toSegments.Skip(shared));
+    }
+
+    private static int SharedPrefixLength(string[] fromSegments, string[] toSegments)
+    {
         int shared = 0;
         while (shared < fromSegments.Length - 1
                && shared < toSegments.Length - 1
@@ -234,50 +286,69 @@ public static class OkfSiteBuilder
             shared++;
         }
 
+        return shared;
+    }
+
+    private static string Backtrack(string[] fromSegments, int shared)
+    {
         StringBuilder builder = new StringBuilder();
-        for (int i = shared; i < fromSegments.Length - 1; i++)
+        for (int index = shared; index < fromSegments.Length - 1; index++)
         {
             builder.Append("../");
         }
 
-        builder.AppendJoin('/', toSegments.Skip(shared));
         return builder.ToString();
     }
 
     private static OkfSitePage Page(string slug, string bundleName, string relativePath, OkfConcept concept)
     {
-        OkfSitePageKind kind = System.IO.Path.GetFileName(relativePath) switch
-        {
-            OkfBundle.IndexFileName => OkfSitePageKind.Index,
-            OkfBundle.LogFileName => OkfSitePageKind.Log,
-            _ => OkfSitePageKind.Concept,
-        };
-
+        OkfSitePageKind kind = PageKind(relativePath);
         OkfMapping frontmatter = concept.Frontmatter;
-        string title = kind switch
-        {
-            // An index's own name is its directory: "format", not "index".
-            OkfSitePageKind.Index => Directory(relativePath) ?? bundleName,
-            OkfSitePageKind.Log when FrontmatterValues.Scalar(frontmatter, "title") is null => "Update log",
-            _ => concept.Title,
-        };
 
         return new OkfSitePage(
-            $"{slug}/{(relativePath.EndsWith(".md", StringComparison.Ordinal) ? relativePath[..^3] : relativePath)}",
+            PageId(slug, relativePath),
             bundleName,
             slug,
             relativePath,
             Href(slug, relativePath),
-            title,
+            PageTitle(kind, bundleName, relativePath, concept),
             kind,
             concept)
         {
             Status = FrontmatterValues.Scalar(frontmatter, "status") ?? DefaultStatus,
             StaleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after"),
-            Generated = Event(frontmatter.TryGetValue("generated", out OkfValue? generated) ? generated : null),
-            Verified = [.. OkfDocument.NormalizeVerified(frontmatter).Select(Event).OfType<OkfSiteEvent>()],
+            Generated = GeneratedEvent(frontmatter),
+            Verified = VerifiedEvents(frontmatter),
         };
     }
+
+    private static OkfSitePageKind PageKind(string relativePath) => System.IO.Path.GetFileName(relativePath) switch
+    {
+        OkfBundle.IndexFileName => OkfSitePageKind.Index,
+        OkfBundle.LogFileName => OkfSitePageKind.Log,
+        _ => OkfSitePageKind.Concept,
+    };
+
+    private static string PageId(string slug, string relativePath) =>
+        $"{slug}/{(relativePath.EndsWith(".md", StringComparison.Ordinal) ? relativePath[..^3] : relativePath)}";
+
+    private static string PageTitle(
+        OkfSitePageKind kind,
+        string bundleName,
+        string relativePath,
+        OkfConcept concept) => kind switch
+        {
+            // An index's own name is its directory: "format", not "index".
+            OkfSitePageKind.Index => Directory(relativePath) ?? bundleName,
+            OkfSitePageKind.Log when FrontmatterValues.Scalar(concept.Frontmatter, "title") is null => "Update log",
+            _ => concept.Title,
+        };
+
+    private static OkfSiteEvent? GeneratedEvent(OkfMapping frontmatter) =>
+        Event(frontmatter.TryGetValue("generated", out OkfValue? generated) ? generated : null);
+
+    private static IReadOnlyList<OkfSiteEvent> VerifiedEvents(OkfMapping frontmatter) =>
+        [.. OkfDocument.NormalizeVerified(frontmatter).Select(Event).OfType<OkfSiteEvent>()];
 
     private static string? Directory(string relativePath)
     {
@@ -307,72 +378,64 @@ public static class OkfSiteBuilder
         return string.Join('\n', kept);
     }
 
-    private static OkfSiteLink Resolve(
-        string url,
-        OkfSitePage page,
-        Dictionary<string, OkfSitePage> pages,
-        bool singleFile,
-        string fromHref)
+    private static OkfSiteLink Resolve(string url, LinkContext context)
     {
-        if (url.StartsWith('#'))
+        if (IsInlineTarget(url))
         {
             return new OkfSiteLink(null, null, null, false);
         }
 
-        if (url.Contains("://", StringComparison.Ordinal)
-            || url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
-            || url.StartsWith("//", StringComparison.Ordinal))
+        if (IsExternalTarget(url))
         {
             return new OkfSiteLink(null, null, "external", true);
         }
 
-        int hash = url.IndexOf('#', StringComparison.Ordinal);
-        string target = hash < 0 ? url : url[..hash];
-        string fragment = hash < 0 ? string.Empty : url[hash..];
-
-        if (target.Length == 0 || !target.EndsWith(".md", StringComparison.Ordinal))
+        LinkTarget target = LinkTarget.Parse(url);
+        if (!target.IsMarkdown)
         {
-            // Not a concept link: an image, an attachment, a directory. Left exactly as
-            // written — §6.1 obliges a consumer to tolerate what it cannot resolve.
             return new OkfSiteLink(null, null, null, false);
         }
 
-        // §6.1: a leading `/` is bundle-root-relative, not host-root-relative.
-        string basePath = target.StartsWith('/')
-            ? string.Empty
-            : ParentOf(page.Path);
+        return ResolvedPath(target, context.Page.Path) is { } resolved
+            ? ResolveMarkdownLink(target, resolved, context)
+            : new OkfSiteLink(Uri.EscapeDataString(url), null, "broken", false);
+    }
 
-        if (Normalize(basePath, Uri.UnescapeDataString(target.TrimStart('/'))) is not { } resolved)
+    private static string? ResolvedPath(LinkTarget target, string pagePath)
+    {
+        string basePath = target.IsBundleRootRelative ? string.Empty : ParentOf(pagePath);
+        string relative = Uri.UnescapeDataString(target.Path.TrimStart('/'));
+        return Normalize(basePath, relative);
+    }
+
+    private static bool IsInlineTarget(string url) => url.StartsWith('#');
+
+    private static bool IsExternalTarget(string url) =>
+        url.Contains("://", StringComparison.Ordinal)
+        || url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+        || url.StartsWith("//", StringComparison.Ordinal);
+
+    private static OkfSiteLink ResolveMarkdownLink(LinkTarget target, string resolved, LinkContext context)
+    {
+        string id = $"{context.Page.BundleSlug}/{resolved[..^3]}";
+        if (!context.Pages.TryGetValue(id, out OkfSitePage? destination))
         {
-            // A destination that climbs out of its own bundle names no place the site
-            // contains, and emitting it unchanged would point a page at whatever sits
-            // beside the output directory. Escaped, it is one inert relative segment.
-            return new OkfSiteLink(Uri.EscapeDataString(url), null, "broken", false);
+            return BrokenLink(target, resolved, context.Page);
         }
 
-        string id = $"{page.BundleSlug}/{resolved[..^3]}";
-        if (!pages.TryGetValue(id, out OkfSitePage? destination))
-        {
-            // §6.1: "Consumers MUST tolerate broken links" — a link to knowledge that is
-            // not written yet is marked, never dropped. It is still re-expressed relative
-            // to this page when it was written bundle-root-relative: a leading `/` left
-            // standing is a link to the filesystem root under file:// and to the domain
-            // root under Pages, which is the one thing the site's hrefs may never be.
-            return new OkfSiteLink(
-                target.StartsWith('/') ? RelativeHref(page.Path, resolved) + fragment : null,
-                null,
-                "broken",
-                false);
-        }
-
-        string href = singleFile
-            // A single-file site spends its whole fragment on routing, so a deep link into
-            // a concept's own heading cannot survive the trip. The concept does.
+        string href = context.SingleFile
             ? "#c=" + Uri.EscapeDataString(destination.Id)
-            : RelativeHref(fromHref, destination.Href) + fragment;
+            : RelativeHref(context.FromHref, destination.Href) + target.Fragment;
 
         return new OkfSiteLink(href, destination.Id, null, false);
     }
+
+    private static OkfSiteLink BrokenLink(LinkTarget target, string resolved, OkfSitePage page) =>
+        new(
+            target.IsBundleRootRelative ? RelativeHref(page.Path, resolved) + target.Fragment : null,
+            null,
+            "broken",
+            false);
 
     private static string ParentOf(string relativePath)
     {
@@ -382,35 +445,46 @@ public static class OkfSiteBuilder
 
     private static string? Normalize(string basePath, string target)
     {
-        List<string> segments = new List<string>();
-        if (basePath.Length > 0)
-        {
-            segments.AddRange(basePath.Split('/'));
-        }
-
+        List<string> segments = BaseSegments(basePath);
         foreach (string segment in target.Split('/'))
         {
-            switch (segment)
+            if (!ApplySegment(segments, segment))
             {
-                case "" or ".":
-                    break;
-
-                case "..":
-                    if (segments.Count == 0)
-                    {
-                        return null;
-                    }
-
-                    segments.RemoveAt(segments.Count - 1);
-                    break;
-
-                default:
-                    segments.Add(segment);
-                    break;
+                return null;
             }
         }
 
         return segments.Count == 0 ? null : string.Join('/', segments);
+    }
+
+    private static List<string> BaseSegments(string basePath) =>
+        basePath.Length > 0 ? [.. basePath.Split('/')] : [];
+
+    private static bool ApplySegment(List<string> segments, string segment)
+    {
+        switch (segment)
+        {
+            case "" or ".":
+                return true;
+
+            case "..":
+                return PopSegment(segments);
+
+            default:
+                segments.Add(segment);
+                return true;
+        }
+    }
+
+    private static bool PopSegment(List<string> segments)
+    {
+        if (segments.Count == 0)
+        {
+            return false;
+        }
+
+        segments.RemoveAt(segments.Count - 1);
+        return true;
     }
 
 #pragma warning disable CA1859 // return flows straight into OkfSitePage.Crumbs, frozen public API (2026-08-15)
@@ -421,27 +495,39 @@ public static class OkfSiteBuilder
 #pragma warning restore CA1859
     {
         List<OkfSiteCrumb> crumbs = new List<OkfSiteCrumb>();
-        string[] segments = page.Path.Split('/');
-        int depth = page.Kind == OkfSitePageKind.Index ? segments.Length - 1 : segments.Length;
+        CrumbContext context = new CrumbContext(page, pages, singleFile, page.Path.Split('/'));
 
-        // The bundle crumb, then one per directory above the page. An index page names its
-        // own directory, so it stops one level short and takes that name for itself.
-        for (int level = 0; level < depth; level++)
+        for (int level = 0; level < CrumbDepth(context); level++)
         {
-            string directory = string.Join('/', segments.Take(level));
-            string indexId = $"{page.BundleSlug}/{(directory.Length == 0 ? string.Empty : directory + "/")}index";
-            string? href = null;
-            if (pages.TryGetValue(indexId, out OkfSitePage? index))
-            {
-                href = singleFile ? "#c=" + Uri.EscapeDataString(index.Id) : RelativeHref(page.Href, index.Href);
-            }
-
-            string label = level == 0 ? page.BundleName : segments[level - 1];
-            crumbs.Add(new OkfSiteCrumb(label, href));
+            crumbs.Add(Crumb(level, context));
         }
 
         crumbs.Add(new OkfSiteCrumb(page.Title, null));
         return crumbs;
+    }
+
+    private static int CrumbDepth(CrumbContext context) =>
+        context.Page.Kind == OkfSitePageKind.Index ? context.Segments.Length - 1 : context.Segments.Length;
+
+    private static OkfSiteCrumb Crumb(int level, CrumbContext context)
+    {
+        string label = level == 0 ? context.Page.BundleName : context.Segments[level - 1];
+        string? href = CrumbHref(level, context);
+        return new OkfSiteCrumb(label, href);
+    }
+
+    private static string? CrumbHref(int level, CrumbContext context)
+    {
+        string directory = string.Join('/', context.Segments.Take(level));
+        string indexId = $"{context.Page.BundleSlug}/{(directory.Length == 0 ? string.Empty : directory + "/")}index";
+        if (!context.Pages.TryGetValue(indexId, out OkfSitePage? index))
+        {
+            return null;
+        }
+
+        return context.SingleFile
+            ? "#c=" + Uri.EscapeDataString(index.Id)
+            : RelativeHref(context.Page.Href, index.Href);
     }
 
     private static OkfSiteEvent? Event(OkfValue? value)
@@ -464,33 +550,47 @@ public static class OkfSiteBuilder
             return [];
         }
 
+        return [.. SourceEntries(value).Select(entry => Source(entry, footnotes))];
+    }
+
+    private static IEnumerable<OkfMapping> SourceEntries(OkfValue value) => value switch
+    {
         // §5.1 shows a list; a producer writing one source as a bare mapping is the same
         // tolerance `verified` already gets (§5.2).
-        IEnumerable<OkfMapping> entries = value switch
-        {
-            OkfMapping mapping => [mapping],
-            OkfSequence sequence => sequence.OfType<OkfMapping>(),
-            _ => [],
-        };
+        OkfMapping mapping => [mapping],
+        OkfSequence sequence => sequence.OfType<OkfMapping>(),
+        _ => [],
+    };
 
-        return
-        [
-            .. entries.Select(entry =>
-            {
-                string id = FrontmatterValues.Scalar(entry, "id") ?? string.Empty;
-                return new OkfSiteSource(
-                    id,
-                    FrontmatterValues.Scalar(entry, "title"),
-                    FrontmatterValues.Scalar(entry, "resource"),
-                    FrontmatterValues.Scalar(entry, "author"),
-                    FrontmatterValues.Scalar(entry, "last_modified"),
-                    FrontmatterValues.Scalar(entry, "usage_count"),
-                    id.Length > 0 && footnotes.TryGetValue(id, out int order) ? order : null);
-            }),
-        ];
+    private static OkfSiteSource Source(OkfMapping entry, IReadOnlyDictionary<string, int> footnotes)
+    {
+        string id = FrontmatterValues.Scalar(entry, "id") ?? string.Empty;
+        return new OkfSiteSource(
+            id,
+            FrontmatterValues.Scalar(entry, "title"),
+            FrontmatterValues.Scalar(entry, "resource"),
+            FrontmatterValues.Scalar(entry, "author"),
+            FrontmatterValues.Scalar(entry, "last_modified"),
+            FrontmatterValues.Scalar(entry, "usage_count"),
+            id.Length > 0 && footnotes.TryGetValue(id, out int order) ? order : null);
     }
 
     private static string UniqueSlug(string name, HashSet<string> taken)
+    {
+        string slug = SlugStem(name);
+        string candidate = slug;
+        int suffix = 2;
+
+        while (!taken.Add(candidate))
+        {
+            candidate = $"{slug}-{suffix.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            suffix++;
+        }
+
+        return candidate;
+    }
+
+    private static string SlugStem(string name)
     {
         StringBuilder builder = new StringBuilder(name.Length);
         foreach (char character in name)
@@ -501,19 +601,65 @@ public static class OkfSiteBuilder
         }
 
         string slug = builder.ToString().Trim('-');
-        if (slug.Length == 0 || slug is "." or "..")
+        return slug.Length == 0 || slug is "." or ".." ? "bundle" : slug;
+    }
+
+    private sealed record LinkGraph(List<OkfSiteEdge> Edges, Dictionary<string, List<string>> Backlinks);
+
+    private sealed record LinkContext(
+        OkfSitePage Page,
+        Dictionary<string, OkfSitePage> Pages,
+        bool SingleFile,
+        string FromHref);
+
+    private sealed record CrumbContext(
+        OkfSitePage Page,
+        Dictionary<string, OkfSitePage> Pages,
+        bool SingleFile,
+        string[] Segments);
+
+    private sealed class GraphBuilder(Dictionary<string, OkfSitePage> byId)
+    {
+        private readonly List<OkfSiteEdge> _edges = [];
+        private readonly Dictionary<string, List<string>> _backlinks = new(StringComparer.Ordinal);
+
+        public void Add(OkfSitePage page, IEnumerable<string> targets)
         {
-            slug = "bundle";
+            foreach (string target in targets)
+            {
+                Add(page, target);
+            }
         }
 
-        string candidate = slug;
-        int suffix = 2;
-        while (!taken.Add(candidate))
-        {
-            candidate = $"{slug}-{suffix.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-            suffix++;
-        }
+        public LinkGraph Build() => new LinkGraph(_edges, _backlinks);
 
-        return candidate;
+        private void Add(OkfSitePage page, string target)
+        {
+            if (!page.IsConcept || !byId.TryGetValue(target, out OkfSitePage? other) || !other.IsConcept)
+            {
+                return;
+            }
+
+            _edges.Add(new OkfSiteEdge(page.Id, target));
+            if (!_backlinks.TryGetValue(target, out List<string>? citing))
+            {
+                _backlinks[target] = citing = [];
+            }
+
+            citing.Add(page.Id);
+        }
+    }
+
+    private sealed record LinkTarget(string Path, string Fragment, bool IsBundleRootRelative)
+    {
+        public bool IsMarkdown => Path.Length > 0 && Path.EndsWith(".md", StringComparison.Ordinal);
+
+        public static LinkTarget Parse(string url)
+        {
+            int hash = url.IndexOf('#', StringComparison.Ordinal);
+            string path = hash < 0 ? url : url[..hash];
+            string fragment = hash < 0 ? string.Empty : url[hash..];
+            return new LinkTarget(path, fragment, path.StartsWith('/'));
+        }
     }
 }
