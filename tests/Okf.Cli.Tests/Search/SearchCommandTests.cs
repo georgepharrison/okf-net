@@ -101,6 +101,7 @@ public class SearchCommandTests
 
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.Equal("Found 3 results in 3 concepts across 1 bundle.", run.Summary);
+        Assert.DoesNotContain("No concept matched all", run.Output, StringComparison.Ordinal);
 
         var hits = run.OutputLines.Where(line => line.Contains(".md  ", StringComparison.Ordinal)).ToList();
         Assert.Equal(3, hits.Count);
@@ -304,6 +305,7 @@ public class SearchCommandTests
         Assert.Contains("okf: resolved vault", run.Error, StringComparison.Ordinal);
         Assert.Contains("okf: query widget", run.Error, StringComparison.Ordinal);
         Assert.Contains("okf: match mode all", run.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("okf: skipped", run.Error, StringComparison.Ordinal);
     }
 
     [Fact]

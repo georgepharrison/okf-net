@@ -110,6 +110,27 @@ public class ConfigPrecedenceTests
     }
 
     [Fact]
+    public void ProjectTagRegistryOverridesTheGlobalTagRegistry()
+    {
+        using var tree = new TempTree();
+        tree.CopyFixture("warnings-only", Path.Combine("project", "okf", "bundles", "notes"));
+        tree.Write(
+            Path.Combine(".config", "okf", "okf.json"),
+            """
+            { "lint": { "tagRegistry": ["fixture"], "severities": { "OKF0305": "warning" } } }
+            """);
+        tree.Write(
+            Path.Combine("project", "okf", "okf.json"),
+            """
+            { "lint": { "tagRegistry": ["approved"] } }
+            """);
+
+        var run = CliHarness.RunIn(Path.Combine(tree.Root, "project"), tree.Root, "lint");
+
+        Assert.Contains("warning OKF0305: Tag `fixture` is not in the bundle's tag registry.", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitConfigFileReplacesTheProjectConfig()
     {
         using var tree = new TempTree();

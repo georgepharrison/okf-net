@@ -136,6 +136,7 @@ public class McpProtocolTests
     [Theory]
     [InlineData("""["a batch", "of messages"]""")]
     [InlineData("\"a bare string\"")]
+    [InlineData("""{"jsonrpc":42,"id":5,"method":"ping"}""")]
     [InlineData("""{"jsonrpc":"1.0","id":5,"method":"ping"}""")]
     [InlineData("""{"jsonrpc":"2.0","id":5}""")]
     [InlineData("""{"jsonrpc":"2.0","id":5,"method":42}""")]
@@ -148,6 +149,7 @@ public class McpProtocolTests
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.Equal(2, run.Responses.Length);
         Assert.Equal(McpServer.InvalidRequest, run.ErrorCode(0));
+        Assert.NotEmpty(run.ErrorMessage(0));
 
         using var pong = run.Response(1);
         Assert.Equal(6, pong.RootElement.GetProperty("id").GetInt32());
@@ -292,12 +294,40 @@ public class McpProtocolTests
     public void AnUnknownOptionIsAUsageFailure()
     {
         using var vault = Vault();
+        vault.CopyFixture("searchable", "--port");
 
-        var run = McpHarness.Run(Environment(vault), ["--port", "8080"]);
+        var run = McpHarness.Run(Environment(vault), ["--port"]);
 
         Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
         Assert.Empty(run.Output);
-        Assert.Contains("--port", run.Error, StringComparison.Ordinal);
+        Assert.Equal(
+            ["okf: error: Unknown option '--port'.", "Run `okf mcp --help` for usage."],
+            run.Error.Split(System.Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public void ASecondPathIsAUsageFailureEvenWhenBothPathsResolve()
+    {
+        using var vault = Vault();
+        var second = vault.CopyFixture("searchable", "second");
+
+        var run = McpHarness.Run(Environment(vault), [Path.Combine(vault.Root, "bundles", "searchable"), second]);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Empty(run.Output);
+        Assert.Contains("takes at most one path", run.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnExplicitPathAndANonDefaultScopeAreExclusive()
+    {
+        using var vault = Vault();
+
+        var run = McpHarness.Run(Environment(vault), [vault.Root, "--scope", "personal"]);
+
+        Assert.Equal(CliApplication.ExitUsage, run.ExitCode);
+        Assert.Empty(run.Output);
+        Assert.Contains("an explicit path are exclusive", run.Error, StringComparison.Ordinal);
     }
 
     [Fact]

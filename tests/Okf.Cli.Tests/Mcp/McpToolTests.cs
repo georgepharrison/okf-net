@@ -225,6 +225,24 @@ public class McpToolTests
     }
 
     [Fact]
+    public void AnUnparseableConceptIsReportedRatherThanTreatedAsMissing()
+    {
+        using var vault = McpProtocolTests.Vault();
+        vault.Write(
+            Path.Combine("bundles", "searchable", "broken.md"),
+            "---\ntitle: Broken\n  bad: [unclosed\n---\n\nBody.\n");
+
+        var run = McpHarness.Session(
+            McpProtocolTests.Environment(vault),
+            vault.Root,
+            McpHarness.Call(1, "okf_read", """{"path":"broken.md"}"""));
+
+        var failure = run.Content(0);
+        Assert.True(failure.IsError);
+        Assert.Contains("frontmatter that does not parse", failure.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReadWithoutAPathIsInvalidParams()
     {
         using var vault = McpProtocolTests.Vault();
@@ -413,14 +431,18 @@ public class McpToolTests
             vault.Root,
             McpHarness.Call(1, "okf_write", """{"path":"widgets.md"}"""),
             McpHarness.Request(2, "tools/call", """{"arguments":{}}"""),
-            McpHarness.Request(3, "tools/call", """{"name":"okf_list","arguments":"not an object"}"""));
+            McpHarness.Request(3, "tools/call", """{"name":"okf_list","arguments":"not an object"}"""),
+            McpHarness.Request(4, "tools/call", """{"name":42,"arguments":{}}"""));
 
         // MCP-4: there is no write tool, and asking for one is a parameter error naming the
         // tools there are.
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(0));
         Assert.Contains("okf_list, okf_search, and okf_read", run.ErrorMessage(0), StringComparison.Ordinal);
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(1));
+        Assert.Contains("string \"name\"", run.ErrorMessage(1), StringComparison.Ordinal);
         Assert.Equal(McpServer.InvalidParams, run.ErrorCode(2));
+        Assert.Contains("\"arguments\" must be an object", run.ErrorMessage(2), StringComparison.Ordinal);
+        Assert.Equal(McpServer.InvalidParams, run.ErrorCode(3));
     }
 
     [Fact]

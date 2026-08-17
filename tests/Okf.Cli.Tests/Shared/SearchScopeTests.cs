@@ -260,6 +260,18 @@ public class SearchScopeTests
         Assert.Empty(run.Output);
     }
 
+    [Fact]
+    public void AutoRegisterIsAcceptedWhenSearchReadsItFromTheGlobalConfig()
+    {
+        using var world = new World();
+        world.Home.Write(Path.Combine(".config", "okf", "okf.json"), """{ "autoRegister": true }""");
+
+        var run = CliHarness.RunIn(world.Project, world.Home.Root, "search", Query);
+
+        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Contains("project-only", run.Output, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The layer `autoRegister` is refused in is named by every command that reads the
     /// project config, `okf search` included — the refusal is only useful if it arrives as

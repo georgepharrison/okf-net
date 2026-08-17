@@ -220,6 +220,7 @@ public class InitCommandTests
 
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.Contains("is already initialized: 10 files already present, 0 written", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Initialized vault", run.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(": created", run.Output, StringComparison.Ordinal);
         Assert.Equal(before, Snapshot(Path.Combine(project, "okf")));
     }
