@@ -63,82 +63,127 @@ internal static partial class MarkdownScanner
         for (int index = 0; index < lines.Length; index++)
         {
             string line = lines[index].TrimEnd('\r');
-            int lineNumber = firstLineNumber + index;
-            string trimmed = line.TrimStart();
 
-            if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            if (FenceMarkerOf(line) is { } marker)
             {
-                string marker = trimmed[..3];
-                if (fence is null)
-                {
-                    fence = marker;
-                }
-                else if (string.Equals(fence, marker, StringComparison.Ordinal))
-                {
-                    fence = null;
-                }
-
+                fence = FenceAfter(fence, marker);
                 continue;
             }
 
-            if (fence is not null)
+            if (fence is null)
             {
-                continue;
-            }
-
-            if (trimmed.Length > 0)
-            {
-                scan.HasContent = true;
-            }
-
-            Match heading = HeadingRegex().Match(line);
-            if (heading.Success)
-            {
-                // A heading is scanned for links and footnote labels like any other line:
-                // CommonMark allows both inline, and stopping here made a `[^id]` written
-                // in a heading invisible, which let OKF0102 call a genuinely cited source
-                // uncited on a bundle okf-net did not produce (PRD ACC-1).
-                scan.Headings.Add(new MarkdownHeading(
-                    heading.Groups["hashes"].Value.Length,
-                    heading.Groups["text"].Value.Trim(),
-                    lineNumber));
-            }
-
-            Match bullet = BulletRegex().Match(line);
-            if (bullet.Success)
-            {
-                scan.Bullets.Add(new MarkdownBullet(bullet.Groups["text"].Value.Trim(), lineNumber));
-            }
-
-            foreach (Match match in FootnoteRegex().Matches(line).Cast<Match>())
-            {
-                // A definition is `[^label]:` opening a line. The colon is what makes it
-                // one: `[^label]` alone on its own line is a reference — the form Google's
-                // ga4 bundle uses to cite a source under a SQL block — and counting it as
-                // a definition would let OKF0102 call a genuinely cited source uncited.
-                bool isDefinition = line[..match.Index].Trim().Length == 0
-                    && match.Index + match.Length < line.Length
-                    && line[match.Index + match.Length] == ':';
-                scan.Footnotes.Add(new MarkdownFootnote(match.Groups["label"].Value, lineNumber, isDefinition));
-            }
-
-            foreach (Match match in InlineLinkRegex().Matches(line).Cast<Match>())
-            {
-                string destination = match.Groups["dest"].Value;
-                if (destination.Length > 0)
-                {
-                    scan.Links.Add(new MarkdownLink(Unbracket(destination), lineNumber));
-                }
-            }
-
-            Match definition = LinkDefinitionRegex().Match(line);
-            if (definition.Success)
-            {
-                scan.Links.Add(new MarkdownLink(Unbracket(definition.Groups["dest"].Value), lineNumber));
+                ScanLine(scan, line, firstLineNumber + index);
             }
         }
 
         return scan;
+    }
+
+    /// <summary>
+    /// The three characters a fence line opens with, or <see langword="null" /> when the
+    /// line is not a fence.
+    /// </summary>
+    private static string? FenceMarkerOf(string line)
+    {
+        string trimmed = line.TrimStart();
+        return trimmed.StartsWith("```", StringComparison.Ordinal)
+            || trimmed.StartsWith("~~~", StringComparison.Ordinal)
+            ? trimmed[..3]
+            : null;
+    }
+
+    /// <summary>
+    /// The fence still open after a fence line. A block closes only on its own marker, so
+    /// a <c>~~~</c> line inside a <c>```</c> block leaves the <c>```</c> block open.
+    /// </summary>
+    private static string? FenceAfter(string? open, string marker)
+    {
+        if (open is null)
+        {
+            return marker;
+        }
+
+        return string.Equals(open, marker, StringComparison.Ordinal) ? null : open;
+    }
+
+    private static void ScanLine(MarkdownScan scan, string line, int lineNumber)
+    {
+        if (line.TrimStart().Length > 0)
+        {
+            scan.HasContent = true;
+        }
+
+        AddHeading(scan, line, lineNumber);
+        AddBullet(scan, line, lineNumber);
+        AddFootnotes(scan, line, lineNumber);
+        AddInlineLinks(scan, line, lineNumber);
+        AddLinkDefinition(scan, line, lineNumber);
+    }
+
+    // A heading is scanned for links and footnote labels like any other line: CommonMark
+    // allows both inline, and stopping at the heading made a `[^id]` written in one
+    // invisible, which let OKF0102 call a genuinely cited source uncited on a bundle
+    // okf-net did not produce (PRD ACC-1).
+    private static void AddHeading(MarkdownScan scan, string line, int lineNumber)
+    {
+        Match heading = HeadingRegex().Match(line);
+        if (heading.Success)
+        {
+            scan.Headings.Add(new MarkdownHeading(
+                heading.Groups["hashes"].Value.Length,
+                heading.Groups["text"].Value.Trim(),
+                lineNumber));
+        }
+    }
+
+    private static void AddBullet(MarkdownScan scan, string line, int lineNumber)
+    {
+        Match bullet = BulletRegex().Match(line);
+        if (bullet.Success)
+        {
+            scan.Bullets.Add(new MarkdownBullet(bullet.Groups["text"].Value.Trim(), lineNumber));
+        }
+    }
+
+    private static void AddFootnotes(MarkdownScan scan, string line, int lineNumber)
+    {
+        foreach (Match match in FootnoteRegex().Matches(line).Cast<Match>())
+        {
+            scan.Footnotes.Add(new MarkdownFootnote(
+                match.Groups["label"].Value,
+                lineNumber,
+                IsFootnoteDefinition(line, match)));
+        }
+    }
+
+    // A definition is `[^label]:` opening a line. The colon is what makes it one:
+    // `[^label]` alone on its own line is a reference — the form Google's ga4 bundle uses
+    // to cite a source under a SQL block — and counting it as a definition would let
+    // OKF0102 call a genuinely cited source uncited.
+    private static bool IsFootnoteDefinition(string line, Match match) =>
+        line[..match.Index].Trim().Length == 0
+        && match.Index + match.Length < line.Length
+        && line[match.Index + match.Length] == ':';
+
+    private static void AddInlineLinks(MarkdownScan scan, string line, int lineNumber)
+    {
+        foreach (Match match in InlineLinkRegex().Matches(line).Cast<Match>())
+        {
+            string destination = match.Groups["dest"].Value;
+            if (destination.Length > 0)
+            {
+                scan.Links.Add(new MarkdownLink(Unbracket(destination), lineNumber));
+            }
+        }
+    }
+
+    private static void AddLinkDefinition(MarkdownScan scan, string line, int lineNumber)
+    {
+        Match definition = LinkDefinitionRegex().Match(line);
+        if (definition.Success)
+        {
+            scan.Links.Add(new MarkdownLink(Unbracket(definition.Groups["dest"].Value), lineNumber));
+        }
     }
 
     private static string Unbracket(string destination) =>

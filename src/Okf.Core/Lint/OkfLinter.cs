@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
@@ -120,7 +121,7 @@ public sealed class OkfLinter
 
         foreach (OkfBundle bundle in list)
         {
-            files += LintBundle(bundle, diagnostics);
+            files += LintBundle(new BundleWalk(bundle, diagnostics, _options.Severities));
         }
 
         CheckVault(diagnostics);
@@ -135,70 +136,41 @@ public sealed class OkfLinter
     /// <exception cref="IOException">A file in the bundle could not be read.</exception>
     public OkfLintResult Lint(OkfBundle bundle) => Lint([bundle]);
 
-    private int LintBundle(OkfBundle bundle, List<OkfDiagnostic> diagnostics)
+    private int LintBundle(BundleWalk walk)
     {
-        IReadOnlyList<string> files = bundle.MarkdownFiles();
-        Dictionary<string, string> titles = new Dictionary<string, string>(StringComparer.Ordinal);
-        Dictionary<string, string> stems = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        // What the index-drift rule needs out of this walk, kept so it reuses the walk
-        // instead of repeating it: every `index.md`'s text, to compare against, and every
-        // concept's parsed frontmatter, to render from. Surfacing OKF0306 in `okf lint`
-        // therefore costs one in-memory render per directory and no extra file read or
-        // YAML parse. Only index texts are kept — the generator never asks for a concept's
-        // text once its frontmatter is to hand — so the walk does not accumulate the whole
-        // bundle in memory to answer one rule.
-        Dictionary<string, string> texts = new Dictionary<string, string>(StringComparer.Ordinal);
-        Dictionary<string, OkfMapping> frontmatters = new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
-
+        IReadOnlyList<string> files = walk.Bundle.MarkdownFiles();
         foreach (string file in files)
         {
-            string text = File.ReadAllText(file);
-            FileLayout layout = FileLayout.Of(text);
-            string name = Path.GetFileName(file);
-
-            if (string.Equals(name, OkfBundle.IndexFileName, StringComparison.Ordinal))
-            {
-                texts[file] = text;
-                CheckIndexFile(bundle, file, layout, diagnostics);
-            }
-            else if (string.Equals(name, OkfBundle.LogFileName, StringComparison.Ordinal))
-            {
-                CheckLogFile(bundle, file, layout, diagnostics);
-            }
-            else
-            {
-                OkfDocument? document = null;
-                OkfDocumentException? failure = null;
-                try
-                {
-                    document = OkfDocument.Parse(layout.Text);
-                }
-                catch (OkfDocumentException exception)
-                {
-                    failure = exception;
-                }
-
-                if (document is not null)
-                {
-                    frontmatters[file] = document.Frontmatter;
-                }
-
-                CheckConcept(bundle, file, layout, document, failure, titles, stems, diagnostics);
-            }
+            LintFile(walk, file);
         }
 
-        CheckGeneratedIndexes(bundle, files, texts, frontmatters, diagnostics);
+        CheckGeneratedIndexes(walk, files);
 
         return files.Count;
     }
 
-    private void CheckGeneratedIndexes(
-        OkfBundle bundle,
-        IReadOnlyList<string> files,
-        Dictionary<string, string> texts,
-        Dictionary<string, OkfMapping> frontmatters,
-        List<OkfDiagnostic> diagnostics)
+    private void LintFile(BundleWalk walk, string file)
+    {
+        string text = File.ReadAllText(file);
+        FileLayout layout = FileLayout.Of(text);
+        string name = Path.GetFileName(file);
+
+        if (string.Equals(name, OkfBundle.IndexFileName, StringComparison.Ordinal))
+        {
+            walk.IndexTexts[file] = text;
+            CheckIndexFile(walk, file, layout);
+        }
+        else if (string.Equals(name, OkfBundle.LogFileName, StringComparison.Ordinal))
+        {
+            CheckLogFile(walk, file, layout);
+        }
+        else
+        {
+            CheckConceptFile(walk, file, layout);
+        }
+    }
+
+    private void CheckGeneratedIndexes(BundleWalk walk, IReadOnlyList<string> files)
     {
         if (_options.Severities.Resolve(OkfRules.GeneratedIndexDrift) == OkfSeverity.Hidden)
         {
@@ -207,26 +179,27 @@ public sealed class OkfLinter
         }
 
         OkfIndexPlan plan = OkfIndexGenerator.Plan(
-            bundle,
+            walk.Bundle,
             new OkfIndexOptions
             {
                 Files = files,
-                ReadText = path => texts.GetValueOrDefault(path),
-                ReadFrontmatter = path => frontmatters.GetValueOrDefault(path),
+                ReadText = path => walk.IndexTexts.GetValueOrDefault(path),
+                ReadFrontmatter = path => walk.Frontmatters.GetValueOrDefault(path),
             });
 
         foreach (OkfIndex index in plan.Drift)
         {
-            // Only indexes okf-net wrote can drift: a foreign bundle's hand-styled index
-            // carries no marker and is left alone, which is what keeps PRD ACC-1 passing
-            // on Google's reference bundles.
-            string message = index.Status == OkfIndexStatus.Orphaned
-                ? "This generated index.md describes a directory with nothing left to index; delete it or add concepts (§8)."
-                : "This generated index.md no longer matches the directory; run `okf index` to regenerate it (§8).";
-
-            diagnostics.Add(Diagnostic(OkfRules.GeneratedIndexDrift, message, index.Path, 1, bundle));
+            walk.Report(OkfRules.GeneratedIndexDrift, DriftMessage(index), index.Path, 1);
         }
     }
+
+    // Only indexes okf-net wrote can drift: a foreign bundle's hand-styled index carries
+    // no marker and is left alone, which is what keeps PRD ACC-1 passing on Google's
+    // reference bundles.
+    private static string DriftMessage(OkfIndex index) =>
+        index.Status == OkfIndexStatus.Orphaned
+            ? "This generated index.md describes a directory with nothing left to index; delete it or add concepts (§8)."
+            : "This generated index.md no longer matches the directory; run `okf index` to regenerate it (§8).";
 
     /// <summary>
     /// The one rule scoped to the vault rather than to a bundle root: an ingested
@@ -265,26 +238,28 @@ public sealed class OkfLinter
             return;
         }
 
-        string rawDirectory = Path.Combine(vault, OkfCaptureManifest.RawDirectoryName);
+        CheckIngestedFiles(manifest, text, vault, diagnostics);
+    }
 
+    private void CheckIngestedFiles(
+        OkfCaptureManifest manifest,
+        string manifestText,
+        string vault,
+        List<OkfDiagnostic> diagnostics)
+    {
+        string rawDirectory = Path.Combine(vault, OkfCaptureManifest.RawDirectoryName);
         foreach (OkfCaptureEntry entry in manifest.Captures.Where(capture => capture.IsIngested))
         {
             foreach (OkfCaptureFile file in entry.Files)
             {
-                CheckRawFile(manifest, text, rawDirectory, entry, file, diagnostics);
+                CheckRawFile(new IngestedFile(manifest, manifestText, entry, file), rawDirectory, diagnostics);
             }
         }
     }
 
-    private void CheckRawFile(
-        OkfCaptureManifest manifest,
-        string manifestText,
-        string rawDirectory,
-        OkfCaptureEntry entry,
-        OkfCaptureFile file,
-        List<OkfDiagnostic> diagnostics)
+    private void CheckRawFile(IngestedFile ingested, string rawDirectory, List<OkfDiagnostic> diagnostics)
     {
-        if (!TryResolveRawPath(rawDirectory, file.Path, out string? absolute))
+        if (!TryResolveRawPath(rawDirectory, ingested.File.Path, out string absolute))
         {
             // A recorded path that escapes raw/ is a malformed record, which is
             // check-manifest.py's finding to report; reading the file it names is exactly
@@ -294,41 +269,53 @@ public sealed class OkfLinter
 
         if (!File.Exists(absolute))
         {
-            diagnostics.Add(VaultDiagnostic(
-                $"`{file.Path}`, ingested under capture `{entry.Id}`, is no longer in raw/. " +
-                "An ingested artifact is the evidence a concept rests on; restore it rather than editing the manifest.",
-                manifest.Path,
-                LineOf(manifestText, file.Sha256)));
+            diagnostics.Add(MissingFromRawDiagnostic(ingested));
             return;
         }
 
-        string actual;
+        if (TryHashOnDisk(absolute, out string? actual)
+            && !string.Equals(actual, ingested.File.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(ChangedSinceIngestDiagnostic(ingested, actual));
+        }
+    }
+
+    /// <summary>
+    /// Hashes an artifact, reporting failure rather than throwing: an unreadable artifact
+    /// is not a changed one, and lint never fails a run on what it could not open.
+    /// </summary>
+    private static bool TryHashOnDisk(string absolute, [NotNullWhen(true)] out string? sha256)
+    {
         try
         {
-            actual = OkfCaptureManifest.Sha256Of(absolute);
+            sha256 = OkfCaptureManifest.Sha256Of(absolute);
+            return true;
         }
         catch (IOException)
         {
-            // An unreadable artifact is not a changed one, and lint never fails a run on
-            // what it could not open.
-            return;
+            sha256 = null;
+            return false;
         }
         catch (UnauthorizedAccessException)
         {
-            return;
-        }
-
-        if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
-        {
-            diagnostics.Add(VaultDiagnostic(
-                $"`{file.Path}`, ingested under capture `{entry.Id}`, no longer matches its recorded sha256 " +
-                $"(recorded {OkfCaptureManifest.Short(file.Sha256)}, on disk {OkfCaptureManifest.Short(actual)}). " +
-                "The artifact changed after ingestion, " +
-                "or the record did; resolve it by hand, never by rewriting the manifest.",
-                manifest.Path,
-                LineOf(manifestText, file.Sha256)));
+            sha256 = null;
+            return false;
         }
     }
+
+    private OkfDiagnostic MissingFromRawDiagnostic(IngestedFile ingested) => VaultDiagnostic(
+        $"`{ingested.File.Path}`, ingested under capture `{ingested.Entry.Id}`, is no longer in raw/. " +
+        "An ingested artifact is the evidence a concept rests on; restore it rather than editing the manifest.",
+        ingested.Manifest.Path,
+        LineOf(ingested.ManifestText, ingested.File.Sha256));
+
+    private OkfDiagnostic ChangedSinceIngestDiagnostic(IngestedFile ingested, string actual) => VaultDiagnostic(
+        $"`{ingested.File.Path}`, ingested under capture `{ingested.Entry.Id}`, no longer matches its recorded sha256 " +
+        $"(recorded {OkfCaptureManifest.Short(ingested.File.Sha256)}, on disk {OkfCaptureManifest.Short(actual)}). " +
+        "The artifact changed after ingestion, " +
+        "or the record did; resolve it by hand, never by rewriting the manifest.",
+        ingested.Manifest.Path,
+        LineOf(ingested.ManifestText, ingested.File.Sha256));
 
     /// <summary>
     /// Resolves a manifest-recorded path against <c>raw/</c>, refusing anything that
@@ -433,399 +420,445 @@ public sealed class OkfLinter
         };
     }
 
-    private OkfDiagnostic Diagnostic(string ruleId, string message, string path, int? line, OkfBundle bundle) =>
-        new(ruleId, _options.Severities.Resolve(ruleId), message, path, line, bundle.Root);
-
-    private void CheckIndexFile(OkfBundle bundle, string path, FileLayout layout, List<OkfDiagnostic> diagnostics)
+    private static void CheckIndexFile(BundleWalk walk, string path, FileLayout layout)
     {
-        // §8: index files carry no frontmatter, with one exception — a bundle-root
-        // index.md MAY declare `okf_version` (§12).
-        bool isRoot = string.Equals(
-            Path.GetDirectoryName(path),
-            bundle.Root,
-            StringComparison.Ordinal);
-
         if (layout.HasFrontmatter)
         {
-            OkfMapping? frontmatter = null;
-            try
-            {
-                frontmatter = OkfDocument.Parse(layout.Text).Frontmatter;
-            }
-            catch (OkfDocumentException exception)
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.InvalidIndexStructure,
-                    $"index.md has a malformed frontmatter block: {exception.Message} (§8).",
-                    path,
-                    1,
-                    bundle));
-            }
-
-            if (frontmatter is not null && !isRoot)
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.InvalidIndexStructure,
-                    "index.md must not carry frontmatter; only a bundle-root index.md may, and only `okf_version` (§8, §12).",
-                    path,
-                    1,
-                    bundle));
-            }
-            else if (frontmatter is not null)
-            {
-                foreach (KeyValuePair<OkfValue, OkfValue> entry in frontmatter)
-                {
-                    if (entry.Key is OkfScalar key && !string.Equals(key.Value, "okf_version", StringComparison.Ordinal))
-                    {
-                        diagnostics.Add(Diagnostic(
-                            OkfRules.InvalidIndexStructure,
-                            $"A bundle-root index.md may only carry `okf_version` in frontmatter; found `{key.Value}` (§8, §12).",
-                            path,
-                            layout.FrontmatterKeyLine(key.Value) ?? 1,
-                            bundle));
-                    }
-                }
-            }
+            CheckIndexFrontmatter(walk, path, layout);
         }
 
         MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
         if (scan.HasContent && scan.Headings.Count == 0)
         {
-            diagnostics.Add(Diagnostic(
+            walk.Report(
                 OkfRules.InvalidIndexStructure,
                 "index.md has no `#` section heading; entries are grouped under headings (§8).",
                 path,
-                layout.BodyFirstLine,
-                bundle));
+                layout.BodyFirstLine);
         }
 
+        CheckIndexEntries(walk, path, scan);
+        CheckLinks(walk, path, scan);
+    }
+
+    // §8: index files carry no frontmatter, with one exception — a bundle-root index.md
+    // MAY declare `okf_version` (§12).
+    private static void CheckIndexFrontmatter(BundleWalk walk, string path, FileLayout layout)
+    {
+        if (TryParseIndexFrontmatter(walk, path, layout) is not { } frontmatter)
+        {
+            return;
+        }
+
+        if (IsBundleRootIndex(walk.Bundle, path))
+        {
+            CheckRootIndexKeys(walk, path, layout, frontmatter);
+            return;
+        }
+
+        walk.Report(
+            OkfRules.InvalidIndexStructure,
+            "index.md must not carry frontmatter; only a bundle-root index.md may, and only `okf_version` (§8, §12).",
+            path,
+            1);
+    }
+
+    private static OkfMapping? TryParseIndexFrontmatter(BundleWalk walk, string path, FileLayout layout)
+    {
+        try
+        {
+            return OkfDocument.Parse(layout.Text).Frontmatter;
+        }
+        catch (OkfDocumentException exception)
+        {
+            walk.Report(
+                OkfRules.InvalidIndexStructure,
+                $"index.md has a malformed frontmatter block: {exception.Message} (§8).",
+                path,
+                1);
+            return null;
+        }
+    }
+
+    private static void CheckRootIndexKeys(BundleWalk walk, string path, FileLayout layout, OkfMapping frontmatter)
+    {
+        foreach (KeyValuePair<OkfValue, OkfValue> entry in frontmatter)
+        {
+            if (entry.Key is OkfScalar key && !string.Equals(key.Value, "okf_version", StringComparison.Ordinal))
+            {
+                walk.Report(
+                    OkfRules.InvalidIndexStructure,
+                    $"A bundle-root index.md may only carry `okf_version` in frontmatter; found `{key.Value}` (§8, §12).",
+                    path,
+                    layout.FrontmatterKeyLine(key.Value) ?? 1);
+            }
+        }
+    }
+
+    private static bool IsBundleRootIndex(OkfBundle bundle, string path) =>
+        string.Equals(Path.GetDirectoryName(path), bundle.Root, StringComparison.Ordinal);
+
+    private static void CheckIndexEntries(BundleWalk walk, string path, MarkdownScan scan)
+    {
         foreach (MarkdownBullet bullet in scan.Bullets)
         {
             if (!LintText.IsIndexEntry(bullet.Text))
             {
-                diagnostics.Add(Diagnostic(
+                walk.Report(
                     OkfRules.InvalidIndexStructure,
                     $"index.md entry is not of the form `* [Title](link) - description` (§8): `{bullet.Text}`.",
                     path,
-                    bullet.Line,
-                    bundle));
+                    bullet.Line);
             }
         }
-
-        CheckLinks(bundle, path, scan, diagnostics);
     }
 
-    private void CheckLogFile(OkfBundle bundle, string path, FileLayout layout, List<OkfDiagnostic> diagnostics)
+    private static void CheckLogFile(BundleWalk walk, string path, FileLayout layout)
     {
         if (layout.HasFrontmatter)
         {
-            try
-            {
-                OkfDocument.Parse(layout.Text);
-            }
-            catch (OkfDocumentException exception)
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.InvalidLogStructure,
-                    $"log.md has a malformed frontmatter block: {exception.Message} (§9).",
-                    path,
-                    1,
-                    bundle));
-            }
+            CheckLogFrontmatter(walk, path, layout);
         }
 
         MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
+        CheckLogDateHeadings(walk, path, scan);
+        CheckLinks(walk, path, scan);
+    }
+
+    private static void CheckLogFrontmatter(BundleWalk walk, string path, FileLayout layout)
+    {
+        try
+        {
+            OkfDocument.Parse(layout.Text);
+        }
+        catch (OkfDocumentException exception)
+        {
+            walk.Report(
+                OkfRules.InvalidLogStructure,
+                $"log.md has a malformed frontmatter block: {exception.Message} (§9).",
+                path,
+                1);
+        }
+    }
+
+    // §9: `##` headings are ISO YYYY-MM-DD dates, newest first. A `#` title above them is
+    // conventional, and entry prose is unconstrained.
+    private static void CheckLogDateHeadings(BundleWalk walk, string path, MarkdownScan scan)
+    {
         DateOnly? previous = null;
 
-        // §9: `##` headings are ISO YYYY-MM-DD dates, newest first. A `#` title above
-        // them is conventional, and entry prose is unconstrained.
         foreach (MarkdownHeading heading in scan.Headings.Where(heading => heading.Level == 2))
         {
             DateOnly? date = Date(heading.Text);
             if (date is null)
             {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.InvalidLogStructure,
-                    $"log.md date heading `## {heading.Text}` is not an ISO YYYY-MM-DD date (§9).",
-                    path,
-                    heading.Line,
-                    bundle));
+                ReportUndatedLogHeading(walk, path, heading);
                 continue;
             }
 
             if (previous is not null && date > previous)
             {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.InvalidLogStructure,
-                    $"log.md entries must be newest first: `## {heading.Text}` follows `## {previous:yyyy-MM-dd}` (§9).",
-                    path,
-                    heading.Line,
-                    bundle));
+                ReportOutOfOrderLogHeading(walk, path, heading, previous.Value);
             }
 
             previous = date;
         }
-
-        CheckLinks(bundle, path, scan, diagnostics);
     }
 
-    private void CheckConcept(
-        OkfBundle bundle,
+    private static void ReportUndatedLogHeading(BundleWalk walk, string path, MarkdownHeading heading) => walk.Report(
+        OkfRules.InvalidLogStructure,
+        $"log.md date heading `## {heading.Text}` is not an ISO YYYY-MM-DD date (§9).",
+        path,
+        heading.Line);
+
+    private static void ReportOutOfOrderLogHeading(
+        BundleWalk walk,
         string path,
-        FileLayout layout,
-        OkfDocument? document,
-        OkfDocumentException? failure,
-        Dictionary<string, string> titles,
-        Dictionary<string, string> stems,
-        List<OkfDiagnostic> diagnostics)
+        MarkdownHeading heading,
+        DateOnly previous) => walk.Report(
+        OkfRules.InvalidLogStructure,
+        $"log.md entries must be newest first: `## {heading.Text}` follows `## {previous:yyyy-MM-dd}` (§9).",
+        path,
+        heading.Line);
+
+    private void CheckConceptFile(BundleWalk walk, string path, FileLayout layout)
     {
+        OkfDocument? document = TryParseConcept(walk, path, layout);
         if (document is null)
         {
-            // §11.1: without a parseable frontmatter block nothing else about the file
-            // can be judged, so this is the only diagnostic it produces.
-            diagnostics.Add(Diagnostic(
-                OkfRules.UnparseableFrontmatter,
-                $"{failure!.Message} (§11.1).",
-                path,
-                1,
-                bundle));
             return;
         }
 
+        walk.Frontmatters[path] = document.Frontmatter;
         if (!layout.HasFrontmatter)
         {
-            // §11.1 asks for a frontmatter *block*; a file without one parses fine (the
-            // whole text is body) but is not a concept, so report the missing block
-            // rather than the `type` it could not have carried.
-            diagnostics.Add(Diagnostic(
-                OkfRules.UnparseableFrontmatter,
-                "File has no YAML frontmatter block; every non-reserved .md file is a concept (§11.1).",
-                path,
-                1,
-                bundle));
+            ReportMissingFrontmatterBlock(walk, path);
             return;
         }
 
-        OkfMapping frontmatter = document.Frontmatter;
+        CheckRequiredKeys(walk, path, layout, document);
+        MarkdownScan scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
+        LintedConcept concept = new LintedConcept(path, layout, document.Frontmatter, scan);
 
+        CheckHygiene(walk, concept);
+        CheckProvenance(walk, concept);
+        CheckTrust(walk, concept);
+        CheckLinks(walk, concept.Path, concept.Scan);
+    }
+
+    /// <summary>
+    /// §11.1 asks for a frontmatter <em>block</em>; a file without one parses fine (the
+    /// whole text is body) but is not a concept, so the missing block is reported rather
+    /// than the <c>type</c> it could not have carried.
+    /// </summary>
+    private static void ReportMissingFrontmatterBlock(BundleWalk walk, string path) => walk.Report(
+        OkfRules.UnparseableFrontmatter,
+        "File has no YAML frontmatter block; every non-reserved .md file is a concept (§11.1).",
+        path,
+        1);
+
+    /// <summary>
+    /// §11.1: without a parseable frontmatter block nothing else about the file can be
+    /// judged, so that is the only diagnostic an unparseable one produces.
+    /// </summary>
+    private static OkfDocument? TryParseConcept(BundleWalk walk, string path, FileLayout layout)
+    {
+        try
+        {
+            return OkfDocument.Parse(layout.Text);
+        }
+        catch (OkfDocumentException exception)
+        {
+            walk.Report(OkfRules.UnparseableFrontmatter, $"{exception.Message} (§11.1).", path, 1);
+            return null;
+        }
+    }
+
+    private static void CheckRequiredKeys(BundleWalk walk, string path, FileLayout layout, OkfDocument document)
+    {
         try
         {
             document.Validate();
         }
         catch (OkfDocumentException exception)
         {
-            diagnostics.Add(Diagnostic(
+            walk.Report(
                 OkfRules.MissingType,
                 $"{exception.Message} (§11.2).",
                 path,
-                layout.FrontmatterKeyLine("type") ?? 1,
-                bundle));
+                layout.FrontmatterKeyLine("type") ?? 1);
         }
-
-        MarkdownScan scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
-
-        CheckHygiene(bundle, path, layout, frontmatter, titles, stems, diagnostics);
-        CheckProvenance(bundle, path, layout, frontmatter, scan, diagnostics);
-        CheckTrust(bundle, path, layout, frontmatter, diagnostics);
-        CheckLinks(bundle, path, scan, diagnostics);
     }
 
-    private void CheckHygiene(
-        OkfBundle bundle,
-        string path,
-        FileLayout layout,
-        OkfMapping frontmatter,
-        Dictionary<string, string> titles,
-        Dictionary<string, string> stems,
-        List<OkfDiagnostic> diagnostics)
+    private void CheckHygiene(BundleWalk walk, LintedConcept concept)
     {
-        if (FrontmatterValues.Scalar(frontmatter, "description") is null)
+        CheckDescription(walk, concept);
+        CheckTags(walk, concept);
+        CheckNearDuplicates(walk, concept);
+    }
+
+    private static void CheckDescription(BundleWalk walk, LintedConcept concept)
+    {
+        if (FrontmatterValues.Scalar(concept.Frontmatter, "description") is null)
         {
-            diagnostics.Add(Diagnostic(
+            walk.Report(
                 OkfRules.MissingDescription,
                 "Concept has no `description`; index entries and search results degrade without one (§4.1).",
-                path,
-                1,
-                bundle));
+                concept.Path,
+                1);
         }
+    }
 
-        List<string> tags = Tags(frontmatter).ToList();
+    private void CheckTags(BundleWalk walk, LintedConcept concept)
+    {
+        List<string> tags = Tags(concept.Frontmatter).ToList();
         if (tags.Count == 0)
         {
-            diagnostics.Add(Diagnostic(
-                OkfRules.MissingTags,
-                "Concept has no `tags` (§4.1).",
-                path,
-                1,
-                bundle));
+            walk.Report(OkfRules.MissingTags, "Concept has no `tags` (§4.1).", concept.Path, 1);
         }
         else if (_options.TagRegistry is { } registry)
         {
-            foreach (string tag in tags.Where(tag => !registry.Contains(tag, StringComparer.Ordinal)))
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.UnregisteredTag,
-                    $"Tag `{tag}` is not in the bundle's tag registry.",
-                    path,
-                    layout.FrontmatterKeyLine("tags") ?? 1,
-                    bundle));
-            }
+            CheckTagsAreRegistered(walk, concept, tags, registry);
         }
+    }
 
-        // Near-duplicate detection, MVP heuristic (PRD Q8): a title or filename collision
-        // up to case and punctuation. Vectorization would do better and is post-MVP.
-        //
-        // Convention-bearing filenames are exempt from both arms (the Q1/Q8
-        // reconciliation). `about.md` is the designated carrier of a subdirectory's
-        // description, so a well-maintained bundle holds one per subdirectory; neither
-        // that name nor the generic title that usually accompanies it says anything about
-        // the content, and reporting them would punish following the convention. Such a
-        // file neither reports a collision nor seeds one for a later file.
-        if (OkfBundle.IsConventionalFile(path))
+    private static void CheckTagsAreRegistered(
+        BundleWalk walk,
+        LintedConcept concept,
+        List<string> tags,
+        IReadOnlyList<string> registry)
+    {
+        foreach (string tag in tags.Where(tag => !registry.Contains(tag, StringComparer.Ordinal)))
+        {
+            walk.Report(
+                OkfRules.UnregisteredTag,
+                $"Tag `{tag}` is not in the bundle's tag registry.",
+                concept.Path,
+                concept.Layout.FrontmatterKeyLine("tags") ?? 1);
+        }
+    }
+
+    /// <summary>
+    /// Near-duplicate detection, MVP heuristic (PRD Q8): a title or filename collision up
+    /// to case and punctuation. Vectorization would do better and is post-MVP.
+    /// </summary>
+    /// <remarks>
+    /// Convention-bearing filenames are exempt from both arms (the Q1/Q8 reconciliation).
+    /// <c>about.md</c> is the designated carrier of a subdirectory's description, so a
+    /// well-maintained bundle holds one per subdirectory; neither that name nor the generic
+    /// title that usually accompanies it says anything about the content, and reporting
+    /// them would punish following the convention. Such a file neither reports a collision
+    /// nor seeds one for a later file.
+    /// </remarks>
+    private static void CheckNearDuplicates(BundleWalk walk, LintedConcept concept)
+    {
+        if (OkfBundle.IsConventionalFile(concept.Path))
         {
             return;
         }
 
-        string? reportedAgainst = (string?)null;
-        if (FrontmatterValues.Scalar(frontmatter, "title") is { } title && Normalize(title) is { Length: > 0 } normalizedTitle)
+        // Reporting the filename collision as well would say the same thing twice about
+        // one pair of files, so a title finding suppresses it.
+        string? reportedAgainst = CheckDuplicateTitle(walk, concept);
+        CheckDuplicateStem(walk, concept, reportedAgainst);
+    }
+
+    /// <summary>Reports a title collision, and returns the file it collided with if there was one.</summary>
+    private static string? CheckDuplicateTitle(BundleWalk walk, LintedConcept concept)
+    {
+        if (FrontmatterValues.Scalar(concept.Frontmatter, "title") is not { } title
+            || Normalize(title) is not { Length: > 0 } normalized)
         {
-            if (titles.TryGetValue(normalizedTitle, out string? first))
-            {
-                reportedAgainst = first;
-                diagnostics.Add(Diagnostic(
-                    OkfRules.NearDuplicateConcept,
-                    $"Concept title duplicates `{bundle.RelativePath(first)}` up to case and punctuation.",
-                    path,
-                    layout.FrontmatterKeyLine("title") ?? 1,
-                    bundle));
-            }
-            else
-            {
-                titles[normalizedTitle] = path;
-            }
+            return null;
         }
 
-        string stem = Normalize(Path.GetFileNameWithoutExtension(path));
+        if (!walk.TitleOwners.TryGetValue(normalized, out string? first))
+        {
+            walk.TitleOwners[normalized] = concept.Path;
+            return null;
+        }
+
+        walk.Report(
+            OkfRules.NearDuplicateConcept,
+            $"Concept title duplicates `{walk.Bundle.RelativePath(first)}` up to case and punctuation.",
+            concept.Path,
+            concept.Layout.FrontmatterKeyLine("title") ?? 1);
+
+        return first;
+    }
+
+    private static void CheckDuplicateStem(BundleWalk walk, LintedConcept concept, string? reportedAgainst)
+    {
+        string stem = Normalize(Path.GetFileNameWithoutExtension(concept.Path));
         if (stem.Length == 0)
         {
             return;
         }
 
-        if (stems.TryGetValue(stem, out string? firstByStem))
+        if (!walk.StemOwners.TryGetValue(stem, out string? first))
         {
-            if (!string.Equals(firstByStem, reportedAgainst, StringComparison.Ordinal))
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.NearDuplicateConcept,
-                    $"Concept filename duplicates `{bundle.RelativePath(firstByStem)}` up to case and punctuation.",
-                    path,
-                    1,
-                    bundle));
-            }
+            walk.StemOwners[stem] = concept.Path;
+            return;
         }
-        else
+
+        if (!string.Equals(first, reportedAgainst, StringComparison.Ordinal))
         {
-            stems[stem] = path;
+            walk.Report(
+                OkfRules.NearDuplicateConcept,
+                $"Concept filename duplicates `{walk.Bundle.RelativePath(first)}` up to case and punctuation.",
+                concept.Path,
+                1);
         }
     }
 
-    private void CheckProvenance(
-        OkfBundle bundle,
-        string path,
-        FileLayout layout,
-        OkfMapping frontmatter,
-        MarkdownScan scan,
-        List<OkfDiagnostic> diagnostics)
+    private static void CheckProvenance(BundleWalk walk, LintedConcept concept)
     {
-        int sourcesLine = layout.FrontmatterKeyLine("sources") ?? 1;
-        List<string> sourceIds = new List<string>();
+        List<string> sourceIds = SourceIds(concept.Frontmatter);
+        int sourcesLine = concept.Layout.FrontmatterKeyLine("sources") ?? 1;
+
+        CheckFootnotesJoinSources(walk, concept, sourceIds);
+        CheckSourcesAreCited(walk, concept, sourceIds, sourcesLine);
+        CheckSourceResources(walk, concept, sourcesLine);
+        CheckSourceDrift(walk, concept, sourcesLine);
+    }
+
+    private static List<string> SourceIds(OkfMapping frontmatter)
+    {
+        List<string> ids = new List<string>();
         foreach (OkfMapping source in Sources(frontmatter))
         {
             if (FrontmatterValues.Scalar(source, "id") is { } id)
             {
-                sourceIds.Add(id);
+                ids.Add(id);
             }
         }
 
+        return ids;
+    }
+
+    private static void CheckFootnotesJoinSources(BundleWalk walk, LintedConcept concept, List<string> sourceIds)
+    {
         HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
 
-        // Only a footnote *reference* counts as a citation. A `[^id]: …` definition line is
-        // the source's own entry in the notes, not a claim attributed to it, so a
-        // definition with no reference above it is exactly the shape of a source that was
-        // listed and then never used (the first dogfood bundle shipped one, and only
-        // markdownlint's MD053 caught it — decisions.md, lint review flags).
-        HashSet<string> referenced = new HashSet<string>(
-            scan.Footnotes.Where(footnote => !footnote.IsDefinition).Select(footnote => footnote.Label),
-            StringComparer.Ordinal);
-
-        foreach (MarkdownFootnote footnote in scan.Footnotes)
+        foreach (MarkdownFootnote footnote in concept.Scan.Footnotes)
         {
-            if (!seen.Add(footnote.Label))
-            {
-                continue;
-            }
-
             // §5.1: the footnote label is the join key into `sources`; a label that joins
             // to nothing attributes a claim to a source the bundle does not record. Both
-            // occurrence forms are held to it — a definition for a label no source
-            // declares is as dangling as a reference to one.
-            if (!sourceIds.Contains(footnote.Label, StringComparer.Ordinal))
+            // occurrence forms are held to it — a definition for a label no source declares
+            // is as dangling as a reference to one.
+            if (seen.Add(footnote.Label) && !sourceIds.Contains(footnote.Label, StringComparer.Ordinal))
             {
-                diagnostics.Add(Diagnostic(
+                walk.Report(
                     OkfRules.UncitedFootnote,
                     $"Footnote `[^{footnote.Label}]` matches no `sources[].id` (§5.1).",
-                    path,
-                    footnote.Line,
-                    bundle));
-            }
-        }
-
-        HashSet<string> defined = new HashSet<string>(
-            scan.Footnotes.Where(footnote => footnote.IsDefinition).Select(footnote => footnote.Label),
-            StringComparer.Ordinal);
-
-        foreach (string id in sourceIds.Where(id => !referenced.Contains(id)))
-        {
-            // The two shapes read very differently to the author. "Never cited by a
-            // `[^id]` footnote" is false on its face when a `[^id]:` line is sitting in
-            // the document — which is precisely the case this rule newly reports — so the
-            // definition-only finding says what is actually missing instead.
-            diagnostics.Add(Diagnostic(
-                OkfRules.UnusedSourceId,
-                defined.Contains(id)
-                    ? $"Source `{id}` has a `[^{id}]:` footnote definition but is never referenced by a "
-                        + $"`[^{id}]` in the body; a definition is the note, not a citation (§5.1)."
-                    : $"Source `{id}` is never cited by a `[^{id}]` footnote in the body (§5.1).",
-                path,
-                sourcesLine,
-                bundle));
-        }
-
-        CheckSourceResources(bundle, path, sourcesLine, frontmatter, diagnostics);
-
-        // PRD CORE-8: the compensating control for cited-live sources — the source moved
-        // after the concept was written, so the concept may no longer reflect it.
-        DateOnly? generatedAt = Date(NestedText(frontmatter, "generated", "at"));
-        if (generatedAt is null)
-        {
-            return;
-        }
-
-        foreach (OkfMapping source in Sources(frontmatter))
-        {
-            DateOnly? modified = Date(FrontmatterValues.Scalar(source, "last_modified"));
-            if (modified > generatedAt)
-            {
-                string name = FrontmatterValues.Scalar(source, "id") ?? FrontmatterValues.Scalar(source, "resource") ?? "source";
-                diagnostics.Add(Diagnostic(
-                    OkfRules.SourceDrift,
-                    $"Source `{name}` was last modified {modified:yyyy-MM-dd}, after this concept was generated on {generatedAt:yyyy-MM-dd}.",
-                    path,
-                    sourcesLine,
-                    bundle));
+                    concept.Path,
+                    footnote.Line);
             }
         }
     }
+
+    private static void CheckSourcesAreCited(
+        BundleWalk walk,
+        LintedConcept concept,
+        List<string> sourceIds,
+        int sourcesLine)
+    {
+        HashSet<string> referenced = ReferencedFootnoteLabels(concept.Scan);
+        HashSet<string> defined = DefinedFootnoteLabels(concept.Scan);
+
+        foreach (string id in sourceIds.Where(id => !referenced.Contains(id)))
+        {
+            walk.Report(
+                OkfRules.UnusedSourceId,
+                defined.Contains(id) ? DefinedButNeverReferenced(id) : NeverCited(id),
+                concept.Path,
+                sourcesLine);
+        }
+    }
+
+    // Only a footnote *reference* counts as a citation. A `[^id]: …` definition line is the
+    // source's own entry in the notes, not a claim attributed to it, so a definition with no
+    // reference above it is exactly the shape of a source that was listed and then never
+    // used (the first dogfood bundle shipped one, and only markdownlint's MD053 caught it —
+    // decisions.md, lint review flags).
+    private static HashSet<string> ReferencedFootnoteLabels(MarkdownScan scan) =>
+        new(scan.Footnotes.Where(footnote => !footnote.IsDefinition).Select(footnote => footnote.Label),
+            StringComparer.Ordinal);
+
+    private static HashSet<string> DefinedFootnoteLabels(MarkdownScan scan) =>
+        new(scan.Footnotes.Where(footnote => footnote.IsDefinition).Select(footnote => footnote.Label),
+            StringComparer.Ordinal);
+
+    // The two shapes read very differently to the author. "Never cited by a `[^id]` footnote"
+    // is false on its face when a `[^id]:` line is sitting in the document — which is
+    // precisely the case this rule newly reports — so the definition-only finding says what
+    // is actually missing instead.
+    private static string DefinedButNeverReferenced(string id) =>
+        $"Source `{id}` has a `[^{id}]:` footnote definition but is never referenced by a "
+            + $"`[^{id}]` in the body; a definition is the note, not a citation (§5.1).";
+
+    private static string NeverCited(string id) =>
+        $"Source `{id}` is never cited by a `[^{id}]` footnote in the body (§5.1).";
 
     /// <summary>
     /// §5.1's `resource` is REQUIRED within a `sources` entry, and §6.2 fixes the forms a
@@ -834,127 +867,232 @@ public sealed class OkfLinter
     /// path that names nothing in the bundle is reported the way a broken link is (info),
     /// because the same "the target may simply not be here" tolerance applies.
     /// </summary>
-    private void CheckSourceResources(
-        OkfBundle bundle,
-        string path,
-        int sourcesLine,
-        OkfMapping frontmatter,
-        List<OkfDiagnostic> diagnostics)
+    private static void CheckSourceResources(BundleWalk walk, LintedConcept concept, int sourcesLine)
     {
-        string directory = Path.GetDirectoryName(path)!;
-        int position = 0;
+        foreach (NamedSource source in NamedSources(concept.Frontmatter))
+        {
+            CheckSourceResource(walk, concept, sourcesLine, source);
+        }
+    }
 
+    private static void CheckSourceResource(BundleWalk walk, LintedConcept concept, int sourcesLine, NamedSource source)
+    {
+        if (FrontmatterValues.Scalar(source.Entry, "resource") is not { } resource)
+        {
+            walk.Report(
+                OkfRules.MissingSourceResource,
+                $"Source {source.Name} has no `resource`; every `sources` entry needs one (§5.1).",
+                concept.Path,
+                sourcesLine);
+            return;
+        }
+
+        if (NamesNothingInTheBundle(walk, concept, resource))
+        {
+            walk.Report(
+                OkfRules.UnresolvableSourceResource,
+                $"Source {source.Name} points at `{resource}`, which resolves to nothing inside the bundle (§6.2).",
+                concept.Path,
+                sourcesLine);
+        }
+    }
+
+    // §5.1 explicitly allows a scope descriptor here and §6.2 an absolute URL; neither is
+    // checked, and neither is a network call (PRD CLI-16).
+    private static bool NamesNothingInTheBundle(BundleWalk walk, LintedConcept concept, string resource) =>
+        LintText.ClassifyResource(resource, walk.Bundle.Root, Path.GetDirectoryName(concept.Path)!)
+            == SourceResource.Unresolved;
+
+    private static IEnumerable<NamedSource> NamedSources(OkfMapping frontmatter)
+    {
+        int position = 0;
         foreach (OkfMapping source in Sources(frontmatter))
         {
             position++;
-            string name = FrontmatterValues.Scalar(source, "id") is { } id
-                ? $"`{id}`"
-                : $"#{position.ToString(CultureInfo.InvariantCulture)}";
-
-            if (FrontmatterValues.Scalar(source, "resource") is not { } resource)
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.MissingSourceResource,
-                    $"Source {name} has no `resource`; every `sources` entry needs one (§5.1).",
-                    path,
-                    sourcesLine,
-                    bundle));
-                continue;
-            }
-
-            // §5.1 explicitly allows a scope descriptor here and §6.2 an absolute URL;
-            // neither is checked, and neither is a network call (PRD CLI-16).
-            if (LintText.ClassifyResource(resource, bundle.Root, directory) == SourceResource.Unresolved)
-            {
-                diagnostics.Add(Diagnostic(
-                    OkfRules.UnresolvableSourceResource,
-                    $"Source {name} points at `{resource}`, which resolves to nothing inside the bundle (§6.2).",
-                    path,
-                    sourcesLine,
-                    bundle));
-            }
+            yield return new NamedSource(
+                source,
+                FrontmatterValues.Scalar(source, "id") is { } id
+                    ? $"`{id}`"
+                    : $"#{position.ToString(CultureInfo.InvariantCulture)}");
         }
     }
 
-    private void CheckTrust(
-        OkfBundle bundle,
-        string path,
-        FileLayout layout,
-        OkfMapping frontmatter,
-        List<OkfDiagnostic> diagnostics)
+    // PRD CORE-8: the compensating control for cited-live sources — the source moved after
+    // the concept was written, so the concept may no longer reflect it.
+    private static void CheckSourceDrift(BundleWalk walk, LintedConcept concept, int sourcesLine)
     {
-        string? generatedBy = NestedText(frontmatter, "generated", "by");
-        if (generatedBy is not null)
+        DateOnly? generatedAt = Date(NestedText(concept.Frontmatter, "generated", "at"));
+        if (generatedAt is null)
         {
-            foreach (OkfMapping verification in OkfDocument.NormalizeVerified(frontmatter))
-            {
-                if (string.Equals(FrontmatterValues.Scalar(verification, "by"), generatedBy, StringComparison.Ordinal))
-                {
-                    // decisions.md §7: an agent MAY verify, but never its own output.
-                    diagnostics.Add(Diagnostic(
-                        OkfRules.SelfVerification,
-                        $"`verified[].by` is the generating actor `{generatedBy}`; a concept must not verify itself (§5.3).",
-                        path,
-                        layout.FrontmatterKeyLine("verified") ?? 1,
-                        bundle));
-                }
-            }
+            return;
         }
 
-        if (OkfDocument.IsStale(frontmatter, _options.Today))
+        foreach (OkfMapping source in Sources(concept.Frontmatter))
         {
-            diagnostics.Add(Diagnostic(
-                OkfRules.StaleConcept,
-                $"Concept is stale: `stale_after: {FrontmatterValues.Scalar(frontmatter, "stale_after")}` has passed (§5.5).",
-                path,
-                layout.FrontmatterKeyLine("stale_after") ?? 1,
-                bundle));
+            DateOnly? modified = Date(FrontmatterValues.Scalar(source, "last_modified"));
+            if (modified > generatedAt)
+            {
+                walk.Report(
+                    OkfRules.SourceDrift,
+                    $"Source `{DriftedSourceName(source)}` was last modified {modified:yyyy-MM-dd}, after this concept was generated on {generatedAt:yyyy-MM-dd}.",
+                    concept.Path,
+                    sourcesLine);
+            }
         }
     }
 
-    private void CheckLinks(OkfBundle bundle, string path, MarkdownScan scan, List<OkfDiagnostic> diagnostics)
+    private static string DriftedSourceName(OkfMapping source) =>
+        FrontmatterValues.Scalar(source, "id") ?? FrontmatterValues.Scalar(source, "resource") ?? "source";
+
+    private void CheckTrust(BundleWalk walk, LintedConcept concept)
+    {
+        CheckSelfVerification(walk, concept);
+        CheckStaleness(walk, concept);
+    }
+
+    // decisions.md §7: an agent MAY verify, but never its own output.
+    private static void CheckSelfVerification(BundleWalk walk, LintedConcept concept)
+    {
+        if (NestedText(concept.Frontmatter, "generated", "by") is not { } generatedBy)
+        {
+            return;
+        }
+
+        foreach (OkfMapping verification in OkfDocument.NormalizeVerified(concept.Frontmatter))
+        {
+            if (string.Equals(FrontmatterValues.Scalar(verification, "by"), generatedBy, StringComparison.Ordinal))
+            {
+                walk.Report(
+                    OkfRules.SelfVerification,
+                    $"`verified[].by` is the generating actor `{generatedBy}`; a concept must not verify itself (§5.3).",
+                    concept.Path,
+                    concept.Layout.FrontmatterKeyLine("verified") ?? 1);
+            }
+        }
+    }
+
+    private void CheckStaleness(BundleWalk walk, LintedConcept concept)
+    {
+        if (OkfDocument.IsStale(concept.Frontmatter, _options.Today))
+        {
+            walk.Report(
+                OkfRules.StaleConcept,
+                $"Concept is stale: `stale_after: {FrontmatterValues.Scalar(concept.Frontmatter, "stale_after")}` has passed (§5.5).",
+                concept.Path,
+                concept.Layout.FrontmatterKeyLine("stale_after") ?? 1);
+        }
+    }
+
+    private static void CheckLinks(BundleWalk walk, string path, MarkdownScan scan)
     {
         string directory = Path.GetDirectoryName(path)!;
-
         foreach (MarkdownLink link in scan.Links)
         {
-            LinkTarget target = LintText.Resolve(link.Target, bundle.Root, directory, out string? resolved);
-
-            if (target == LinkTarget.Outside)
-            {
-                // Spec-tolerated and therefore never an error by default: §6.2 grants
-                // relative paths and says nothing about staying inside the root. But an
-                // unreported one is indistinguishable from a correct link, and a bundle
-                // that only reads correctly from inside this checkout is not portable —
-                // so it is said out loud, at info. Nothing is read: containment on the
-                // read paths (MCP-5) is a separate, harder refusal.
-                diagnostics.Add(Diagnostic(
-                    OkfRules.LinkLeavesBundle,
-                    $"Link target `{link.Target}` resolves outside the bundle root (§6.2).",
-                    path,
-                    link.Line,
-                    bundle));
-                continue;
-            }
-
-            if (target != LinkTarget.Inside)
-            {
-                continue;
-            }
-
-            if (File.Exists(resolved) || Directory.Exists(resolved))
-            {
-                continue;
-            }
-
-            // §6.1: consumers MUST tolerate broken links — a link may simply be
-            // not-yet-written knowledge — so this defaults to info, not warning (Q5).
-            diagnostics.Add(Diagnostic(
-                OkfRules.BrokenInternalLink,
-                $"Link target `{link.Target}` does not exist in the bundle (§6.1).",
-                path,
-                link.Line,
-                bundle));
+            CheckLink(walk, path, directory, link);
         }
+    }
+
+    private static void CheckLink(BundleWalk walk, string path, string directory, MarkdownLink link)
+    {
+        LinkTarget target = LintText.Resolve(link.Target, walk.Bundle.Root, directory, out string? resolved);
+
+        if (target == LinkTarget.Outside)
+        {
+            ReportLinkLeavesBundle(walk, path, link);
+            return;
+        }
+
+        if (target == LinkTarget.Inside && !File.Exists(resolved) && !Directory.Exists(resolved))
+        {
+            ReportBrokenLink(walk, path, link);
+        }
+    }
+
+    /// <summary>
+    /// Spec-tolerated and therefore never an error by default: §6.2 grants relative paths
+    /// and says nothing about staying inside the root. But an unreported one is
+    /// indistinguishable from a correct link, and a bundle that only reads correctly from
+    /// inside this checkout is not portable — so it is said out loud, at info. Nothing is
+    /// read: containment on the read paths (MCP-5) is a separate, harder refusal.
+    /// </summary>
+    private static void ReportLinkLeavesBundle(BundleWalk walk, string path, MarkdownLink link) => walk.Report(
+        OkfRules.LinkLeavesBundle,
+        $"Link target `{link.Target}` resolves outside the bundle root (§6.2).",
+        path,
+        link.Line);
+
+    /// <summary>
+    /// §6.1: consumers MUST tolerate broken links — a link may simply be not-yet-written
+    /// knowledge — so this defaults to info, not warning (Q5).
+    /// </summary>
+    private static void ReportBrokenLink(BundleWalk walk, string path, MarkdownLink link) => walk.Report(
+        OkfRules.BrokenInternalLink,
+        $"Link target `{link.Target}` does not exist in the bundle (§6.1).",
+        path,
+        link.Line);
+
+    /// <summary>A concept file as the rules see it: where it is, and everything already parsed out of it.</summary>
+    private sealed record LintedConcept(string Path, FileLayout Layout, OkfMapping Frontmatter, MarkdownScan Scan);
+
+    /// <summary>
+    /// A <c>sources</c> entry together with the way a message names it: its <c>id</c> when
+    /// it declares one, else its 1-based position in the block.
+    /// </summary>
+    private sealed record NamedSource(OkfMapping Entry, string Name);
+
+    /// <summary>One file an ingested capture entry recorded, with the manifest that recorded it.</summary>
+    private sealed record IngestedFile(
+        OkfCaptureManifest Manifest,
+        string ManifestText,
+        OkfCaptureEntry Entry,
+        OkfCaptureFile File);
+
+    /// <summary>
+    /// One bundle's walk: the bundle being linted, where its diagnostics go, and the state
+    /// the rules that need more than the file in front of them accumulate along the way.
+    /// </summary>
+    private sealed class BundleWalk
+    {
+        private readonly List<OkfDiagnostic> _diagnostics;
+        private readonly OkfSeverityResolver _severities;
+
+        public BundleWalk(OkfBundle bundle, List<OkfDiagnostic> diagnostics, OkfSeverityResolver severities)
+        {
+            Bundle = bundle;
+            _diagnostics = diagnostics;
+            _severities = severities;
+        }
+
+        /// <summary>The bundle being walked.</summary>
+        public OkfBundle Bundle { get; }
+
+        /// <summary>
+        /// Every <c>index.md</c>'s text, kept so the index-drift rule reuses this walk
+        /// instead of repeating it: surfacing OKF0306 in <c>okf lint</c> therefore costs one
+        /// in-memory render per directory and no extra file read or YAML parse.
+        /// </summary>
+        public Dictionary<string, string> IndexTexts { get; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Every concept's parsed frontmatter, for the same reason as <see cref="IndexTexts" />.
+        /// Concept *texts* are deliberately not kept — the generator never asks for one once
+        /// its frontmatter is to hand — so the walk does not accumulate the whole bundle in
+        /// memory to answer one rule.
+        /// </summary>
+        public Dictionary<string, OkfMapping> Frontmatters { get; } =
+            new Dictionary<string, OkfMapping>(StringComparer.Ordinal);
+
+        /// <summary>The first concept seen carrying each normalized title.</summary>
+        public Dictionary<string, string> TitleOwners { get; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>The first concept seen carrying each normalized filename stem.</summary>
+        public Dictionary<string, string> StemOwners { get; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Records a diagnostic against this bundle, at the rule's resolved severity.</summary>
+        public void Report(string ruleId, string message, string path, int? line) =>
+            _diagnostics.Add(new OkfDiagnostic(ruleId, _severities.Resolve(ruleId), message, path, line, Bundle.Root));
     }
 }
