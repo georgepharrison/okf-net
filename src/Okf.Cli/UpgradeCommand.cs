@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -221,14 +219,7 @@ internal static class UpgradeCommand
 
     private static string Json(OkfUpgradePlan plan)
     {
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("current", plan.CurrentVersion);
@@ -238,9 +229,7 @@ internal static class UpgradeCommand
             writer.WriteString("sha256", plan.Asset.Sha256);
             writer.WriteBoolean("upToDate", plan.IsUpToDate);
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     private static void WriteUsage(TextWriter writer)

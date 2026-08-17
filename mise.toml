@@ -59,14 +59,15 @@ description = "Run Stryker.NET mutation testing over the whole solution — the 
 # config-file key for it (`output` is CLI-only) and artifacts/ is what .gitignore
 # already covers. dotnet-stryker is pinned in .config/dotnet-tools.json.
 #
-# ~8 minutes on 8 cores for ~3400 mutants. Deliberately not part of `mise run test`.
+# ~22 minutes on 8 cores for ~11000 mutants (measured 2026-08-16,
+# docs/spikes/2026-08-16-mutation-baseline.md). Deliberately not part of `mise run test`.
 run = [
   "dotnet tool restore",
   "dotnet stryker --output artifacts/stryker --skip-version-check",
 ]
 
 [tasks.mutate-quick]
-description = "Mutate only what changed against origin/main (Stryker --since). Minutes instead of ~8, at the cost of a score that describes the diff rather than the solution."
+description = "Mutate only what changed against origin/main (Stryker --since). Minutes instead of ~22, at the cost of a score that describes the diff rather than the solution."
 # `--since:<committish>` needs the ref to exist locally, so `git fetch origin` first if
 # origin/main is stale. Mutants outside the diff are reported with no result, so the
 # score printed here is NOT comparable to `mise run mutate`: read it as "did my change

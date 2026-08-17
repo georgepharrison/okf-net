@@ -321,7 +321,8 @@ public sealed class OkfLinter
         {
             diagnostics.Add(VaultDiagnostic(
                 $"`{file.Path}`, ingested under capture `{entry.Id}`, no longer matches its recorded sha256 " +
-                $"(recorded {Short(file.Sha256)}, on disk {Short(actual)}). The artifact changed after ingestion, " +
+                $"(recorded {OkfCaptureManifest.Short(file.Sha256)}, on disk {OkfCaptureManifest.Short(actual)}). " +
+                "The artifact changed after ingestion, " +
                 "or the record did; resolve it by hand, never by rewriting the manifest.",
                 manifest.Path,
                 LineOf(manifestText, file.Sha256)));
@@ -372,17 +373,13 @@ public sealed class OkfLinter
         return null;
     }
 
-    private static string Short(string sha256) =>
-        sha256.Length > 12 ? sha256[..12] + "…" : sha256;
-
     private OkfDiagnostic VaultDiagnostic(string message, string path, int? line) =>
         new(OkfRules.RawItemMutated, this.options.Severities.Resolve(OkfRules.RawItemMutated), message, path, line);
 
-    private static string? Text(OkfMapping mapping, string key) =>
-        mapping.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy ? scalar.Value : null;
-
     private static string? NestedText(OkfMapping mapping, string key, string child) =>
-        mapping.TryGetValue(key, out var value) && value is OkfMapping nested ? Text(nested, child) : null;
+        mapping.TryGetValue(key, out var value) && value is OkfMapping nested
+            ? FrontmatterValues.Scalar(nested, child)
+            : null;
 
     private static DateOnly? Date(string? text)
     {
@@ -641,7 +638,7 @@ public sealed class OkfLinter
         Dictionary<string, string> stems,
         List<OkfDiagnostic> diagnostics)
     {
-        if (Text(frontmatter, "description") is null)
+        if (FrontmatterValues.Scalar(frontmatter, "description") is null)
         {
             diagnostics.Add(Diagnostic(
                 OkfRules.MissingDescription,
@@ -689,7 +686,7 @@ public sealed class OkfLinter
         }
 
         var reportedAgainst = (string?)null;
-        if (Text(frontmatter, "title") is { } title && Normalize(title) is { Length: > 0 } normalizedTitle)
+        if (FrontmatterValues.Scalar(frontmatter, "title") is { } title && Normalize(title) is { Length: > 0 } normalizedTitle)
         {
             if (titles.TryGetValue(normalizedTitle, out var first))
             {
@@ -743,7 +740,7 @@ public sealed class OkfLinter
         var sourceIds = new List<string>();
         foreach (var source in Sources(frontmatter))
         {
-            if (Text(source, "id") is { } id)
+            if (FrontmatterValues.Scalar(source, "id") is { } id)
             {
                 sourceIds.Add(id);
             }
@@ -815,10 +812,10 @@ public sealed class OkfLinter
 
         foreach (var source in Sources(frontmatter))
         {
-            var modified = Date(Text(source, "last_modified"));
+            var modified = Date(FrontmatterValues.Scalar(source, "last_modified"));
             if (modified > generatedAt)
             {
-                var name = Text(source, "id") ?? Text(source, "resource") ?? "source";
+                var name = FrontmatterValues.Scalar(source, "id") ?? FrontmatterValues.Scalar(source, "resource") ?? "source";
                 diagnostics.Add(Diagnostic(
                     OkfRules.SourceDrift,
                     $"Source `{name}` was last modified {modified:yyyy-MM-dd}, after this concept was generated on {generatedAt:yyyy-MM-dd}.",
@@ -849,9 +846,11 @@ public sealed class OkfLinter
         foreach (var source in Sources(frontmatter))
         {
             position++;
-            var name = Text(source, "id") is { } id ? $"`{id}`" : $"#{position.ToString(CultureInfo.InvariantCulture)}";
+            var name = FrontmatterValues.Scalar(source, "id") is { } id
+                ? $"`{id}`"
+                : $"#{position.ToString(CultureInfo.InvariantCulture)}";
 
-            if (Text(source, "resource") is not { } resource)
+            if (FrontmatterValues.Scalar(source, "resource") is not { } resource)
             {
                 diagnostics.Add(Diagnostic(
                     OkfRules.MissingSourceResource,
@@ -888,7 +887,7 @@ public sealed class OkfLinter
         {
             foreach (var verification in OkfDocument.NormalizeVerified(frontmatter))
             {
-                if (string.Equals(Text(verification, "by"), generatedBy, StringComparison.Ordinal))
+                if (string.Equals(FrontmatterValues.Scalar(verification, "by"), generatedBy, StringComparison.Ordinal))
                 {
                     // decisions.md §7: an agent MAY verify, but never its own output.
                     diagnostics.Add(Diagnostic(
@@ -905,7 +904,7 @@ public sealed class OkfLinter
         {
             diagnostics.Add(Diagnostic(
                 OkfRules.StaleConcept,
-                $"Concept is stale: `stale_after: {Text(frontmatter, "stale_after")}` has passed (§5.5).",
+                $"Concept is stale: `stale_after: {FrontmatterValues.Scalar(frontmatter, "stale_after")}` has passed (§5.5).",
                 path,
                 layout.FrontmatterKeyLine("stale_after") ?? 1,
                 bundle));

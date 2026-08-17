@@ -2506,6 +2506,11 @@ why the wrong detail survived review for as long as it did.
   which is all the passage needed to claim. `AD-19` is titled "One hash convention, one
   implementation" and its Rule names both forms explicitly; read the heading as the
   convention, not as a count of methods.
+  - **Resolved 2026-08-16 (work item #13, contextual DRY): now one method after all.**
+    `OkfBundler.Digest` is gone; `Sha256Of(string path)` opens the file and calls an
+    internal `Sha256Of(Stream)` beside it, which is what the archive verifier calls too.
+    The heading now reads literally, and the digests are comparable because they are the
+    same code rather than because two one-liners agreed.
 - **The bundle walk's ordering claim was already corrected in place, in the multi-platform
   section — verified, not repeated here.** The first pass justified sorting the walk by the
   bundle-relative path with the claim that that order "is `okf lint`'s diagnostic order and
@@ -3613,3 +3618,75 @@ like this belongs in a record a person reads rather than in a version number.
 uncovered mutant and nothing else; confirming it should also settle whether the freeze
 means "no signature changes" or "no removals either", which the 1.0.0 review states as
 the former and this entry reads as the former.
+
+### Proposed decisions: contextual DRY (work item #13, 2026-08-16)
+
+Step F of the polish plan: unify duplication across `src/Okf.Core` and `src/Okf.Cli`
+where it is one concept written twice, and say why the rest was left. The rule applied
+throughout is the issue's own — *contextual* DRY: same concept **and** same rules, or it
+stays where it is. Every unification is behaviour-preserving, and that claim is checked
+rather than asserted: `okf help`, `okf lint okf/`, `okf lint --json`, `--list-rules`,
+`okf search` (text, `--json`, `--verbose`), `okf index --json` / `--check` / `--verbose`,
+`okf inbox` (all three), `okf site --json`, `okf bundle --verbose`, `okf skills list`,
+`okf completion bash`, `okf registry list` (text and `--json`, against an injected home),
+the argument-parser refusals, and an `okf mcp` session over `initialize` / `tools/list` /
+`tools/call` are byte-identical between a build of `origin/dev` and this branch. The
+three files that do differ are `okf --version` (it carries the commit sha), `okf upgrade
+--check --json` (it reads the live release feed) and the one deliberate behaviour change
+below.
+
+#### Unified
+
+| Concept | Was | Now |
+| --- | --- | --- |
+| The SHA-256 of some bytes (AD-19) | `OkfCaptureManifest.Sha256Of(string)` and `OkfBundler.Digest(Stream)`, two one-liners | `Sha256Of(string)` opens the file and calls an internal `Sha256Of(Stream)`; the archive verifier calls the same one. AD-19's Rule amended in place |
+| A digest as a message shows it | `Short(sha256)` in `OkfBundler` and in `OkfLinter` | `OkfCaptureManifest.Short`, beside the hash it abbreviates |
+| `--name=value` splitting, "requires a value", `--format` | `CliArguments` had all three and seven parsers used them; index, init, lint, registry, search and site carried private copies — thirteen in all | Every parser goes through `CliArguments` |
+| The `--json` writer setup | Seven identical `JsonWriterOptions` + `MemoryStream` + `Utf8JsonWriter` + `GetString` blocks in `Okf.Cli`, plus the MCP payload and envelope options stated again in two files | `JsonOutput.Write` (the read shape) and `JsonOutput.WriteWire` (the MCP framing shape), each with its reason written once |
+| `WriteStringOrNull` / `WriteNumberOrNull` | Copied into `SearchJson`, `InboxJson`, `McpToolset` | `JsonOutput` |
+| Writing a file atomically | `OkfRegistry.Save`, `OkfAgentPointer.AtomicWrite`, `OkfCaptureWriter.Save`, three temp-name schemes | `FileText.WriteAtomic`, one hidden-dotfile scheme, callers keep their own refusals |
+| UTF-8 with no BOM (ACC-7) | `new UTF8Encoding(false)` at eight sites | `FileText.Utf8NoBom` |
+| The `--verbose` resolution report (CLI-1, CLI-4) | The same two lines in six commands, the scope line in two | `VerboseReport.WorkingSet` and `VerboseReport.Scope` |
+| §11's present-and-truthy scalar (ACC-2) | `Scalar`/`Text` in `OkfConcept`, `OkfIndex`, `OkfSearch`, `OkfSiteBuilder`, `OkfInbox`, `OkfLinter` | `FrontmatterValues.Scalar`, with `tags` normalization (§5.4) beside it |
+| An optional string in a strict-JSON document | `OkfUpgradeManifest.ReadString`, `OkfDistribution.Text`, and a third copy inlined in `OkfCaptureManifest` | `StrictJson.String` |
+
+Every new type is `internal`, so the frozen public API of `Okf.Core` is untouched, and
+each is named for what it does rather than for where it came from (`FileText`,
+`FrontmatterValues`, `StrictJson`, `JsonOutput`, `VerboseReport`). They follow the
+unprefixed convention the other internal helpers in `Okf.Core` already use
+(`FileLayout`, `LintText`, `MarkdownScanner`, `YamlBridge`); the `Okf` prefix is the
+*public* type convention.
+
+#### Left alone, and why
+
+| Candidate | Why it stays |
+| --- | --- |
+| `OkfDistribution` and `OkfRegistry`'s JSON writers | They are in `Okf.Core`, which cannot see `Okf.Cli`'s `JsonOutput`, and the shared thing would have to be a public Core member — barred by the freeze. Two sites, one boundary, disclosed rather than forced (AD-6) |
+| `CaptureCommand`'s JSON writer | It pins `NewLine = "\n"`; the shared setup does not. Folding it in would change its bytes on a Windows host. **This exposes a real inconsistency** — every other `--json` writer, in both projects, takes the platform's line ending — but fixing it is a behaviour change and belongs in its own decision |
+| `BundleArguments.ParseInstant` vs `CliArguments.ParseInstant` | Same name, different rule: `--generated-at` accepts any readable RFC 3339 spelling, `--at` accepts only the canonical form (AD-24). Unifying would silently widen or narrow one of them |
+| The three path-containment resolvers (`OkfBundle.TryResolve`, `OkfLinter.TryResolveRawPath`, `LintText.TryResolveLink`) | Same shape, three refusal sets: the bundle primitive refuses backslashes and walks symlinks (MCP-5), the manifest resolver refuses the root itself, the link classifier URL-decodes and treats a leading `/` as bundle-relative. Only the innermost "is this under that" predicate is shared, and lifting it would leave three callers each needing a different wrapper |
+| `okf search`'s and `okf inbox`'s corpus walks | The same walk — every bundle, every markdown file, skip the reserved ones, count what does not parse — but `okf search` honours an injected reader and `okf inbox` always reads from disk. Unifying them settles that difference one way or the other, which is a decision about the injected reader rather than a refactor |
+| `OkfSearchEngine.Concept` re-deriving id, title, type and tags | It is `OkfConcept` plus BM25's `Weighted` and `Length`. Unifying is a real refactor of the search corpus, not a DRY pass, and `OkfIndex.Title` beside it is deliberately *not* the same rule (it flattens and rewrites `[`/`]` for §8 link labels) |
+| The command `Execute` skeleton (parse-failure block, `--help` block, the three trailing `catch`es) across eleven verbs | Genuinely repeated, and genuinely not identical: `okf capture` and `okf generated` route IO failures through their own `Usage` helper and so print an extra "Run `okf X --help`" line. Unifying would either preserve the divergence in a parameter or erase it silently; which of the two families is right is a decision |
+| The "option given more than once" refusals | One rule, three wordings ("given twice", "given twice ('a' and 'b')", "given more than once"). Unifying changes stderr text, so it is a consistency fix, not a behaviour-preserving one |
+| Each verb's option set living in the parser, the usage text and `CompletionTable` | The largest one-fact-three-copies in the CLI, and already answered: AD-54 makes the completion table's options equal the parser's `case` labels, checked by test. The third copy is prose a reader needs |
+
+#### One behaviour change, deliberately not a refactor
+
+`OkfScope`'s resolution sentence said "1 bundles from 1 registered root". It pluralizes
+both nouns now. The test that pinned the old literal was updated first and shown red, and
+a second test resolves two bundles out of one registered vault so neither noun can be
+pluralizing on the other's number.
+
+**Open for Ringo.** Three of the "left alone" rows are asking for a ruling rather than
+recording one: whether `--json` output should pin `\n` everywhere (today only `okf
+capture` does), whether an IO failure should print the "Run `okf X --help`" line (today
+two verbs do and nine do not), and whether `okf inbox` should honour an injected reader
+the way `okf search` does.
+
+**One widening, recorded because it is invisible.** `FileText.WriteAtomic` resolves its
+path with `Path.GetFullPath`, which `OkfRegistry.Save` did not. A bare relative filename
+used to reach `Directory.CreateDirectory("")` and escape as a raw `ArgumentException`
+past the `catch` that wraps IO failures; it now resolves against the working directory
+and succeeds. No caller can reach it — all three pass `OkfRegistry.PathFor`, which is
+absolute — and the failure it replaces was not a behaviour anything wanted.

@@ -258,7 +258,7 @@ public static class OkfSiteBuilder
         {
             // An index's own name is its directory: "format", not "index".
             OkfSitePageKind.Index => Directory(relativePath) ?? bundleName,
-            OkfSitePageKind.Log when Scalar(frontmatter, "title") is null => "Update log",
+            OkfSitePageKind.Log when FrontmatterValues.Scalar(frontmatter, "title") is null => "Update log",
             _ => concept.Title,
         };
 
@@ -272,8 +272,8 @@ public static class OkfSiteBuilder
             kind,
             concept)
         {
-            Status = Scalar(frontmatter, "status") ?? DefaultStatus,
-            StaleAfter = Scalar(frontmatter, "stale_after"),
+            Status = FrontmatterValues.Scalar(frontmatter, "status") ?? DefaultStatus,
+            StaleAfter = FrontmatterValues.Scalar(frontmatter, "stale_after"),
             Generated = Event(frontmatter.TryGetValue("generated", out var generated) ? generated : null),
             Verified = [.. OkfDocument.NormalizeVerified(frontmatter).Select(Event).OfType<OkfSiteEvent>()],
         };
@@ -451,8 +451,8 @@ public static class OkfSiteBuilder
             return null;
         }
 
-        var by = Scalar(mapping, "by");
-        return by is { Length: > 0 } ? new OkfSiteEvent(by, Scalar(mapping, "at")) : null;
+        var by = FrontmatterValues.Scalar(mapping, "by");
+        return by is { Length: > 0 } ? new OkfSiteEvent(by, FrontmatterValues.Scalar(mapping, "at")) : null;
     }
 
     private static IReadOnlyList<OkfSiteSource> Sources(
@@ -477,23 +477,18 @@ public static class OkfSiteBuilder
         [
             .. entries.Select(entry =>
             {
-                var id = Scalar(entry, "id") ?? string.Empty;
+                var id = FrontmatterValues.Scalar(entry, "id") ?? string.Empty;
                 return new OkfSiteSource(
                     id,
-                    Scalar(entry, "title"),
-                    Scalar(entry, "resource"),
-                    Scalar(entry, "author"),
-                    Scalar(entry, "last_modified"),
-                    Scalar(entry, "usage_count"),
+                    FrontmatterValues.Scalar(entry, "title"),
+                    FrontmatterValues.Scalar(entry, "resource"),
+                    FrontmatterValues.Scalar(entry, "author"),
+                    FrontmatterValues.Scalar(entry, "last_modified"),
+                    FrontmatterValues.Scalar(entry, "usage_count"),
                     id.Length > 0 && footnotes.TryGetValue(id, out var order) ? order : null);
             }),
         ];
     }
-
-    private static string? Scalar(OkfMapping mapping, string key) =>
-        mapping.TryGetValue(key, out var value) && value is OkfScalar scalar && scalar.IsTruthy
-            ? scalar.Value
-            : null;
 
     private static string UniqueSlug(string name, HashSet<string> taken)
     {

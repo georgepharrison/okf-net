@@ -304,22 +304,7 @@ public static class OkfCaptureWriter
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(text);
 
-        var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        Directory.CreateDirectory(directory);
-        var temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Path.GetRandomFileName()}");
-
-        try
-        {
-            File.WriteAllText(temporary, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
+        FileText.WriteAtomic(path, text);
     }
 
     /// <summary>

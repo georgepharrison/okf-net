@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -24,14 +22,7 @@ internal static class InboxJson
     {
         ArgumentNullException.ThrowIfNull(result);
 
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartArray();
             foreach (var item in result.Items)
@@ -45,7 +36,7 @@ internal static class InboxJson
                 writer.WriteString("bundle", concept.Bundle.Root);
                 writer.WriteString("bundleName", concept.Bundle.Name);
                 writer.WriteString("title", concept.Title);
-                WriteStringOrNull(writer, "type", concept.Type);
+                JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
 
                 writer.WriteStartArray("reasons");
                 foreach (var reason in item.Reasons)
@@ -57,21 +48,21 @@ internal static class InboxJson
 
                 writer.WriteString("trustTier", concept.TrustTier.ToSpecString());
                 writer.WriteBoolean("stale", concept.Stale);
-                WriteStringOrNull(writer, "status", item.Status);
-                WriteStringOrNull(writer, "generatedBy", item.GeneratedBy);
-                WriteStringOrNull(writer, "generatedAt", item.GeneratedAt);
-                WriteStringOrNull(writer, "verifiedBy", item.VerifiedBy);
-                WriteStringOrNull(writer, "verifiedAt", item.VerifiedAt);
-                WriteStringOrNull(writer, "staleAfter", item.StaleAfter);
-                WriteNumberOrNull(writer, "ageDays", item.AgeDays);
-                WriteNumberOrNull(writer, "staleDays", item.StaleDays);
+                JsonOutput.WriteStringOrNull(writer, "status", item.Status);
+                JsonOutput.WriteStringOrNull(writer, "generatedBy", item.GeneratedBy);
+                JsonOutput.WriteStringOrNull(writer, "generatedAt", item.GeneratedAt);
+                JsonOutput.WriteStringOrNull(writer, "verifiedBy", item.VerifiedBy);
+                JsonOutput.WriteStringOrNull(writer, "verifiedAt", item.VerifiedAt);
+                JsonOutput.WriteStringOrNull(writer, "staleAfter", item.StaleAfter);
+                JsonOutput.WriteNumberOrNull(writer, "ageDays", item.AgeDays);
+                JsonOutput.WriteNumberOrNull(writer, "staleDays", item.StaleDays);
 
                 writer.WriteStartArray("driftedSources");
                 foreach (var source in item.DriftedSources)
                 {
                     writer.WriteStartObject();
-                    WriteStringOrNull(writer, "id", source.Id);
-                    WriteStringOrNull(writer, "resource", source.Resource);
+                    JsonOutput.WriteStringOrNull(writer, "id", source.Id);
+                    JsonOutput.WriteStringOrNull(writer, "resource", source.Resource);
                     writer.WriteString("lastModified", source.LastModified);
                     writer.WriteEndObject();
                 }
@@ -81,32 +72,6 @@ internal static class InboxJson
             }
 
             writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
-    }
-
-    private static void WriteStringOrNull(Utf8JsonWriter writer, string name, string? value)
-    {
-        if (value is null)
-        {
-            writer.WriteNull(name);
-        }
-        else
-        {
-            writer.WriteString(name, value);
-        }
-    }
-
-    private static void WriteNumberOrNull(Utf8JsonWriter writer, string name, int? value)
-    {
-        if (value is null)
-        {
-            writer.WriteNull(name);
-        }
-        else
-        {
-            writer.WriteNumber(name, value.Value);
-        }
+        });
     }
 }

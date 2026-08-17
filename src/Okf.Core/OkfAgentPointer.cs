@@ -117,7 +117,7 @@ public static class OkfAgentPointer
 
         if (!File.Exists(path))
         {
-            AtomicWrite(path, Block + "\n");
+            FileText.WriteAtomic(path, Block + "\n");
             return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Created);
         }
 
@@ -142,7 +142,7 @@ public static class OkfAgentPointer
             }
 
             var spliced = Splice(lines, found.Begin, found.End, canonical, newline);
-            AtomicWrite(path, spliced);
+            FileText.WriteAtomic(path, spliced);
             return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
         }
 
@@ -151,7 +151,7 @@ public static class OkfAgentPointer
         // however many the file already had".
         var trimmed = original.TrimEnd('\r', '\n');
         var appended = trimmed + newline + newline + Block.Replace("\n", newline, StringComparison.Ordinal) + newline;
-        AtomicWrite(path, appended);
+        FileText.WriteAtomic(path, appended);
         return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
     }
 
@@ -172,7 +172,7 @@ public static class OkfAgentPointer
             return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Skipped);
         }
 
-        AtomicWrite(path, ClaudeMdContent);
+        FileText.WriteAtomic(path, ClaudeMdContent);
         return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Created);
     }
 
@@ -287,34 +287,5 @@ public static class OkfAgentPointer
         }
 
         return builder.ToString();
-    }
-
-    /// <summary>
-    /// Writes a file atomically — a sibling temp file, then a rename — so an interrupted
-    /// write can never leave a half-written <c>AGENTS.md</c> or <c>CLAUDE.md</c> where the
-    /// readable one was (the same discipline <see cref="OkfRegistry.Save(string)" /> uses).
-    /// </summary>
-    private static void AtomicWrite(string path, string content)
-    {
-        var directory = Path.GetDirectoryName(path)
-            ?? throw new IOException($"'{path}' has no directory to write into.");
-
-        Directory.CreateDirectory(directory);
-        var temporary = Path.Combine(
-            directory,
-            Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp");
-
-        try
-        {
-            File.WriteAllText(temporary, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
     }
 }

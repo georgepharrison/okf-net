@@ -812,6 +812,34 @@ public class OkfBundlerTests
         Assert.Contains("\"bundle\": null", json, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// AD-19: one hash convention, one implementation. The expected digest is FIPS 180-4's
+    /// published test vector for the three bytes <c>abc</c>, not a value read back out of
+    /// this code, and both forms — the file the capture manifest hashes and the stream the
+    /// archive verifier holds — have to produce it for a recorded digest to be comparable
+    /// with a computed one.
+    /// </summary>
+    [Fact]
+    public void The_file_and_stream_digests_are_the_same_convention()
+    {
+        const string Vector = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        var path = Path.Combine(Path.GetTempPath(), "okf-tests", Path.GetRandomFileName());
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, "abc"u8.ToArray());
+
+        try
+        {
+            using var stream = new MemoryStream("abc"u8.ToArray());
+
+            Assert.Equal(Vector, OkfCaptureManifest.Sha256Of(path));
+            Assert.Equal(Vector, OkfCaptureManifest.Sha256Of(stream));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     // A manifest is data verify did not write. AD-4 makes okf-net tolerate a foreign
     // artifact, and a hand-edited or truncated digest is exactly what --verify exists to

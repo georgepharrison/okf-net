@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -93,11 +92,7 @@ internal static class SiteCommand
 
         if (arguments.Verbose)
         {
-            error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (var bundle in workingSet.Bundles)
-            {
-                error.WriteLine($"okf: bundle {bundle.Root}");
-            }
+            VerboseReport.WorkingSet(error, workingSet);
 
             error.WriteLine(arguments.SingleFile
                 ? $"okf: writing one self-contained file into {outputDirectory}"
@@ -198,14 +193,7 @@ internal static class SiteCommand
     private static string ToJson(OkfSitePlan plan, string outputDirectory, string landing)
     {
         var counts = plan.Model.Counts;
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("out", outputDirectory);
@@ -238,9 +226,7 @@ internal static class SiteCommand
 
             writer.WriteEndArray();
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray()) + Environment.NewLine;
+        }) + Environment.NewLine;
     }
 
     private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);

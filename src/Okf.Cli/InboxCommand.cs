@@ -77,11 +77,7 @@ internal static class InboxCommand
 
         if (arguments.Verbose)
         {
-            error.WriteLine($"okf: resolved {workingSet.Resolution}");
-            foreach (var bundle in workingSet.Bundles)
-            {
-                error.WriteLine($"okf: bundle {bundle.Root}");
-            }
+            VerboseReport.WorkingSet(error, workingSet);
 
             error.WriteLine(
                 $"okf: read {DiagnosticWriter.Plural(result.ConceptCount, "concept")}, " +

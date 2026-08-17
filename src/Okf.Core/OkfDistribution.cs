@@ -248,8 +248,8 @@ public sealed class OkfDistributionManifest
         {
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
-                || Text(root, "generatedAt") is not { Length: > 0 } generatedAt
-                || Text(root, "generator") is not { Length: > 0 } generator)
+                || StrictJson.String(root, "generatedAt") is not { Length: > 0 } generatedAt
+                || StrictJson.String(root, "generator") is not { Length: > 0 } generator)
             {
                 return null;
             }
@@ -260,8 +260,8 @@ public sealed class OkfDistributionManifest
                 foreach (var file in recorded.EnumerateArray())
                 {
                     if (file.ValueKind == JsonValueKind.Object
-                        && Text(file, "path") is { Length: > 0 } path
-                        && Text(file, "sha256") is { Length: > 0 } sha256)
+                        && StrictJson.String(file, "path") is { Length: > 0 } path
+                        && StrictJson.String(file, "sha256") is { Length: > 0 } sha256)
                     {
                         files.Add(new OkfDistributionFile(path, sha256));
                     }
@@ -274,10 +274,10 @@ public sealed class OkfDistributionManifest
                 foreach (var link in external.EnumerateArray())
                 {
                     if (link.ValueKind == JsonValueKind.Object
-                        && Text(link, "from") is { Length: > 0 } from
-                        && Text(link, "to") is { } to)
+                        && StrictJson.String(link, "from") is { Length: > 0 } from
+                        && StrictJson.String(link, "to") is { } to)
                     {
-                        links.Add(new OkfExternalLink(from, to, Text(link, "bundle")));
+                        links.Add(new OkfExternalLink(from, to, StrictJson.String(link, "bundle")));
                     }
                 }
             }
@@ -296,7 +296,7 @@ public sealed class OkfDistributionManifest
 
             return new OkfDistributionManifest(
                 generator,
-                Text(root, "sourceVault"),
+                StrictJson.String(root, "sourceVault"),
                 generatedAt,
                 bundles,
                 links,
@@ -304,7 +304,7 @@ public sealed class OkfDistributionManifest
                 root.TryGetProperty("manifestVersion", out var version) && version.ValueKind == JsonValueKind.Number
                     ? version.GetInt32()
                     : CurrentVersion,
-                Text(root, "okfVersion") ?? SpecVersion);
+                StrictJson.String(root, "okfVersion") ?? SpecVersion);
         }
     }
 
@@ -379,9 +379,4 @@ public sealed class OkfDistributionManifest
 
         return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
     }
-
-    private static string? Text(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
 }

@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace Okf.Core;
 
 /// <summary>Where a skill install writes.</summary>
@@ -270,7 +268,7 @@ public static class OkfSkillInstaller
         // UTF-8 with no byte-order mark and the content's own line endings: an install is
         // a copy of the embedded bytes, so two runs of one binary produce identical files
         // and a digest of an installed skill is comparable across machines.
-        File.WriteAllText(path, skill.Content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(path, skill.Content, FileText.Utf8NoBom);
         return new OkfSkillInstallFile(skill.Name, path, OkfSkillInstallStatus.Written);
     }
 }

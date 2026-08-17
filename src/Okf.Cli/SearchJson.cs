@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli;
@@ -26,14 +24,7 @@ internal static class SearchJson
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
-        using var buffer = new MemoryStream();
-        var options = new JsonWriterOptions
-        {
-            Indented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        using (var writer = new Utf8JsonWriter(buffer, options))
+        return JsonOutput.Write(writer =>
         {
             // A bare array, not an envelope: PRD CLI-11 and MCP-2 read the same records,
             // and every field a result needs to be judged travels on the result itself.
@@ -47,8 +38,8 @@ internal static class SearchJson
                 writer.WriteString("bundle", result.Bundle);
                 writer.WriteString("bundleName", result.BundleName);
                 writer.WriteString("title", result.Title);
-                WriteStringOrNull(writer, "type", result.Type);
-                WriteStringOrNull(writer, "description", result.Description);
+                JsonOutput.WriteStringOrNull(writer, "type", result.Type);
+                JsonOutput.WriteStringOrNull(writer, "description", result.Description);
                 writer.WriteStartArray("tags");
                 foreach (var tag in result.Tags)
                 {
@@ -75,9 +66,7 @@ internal static class SearchJson
             }
 
             writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     /// <summary>The wire spelling of a match mode: <c>all</c>, <c>any</c>, or <c>filter</c>.</summary>
@@ -90,16 +79,4 @@ internal static class SearchJson
         OkfSearchMatchMode.Filter => "filter",
         _ => "unknown",
     };
-
-    private static void WriteStringOrNull(Utf8JsonWriter writer, string name, string? value)
-    {
-        if (value is null)
-        {
-            writer.WriteNull(name);
-        }
-        else
-        {
-            writer.WriteString(name, value);
-        }
-    }
 }

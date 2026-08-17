@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 
 namespace Okf.Cli;
@@ -77,12 +76,6 @@ internal sealed class McpServer
     /// </summary>
     private static readonly string[] SupportedProtocolVersions =
         [LatestProtocolVersion, "2025-03-26", "2024-11-05"];
-
-    private static readonly JsonWriterOptions WriterOptions = new()
-    {
-        Indented = false,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
 
     private readonly McpToolset tools;
     private readonly TextReader input;
@@ -274,8 +267,7 @@ internal sealed class McpServer
                 ? requested
                 : LatestProtocolVersion;
 
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        return JsonOutput.WriteWire(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("protocolVersion", negotiated);
@@ -295,15 +287,12 @@ internal sealed class McpServer
 
             writer.WriteString("instructions", McpToolset.Instructions);
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     private void WriteResult(JsonElement? id, string resultJson)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        Send(JsonOutput.WriteWire(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("jsonrpc", JsonRpcVersion);
@@ -311,15 +300,12 @@ internal sealed class McpServer
             writer.WritePropertyName("result");
             writer.WriteRawValue(resultJson);
             writer.WriteEndObject();
-        }
-
-        Send(buffer);
+        }));
     }
 
     private void WriteError(JsonElement? id, int code, string message)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        Send(JsonOutput.WriteWire(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("jsonrpc", JsonRpcVersion);
@@ -329,9 +315,7 @@ internal sealed class McpServer
             writer.WriteString("message", message);
             writer.WriteEndObject();
             writer.WriteEndObject();
-        }
-
-        Send(buffer);
+        }));
     }
 
     private static void WriteId(Utf8JsonWriter writer, JsonElement? id)
@@ -352,7 +336,7 @@ internal sealed class McpServer
         try
         {
             using var buffer = new MemoryStream();
-            using (var scratch = new Utf8JsonWriter(buffer, WriterOptions))
+            using (var scratch = new Utf8JsonWriter(buffer, JsonOutput.WireOptions))
             {
                 value.WriteTo(scratch);
             }
@@ -370,9 +354,9 @@ internal sealed class McpServer
     /// newline is part of the protocol and is written explicitly rather than left to the
     /// writer's platform line ending.
     /// </summary>
-    private void Send(MemoryStream buffer)
+    private void Send(string message)
     {
-        this.output.Write(Encoding.UTF8.GetString(buffer.ToArray()));
+        this.output.Write(message);
         this.output.Write('\n');
         this.output.Flush();
     }

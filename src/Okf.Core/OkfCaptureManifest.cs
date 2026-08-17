@@ -180,14 +180,34 @@ public sealed class OkfCaptureManifest
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         using var stream = File.OpenRead(path);
-        return Convert.ToHexStringLower(SHA256.HashData(stream));
+        return Sha256Of(stream);
     }
+
+    /// <summary>
+    /// The SHA-256 of a stream, as 64 lowercase hex digits. AD-19's single implementation
+    /// of the convention: the path form above opens a file and hands it here, and the
+    /// archive verifier, which holds a stream and no path, calls it directly — so the two
+    /// digests are comparable because they are the same code, not because two one-liners
+    /// agree today.
+    /// </summary>
+    /// <param name="stream">The stream, read from its current position to the end.</param>
+    /// <returns>The digest.</returns>
+    /// <exception cref="IOException">The stream could not be read.</exception>
+    internal static string Sha256Of(Stream stream) => Convert.ToHexStringLower(SHA256.HashData(stream));
+
+    /// <summary>
+    /// A digest as a message shows it: the first twelve hex digits and an ellipsis. Enough
+    /// to tell two digests apart in a diagnostic, short enough to leave the sentence
+    /// readable — and a digest recorded at some other length by a producer okf did not
+    /// write for (AD-4) is shown as it was found rather than indexed off the end of.
+    /// </summary>
+    /// <param name="sha256">The digest, at whatever length it was recorded.</param>
+    /// <returns>The abbreviated form.</returns>
+    internal static string Short(string sha256) => sha256.Length > 12 ? sha256[..12] + "…" : sha256;
 
     private static OkfCaptureEntry ReadEntry(JsonElement capture)
     {
-        var id = capture.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
-            ? idValue.GetString() ?? string.Empty
-            : string.Empty;
+        var id = StrictJson.String(capture, "id") ?? string.Empty;
 
         // `ingestion` closes the entry only when it is an object. Absent, null, or any
         // other shape leaves the capture open — an entry the linter has no verdict on.

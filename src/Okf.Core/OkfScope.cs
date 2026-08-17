@@ -275,7 +275,7 @@ public static class OkfScope
     private static string Sentence(string scope, List<OkfBundle> bundles, string registryPath)
     {
         var roots = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).Count();
-        return $"--scope {scope}: {bundles.Count} bundles from {roots} registered " +
-            $"{(roots == 1 ? "root" : "roots")} in '{registryPath}'";
+        return $"--scope {scope}: {bundles.Count} {(bundles.Count == 1 ? "bundle" : "bundles")} " +
+            $"from {roots} registered {(roots == 1 ? "root" : "roots")} in '{registryPath}'";
     }
 }

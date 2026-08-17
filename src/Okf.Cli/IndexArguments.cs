@@ -42,7 +42,7 @@ internal sealed class IndexArguments
         for (var index = 0; index < args.Length; index++)
         {
             var argument = args[index];
-            var (name, inlineValue) = Split(argument);
+            var (name, inlineValue) = CliArguments.Split(argument);
 
             switch (name)
             {
@@ -63,13 +63,8 @@ internal sealed class IndexArguments
                     break;
 
                 case "--format":
-                    var format = inlineValue ?? Next(args, ref index, name);
-                    parsed.Json = format switch
-                    {
-                        "json" => true,
-                        "text" => false,
-                        _ => throw new OkfConfigException($"Unknown --format value '{format}'; expected 'text' or 'json'."),
-                    };
+                    var format = inlineValue ?? CliArguments.Next(args, ref index, name);
+                    parsed.Json = CliArguments.ParseFormat(format);
                     break;
 
                 default:
@@ -90,23 +85,5 @@ internal sealed class IndexArguments
         }
 
         return parsed;
-    }
-
-    private static (string Name, string? Value) Split(string argument)
-    {
-        var separator = argument.IndexOf('=', StringComparison.Ordinal);
-        return argument.StartsWith("--", StringComparison.Ordinal) && separator > 0
-            ? (argument[..separator], argument[(separator + 1)..])
-            : (argument, null);
-    }
-
-    private static string Next(string[] args, ref int index, string option)
-    {
-        if (index + 1 >= args.Length)
-        {
-            throw new OkfConfigException($"Option '{option}' requires a value.");
-        }
-
-        return args[++index];
     }
 }

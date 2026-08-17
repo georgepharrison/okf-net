@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using Okf.Core;
 
@@ -68,29 +67,6 @@ internal sealed class McpToolset
         the bundle. Stamping (`okf verify`) and index generation (`okf index`) are CLI
         operations, deliberately not tools.
         """;
-
-    /// <summary>
-    /// How a payload is written: the text a tool hands back, which the client shows to a
-    /// model. Indented, because it is read.
-    /// </summary>
-    private static readonly JsonWriterOptions PayloadOptions = new()
-    {
-        Indented = true,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    /// <summary>
-    /// How a protocol structure is written — the <c>tools/list</c> result, the content
-    /// envelope. These are embedded verbatim in a response, and the stdio framing is one
-    /// JSON object per line, so they must never be indented: a raw newline inside a message
-    /// splits it in two on the wire. A payload's newlines are safe because a payload travels
-    /// as a JSON string, where they are escaped.
-    /// </summary>
-    private static readonly JsonWriterOptions EnvelopeOptions = new()
-    {
-        Indented = false,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
 
     private static readonly McpTool[] Tools =
     [
@@ -252,8 +228,7 @@ internal sealed class McpToolset
     /// <returns>The result JSON.</returns>
     public static string List()
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, EnvelopeOptions))
+        return JsonOutput.WriteWire(writer =>
         {
             writer.WriteStartObject();
             writer.WriteStartArray("tools");
@@ -274,9 +249,7 @@ internal sealed class McpToolset
 
             writer.WriteEndArray();
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     /// <summary>Runs one <c>tools/call</c> request.</summary>
@@ -510,12 +483,11 @@ internal sealed class McpToolset
     /// <summary>Renders the bundles in scope — the orienting listing.</summary>
     private static string Scope(OkfWorkingSet workingSet)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, PayloadOptions))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("scope", workingSet.Resolution);
-            WriteStringOrNull(writer, "vault", workingSet.VaultRoot);
+            JsonOutput.WriteStringOrNull(writer, "vault", workingSet.VaultRoot);
             writer.WriteStartArray("bundles");
             foreach (var bundle in workingSet.Bundles)
             {
@@ -529,9 +501,7 @@ internal sealed class McpToolset
 
             writer.WriteEndArray();
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     /// <summary>
@@ -545,8 +515,7 @@ internal sealed class McpToolset
         var index = OkfIndexGenerator.Plan(bundle).For(directory);
         var listing = index?.ExistingContent ?? index?.Content ?? string.Empty;
 
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, PayloadOptions))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("bundle", bundle.Root);
@@ -563,7 +532,7 @@ internal sealed class McpToolset
                 writer.WriteString("section", entry.Section);
                 writer.WriteString("title", entry.Title);
                 writer.WriteString("link", entry.Link);
-                WriteStringOrNull(writer, "description", entry.Description);
+                JsonOutput.WriteStringOrNull(writer, "description", entry.Description);
                 writer.WriteBoolean("subdirectory", entry.IsSubdirectory);
                 writer.WriteEndObject();
             }
@@ -571,16 +540,13 @@ internal sealed class McpToolset
             writer.WriteEndArray();
             writer.WriteString("listing", listing);
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     /// <summary>Renders one concept: the CORE-12 read, in the search records' vocabulary.</summary>
     private static string Concept(OkfConcept concept)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, PayloadOptions))
+        return JsonOutput.Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("id", concept.Id);
@@ -589,8 +555,8 @@ internal sealed class McpToolset
             writer.WriteString("bundle", concept.Bundle.Root);
             writer.WriteString("bundleName", concept.Bundle.Name);
             writer.WriteString("title", concept.Title);
-            WriteStringOrNull(writer, "type", concept.Type);
-            WriteStringOrNull(writer, "description", concept.Description);
+            JsonOutput.WriteStringOrNull(writer, "type", concept.Type);
+            JsonOutput.WriteStringOrNull(writer, "description", concept.Description);
             writer.WriteStartArray("tags");
             foreach (var tag in concept.Tags)
             {
@@ -604,9 +570,7 @@ internal sealed class McpToolset
             WriteValue(writer, concept.Frontmatter);
             writer.WriteString("body", concept.Body);
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     /// <summary>
@@ -661,8 +625,7 @@ internal sealed class McpToolset
     /// <summary>Wraps a tool result in the MCP content envelope.</summary>
     private static string Content(McpToolResult result)
     {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, EnvelopeOptions))
+        return JsonOutput.WriteWire(writer =>
         {
             writer.WriteStartObject();
             writer.WriteStartArray("content");
@@ -673,24 +636,10 @@ internal sealed class McpToolset
             writer.WriteEndArray();
             writer.WriteBoolean("isError", result.IsError);
             writer.WriteEndObject();
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        });
     }
 
     private DateOnly Now => Today ?? DateOnly.FromDateTime(DateTime.Now);
-
-    private static void WriteStringOrNull(Utf8JsonWriter writer, string name, string? value)
-    {
-        if (value is null)
-        {
-            writer.WriteNull(name);
-        }
-        else
-        {
-            writer.WriteString(name, value);
-        }
-    }
 
     /// <summary>A tool description is prose, and a client renders it as one paragraph.</summary>
     private static string Collapse(string text) =>
