@@ -678,6 +678,9 @@ public class OkfSearchTests
     [InlineData("[a(b.md) unclosed", "[a(b.md) unclosed")]
     [InlineData("([unclosed)", "([unclosed)")]
     [InlineData("[text](unclosed", "[text](unclosed")]
+    // The target is looked for *after* the label, so a `)` inside the label's own text
+    // does not end the link early and leave its address in the snippet.
+    [InlineData("[a (b)](d.md)", "a (b)")]
     [InlineData("See [^note](notes.md) here.", "See [^note](notes.md) here.")]
     // A `!` that opens no image is just punctuation.
     [InlineData("Wow!", "Wow!")]
