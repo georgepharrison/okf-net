@@ -5,7 +5,7 @@
     "thresholds": {
       "high": 85,
       "low": 70,
-      "break": 60
+      "break": 70
     },
     "mutation-level": "Standard",
     "ignore-methods": [
