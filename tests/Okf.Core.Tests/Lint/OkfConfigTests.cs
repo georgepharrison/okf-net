@@ -135,6 +135,37 @@ public class OkfConfigTests
     public void MalformedConfigurationIsRejected(string json) =>
         Assert.Throws<OkfConfigException>(() => OkfConfig.Parse(json, "test"));
 
+    /// <summary>
+    /// The message is the whole value of a config error: <c>okf</c> prints it and exits, so
+    /// one that does not name the key it rejected, and the file it was in, leaves the reader
+    /// to find it themselves. <see cref="MalformedConfigurationIsRejected" /> only proves the
+    /// throw; every message below was reachable with no assertion on its text at all until
+    /// this test (the #14 mutation run found each one by blanking it and losing nothing).
+    /// </summary>
+    /// <param name="json">The configuration text.</param>
+    /// <param name="expected">The phrase the message must carry.</param>
+    [Theory]
+    [InlineData("[]", "must contain a JSON object at its root")]
+    [InlineData("""{ "lint": 3 }""", "`lint` must be an object")]
+    [InlineData("""{ "lint": { "severities": [] } }""", "`lint.severities` must be an object")]
+    [InlineData("""{ "lint": { "severities": { "OKF0301": "shout" } } }""", "`lint.severities.OKF0301` must be one of")]
+    [InlineData(
+        """{ "lint": { "treatAllWarningsAsErrors": "yes" } }""",
+        "`lint.treatAllWarningsAsErrors` must be a boolean")]
+    [InlineData("""{ "lint": { "tagRegistry": "finance" } }""", "`lint.tagRegistry` must be an array of strings")]
+    [InlineData(
+        """{ "lint": { "tagRegistry": ["finance", 3] } }""",
+        "`lint.tagRegistry` must be an array of strings")]
+    [InlineData("""{ "verify": 3 }""", "`verify` must be an object")]
+    [InlineData("""{ "verify": { "actor": 3 } }""", "`verify.actor` must be a string")]
+    public void ARejectionNamesTheKeyItRejectedAndTheFileItWasIn(string json, string expected)
+    {
+        var rejected = Assert.Throws<OkfConfigException>(() => OkfConfig.Parse(json, "project/okf.json"));
+
+        Assert.Contains(expected, rejected.Message, StringComparison.Ordinal);
+        Assert.Contains("project/okf.json", rejected.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AnUnknownRuleIdSurvivesParsingAndIsCaughtByTheResolver()
     {

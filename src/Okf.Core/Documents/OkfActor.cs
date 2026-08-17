@@ -30,36 +30,24 @@ public static class OkfActor
     /// <returns><see langword="true" /> when the value is a well-formed actor.</returns>
     public static bool IsValid(string? actor)
     {
-        if (string.IsNullOrWhiteSpace(actor) || actor.Trim().Length != actor.Length)
-        {
-            return false;
-        }
-
-        // An actor is written into a double-quoted YAML scalar, so a quote, a backslash, or
-        // a control character in one would not be an odd name — it would be a way to write
-        // arbitrary frontmatter through the `--by` flag.
-        if (actor.Any(character => character is '"' or '\\' || char.IsControl(character)))
+        if (string.IsNullOrWhiteSpace(actor)
+            || actor.Trim().Length != actor.Length
+            || BreaksOutOfAQuotedScalar(actor))
         {
             return false;
         }
 
         if (actor.StartsWith(HumanPrefix, StringComparison.Ordinal))
         {
-            return actor.Length > HumanPrefix.Length;
+            return HasIdAfter(actor, HumanPrefix);
         }
 
         if (actor.StartsWith(ProcessPrefix, StringComparison.Ordinal))
         {
-            return actor.Length > ProcessPrefix.Length;
+            return HasIdAfter(actor, ProcessPrefix);
         }
 
-        // `<producer>/<version>`: a colon anywhere else would be a mistyped prefix
-        // (`human/ringo`, `Human:ringo`), and letting it through as a producer name is how
-        // a person silently stops counting as one.
-        int separator = actor.IndexOf('/', StringComparison.Ordinal);
-        return separator > 0
-            && separator < actor.Length - 1
-            && !actor.Contains(':', StringComparison.Ordinal);
+        return IsProducerAndVersion(actor);
     }
 
     /// <summary>
@@ -73,5 +61,24 @@ public static class OkfActor
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         string trimmed = id.Trim();
         return IsHuman(trimmed) ? trimmed : HumanPrefix + trimmed;
+    }
+
+    // An actor is written into a double-quoted YAML scalar, so a quote, a backslash, or a
+    // control character in one would not be an odd name — it would be a way to write
+    // arbitrary frontmatter through the `--by` flag.
+    private static bool BreaksOutOfAQuotedScalar(string actor) =>
+        actor.Any(character => character is '"' or '\\' || char.IsControl(character));
+
+    private static bool HasIdAfter(string actor, string prefix) => actor.Length > prefix.Length;
+
+    // `<producer>/<version>`: a colon anywhere else would be a mistyped prefix
+    // (`human/ringo`, `Human:ringo`), and letting it through as a producer name is how a
+    // person silently stops counting as one.
+    private static bool IsProducerAndVersion(string actor)
+    {
+        int separator = actor.IndexOf('/', StringComparison.Ordinal);
+        return separator > 0
+            && separator < actor.Length - 1
+            && !actor.Contains(':', StringComparison.Ordinal);
     }
 }

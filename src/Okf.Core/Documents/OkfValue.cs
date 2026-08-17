@@ -137,36 +137,45 @@ public sealed class OkfScalar : OkfValue
     // non-empty-`type` conformance check (§11).
     private static bool IsZeroNumber(string text)
     {
-        string t = text.Replace("_", string.Empty, StringComparison.Ordinal);
-        if (t.Length == 0)
+        string unseparated = text.Replace("_", string.Empty, StringComparison.Ordinal);
+        if (unseparated.Length == 0)
         {
             return false;
         }
 
-        // PyYAML's YAML 1.1 int resolver spells octal as a bare leading zero (there
-        // is no `0o` form) and takes only a lowercase `0x`/`0b` prefix, so `0o0`,
-        // `0X0` and `0B0` are ordinary *strings*, not the number zero.
-        string digits = t[0] is '+' or '-' ? t[1..] : t;
-        if (digits.Length > 2 && digits[0] == '0' && digits[1] is 'x' or 'b')
+        string digits = unseparated[0] is '+' or '-' ? unseparated[1..] : unseparated;
+        if (HasRadixPrefix(digits))
         {
             return digits[2..].All(c => c == '0');
         }
 
-        // PyYAML's YAML 1.1 float resolver requires a `.` in the mantissa and an
-        // explicitly signed exponent, so `0e0` and `0e+0` are strings while
-        // `.0e+0` is the number zero. .NET's parser is laxer than that.
+        return SpellsAFloatPyYamlWouldResolve(digits)
+            && double.TryParse(unseparated, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)
+            && d == 0;
+    }
+
+    // PyYAML's YAML 1.1 int resolver spells octal as a bare leading zero (there is no
+    // `0o` form) and takes only a lowercase `0x`/`0b` prefix, so `0o0`, `0X0` and `0B0`
+    // are ordinary *strings*, not the number zero.
+    private static bool HasRadixPrefix(string digits) =>
+        digits.Length > 2 && digits[0] == '0' && digits[1] is 'x' or 'b';
+
+    // PyYAML's YAML 1.1 float resolver requires a `.` in the mantissa and an explicitly
+    // signed exponent, so `0e0` and `0e+0` are strings while `.0e+0` is the number zero.
+    // .NET's parser is laxer than that. An exponent-free spelling is left to .NET.
+    private static bool SpellsAFloatPyYamlWouldResolve(string digits)
+    {
         int exponent = digits.IndexOfAny(['e', 'E']);
-        if (exponent >= 0)
+        if (exponent < 0)
         {
-            int point = digits.IndexOf('.', StringComparison.Ordinal);
-            if (point < 0 || point > exponent
-                || exponent + 1 >= digits.Length || digits[exponent + 1] is not ('+' or '-'))
-            {
-                return false;
-            }
+            return true;
         }
 
-        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) && d == 0;
+        int point = digits.IndexOf('.', StringComparison.Ordinal);
+        return point >= 0
+            && point < exponent
+            && exponent + 1 < digits.Length
+            && digits[exponent + 1] is '+' or '-';
     }
 }
 

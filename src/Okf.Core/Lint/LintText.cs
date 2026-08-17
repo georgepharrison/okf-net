@@ -87,58 +87,78 @@ internal static partial class LintText
     {
         resolved = null;
 
-        string path = target.Trim();
-        int fragment = path.IndexOf('#', StringComparison.Ordinal);
-        if (fragment >= 0)
-        {
-            path = path[..fragment];
-        }
-
-        int query = path.IndexOf('?', StringComparison.Ordinal);
-        if (query >= 0)
-        {
-            path = path[..query];
-        }
-
-        if (path.Length == 0 || SchemeRegex().IsMatch(path) || path.StartsWith("//", StringComparison.Ordinal))
+        string path = WithoutFragmentOrQuery(target.Trim());
+        if (!ReadsAsAPath(path) || Unescaped(path) is not { } unescaped)
         {
             return LinkTarget.NotAPath;
         }
 
-        try
-        {
-            path = Uri.UnescapeDataString(path);
-        }
-        catch (UriFormatException)
-        {
-            return LinkTarget.NotAPath;
-        }
-
-        if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
-        {
-            return LinkTarget.NotAPath;
-        }
-
-        string native = path.Replace('/', Path.DirectorySeparatorChar);
-        string combined;
-        try
-        {
-            combined = path.StartsWith('/')
-                ? Path.GetFullPath(Path.Combine(bundleRoot, native.TrimStart(Path.DirectorySeparatorChar)))
-                : Path.GetFullPath(Path.Combine(documentDirectory, native));
-        }
-        catch (ArgumentException)
+        if (unescaped.IndexOfAny(Path.GetInvalidPathChars()) >= 0
+            || Combined(unescaped, bundleRoot, documentDirectory) is not { } combined)
         {
             return LinkTarget.NotAPath;
         }
 
         resolved = combined;
+        return IsUnderRoot(combined, bundleRoot) ? LinkTarget.Inside : LinkTarget.Outside;
+    }
 
+    private static string WithoutFragmentOrQuery(string target)
+    {
+        int fragment = target.IndexOf('#', StringComparison.Ordinal);
+        string path = fragment >= 0 ? target[..fragment] : target;
+
+        int query = path.IndexOf('?', StringComparison.Ordinal);
+        return query >= 0 ? path[..query] : path;
+    }
+
+    /// <summary>
+    /// Whether a target is a path rather than an absolute URL, another URI scheme, a
+    /// protocol-relative reference, or an in-page anchor that stripping left empty.
+    /// </summary>
+    private static bool ReadsAsAPath(string path) =>
+        path.Length > 0
+        && !SchemeRegex().IsMatch(path)
+        && !path.StartsWith("//", StringComparison.Ordinal);
+
+    /// <summary>The percent-decoded target, or <see langword="null" /> when it will not decode.</summary>
+    private static string? Unescaped(string path)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(path);
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A <c>/</c>-rooted target resolved against the bundle root and any other against the
+    /// linking document's directory (§6.2), or <see langword="null" /> when it will not
+    /// resolve to a path at all.
+    /// </summary>
+    private static string? Combined(string path, string bundleRoot, string documentDirectory)
+    {
+        string native = path.Replace('/', Path.DirectorySeparatorChar);
+        try
+        {
+            return path.StartsWith('/')
+                ? Path.GetFullPath(Path.Combine(bundleRoot, native.TrimStart(Path.DirectorySeparatorChar)))
+                : Path.GetFullPath(Path.Combine(documentDirectory, native));
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsUnderRoot(string combined, string bundleRoot)
+    {
         string root = Path.TrimEndingDirectorySeparator(bundleRoot);
         return combined.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            || string.Equals(combined, root, StringComparison.Ordinal)
-            ? LinkTarget.Inside
-            : LinkTarget.Outside;
+            || string.Equals(combined, root, StringComparison.Ordinal);
     }
 
     /// <summary>

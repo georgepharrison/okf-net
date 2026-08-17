@@ -136,12 +136,20 @@ public sealed class OkfConfig
         }
 
         using JsonDocument document = ParseDocument(json, source);
-        JsonElement root = document.RootElement;
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            throw new OkfConfigException($"Config file '{source}' must contain a JSON object at its root.");
-        }
+        ReadSections(config, RootObject(document, source), source, globalLayer);
+        return config;
+    }
 
+    private static JsonElement RootObject(JsonDocument document, string source)
+    {
+        JsonElement root = document.RootElement;
+        return root.ValueKind == JsonValueKind.Object
+            ? root
+            : throw new OkfConfigException($"Config file '{source}' must contain a JSON object at its root.");
+    }
+
+    private static void ReadSections(OkfConfig config, JsonElement root, string source, bool globalLayer)
+    {
         if (root.TryGetProperty("lint", out JsonElement lint))
         {
             ReadLint(config, lint, source);
@@ -149,17 +157,7 @@ public sealed class OkfConfig
 
         if (root.TryGetProperty("verify", out JsonElement verify))
         {
-            if (verify.ValueKind != JsonValueKind.Object)
-            {
-                throw new OkfConfigException($"Config file '{source}': `verify` must be an object.");
-            }
-
-            if (verify.TryGetProperty("actor", out JsonElement actor))
-            {
-                config.VerifyActor = actor.ValueKind == JsonValueKind.String
-                    ? actor.GetString()
-                    : throw new OkfConfigException($"Config file '{source}': `verify.actor` must be a string.");
-            }
+            ReadVerify(config, verify, source);
         }
 
         if (root.TryGetProperty("search", out JsonElement search))
@@ -171,8 +169,21 @@ public sealed class OkfConfig
         {
             ReadAutoRegister(config, autoRegister, source, globalLayer);
         }
+    }
 
-        return config;
+    private static void ReadVerify(OkfConfig config, JsonElement verify, string source)
+    {
+        if (verify.ValueKind != JsonValueKind.Object)
+        {
+            throw new OkfConfigException($"Config file '{source}': `verify` must be an object.");
+        }
+
+        if (verify.TryGetProperty("actor", out JsonElement actor))
+        {
+            config.VerifyActor = actor.ValueKind == JsonValueKind.String
+                ? actor.GetString()
+                : throw new OkfConfigException($"Config file '{source}': `verify.actor` must be a string.");
+        }
     }
 
     private static void ReadSearch(OkfConfig config, JsonElement search, string source)
@@ -208,12 +219,9 @@ public sealed class OkfConfig
                 "config. Move it to okf's global config file.");
         }
 
-        config.AutoRegister = autoRegister.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => throw new OkfConfigException($"Config file '{source}': `autoRegister` must be a boolean."),
-        };
+        config.AutoRegister = ReadBoolean(
+            autoRegister,
+            $"Config file '{source}': `autoRegister` must be a boolean.");
     }
 
     private static JsonDocument ParseDocument(string json, string source)
@@ -239,53 +247,66 @@ public sealed class OkfConfig
 
         if (lint.TryGetProperty("severities", out JsonElement severities))
         {
-            if (severities.ValueKind != JsonValueKind.Object)
-            {
-                throw new OkfConfigException($"Config file '{source}': `lint.severities` must be an object.");
-            }
-
-            foreach (JsonProperty entry in severities.EnumerateObject())
-            {
-                if (entry.Value.ValueKind != JsonValueKind.String
-                    || !OkfSeverityExtensions.TryParse(entry.Value.GetString(), out OkfSeverity severity))
-                {
-                    throw new OkfConfigException(
-                        $"Config file '{source}': `lint.severities.{entry.Name}` must be one of " +
-                        "\"hidden\", \"info\", \"warning\", \"error\".");
-                }
-
-                config.Severities.Severities[entry.Name] = severity;
-            }
+            ReadSeverities(config, severities, source);
         }
 
         if (lint.TryGetProperty("treatAllWarningsAsErrors", out JsonElement promote))
         {
-            config.Severities.TreatAllWarningsAsErrors = promote.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => throw new OkfConfigException(
-                    $"Config file '{source}': `lint.treatAllWarningsAsErrors` must be a boolean."),
-            };
+            config.Severities.TreatAllWarningsAsErrors = ReadBoolean(
+                promote,
+                $"Config file '{source}': `lint.treatAllWarningsAsErrors` must be a boolean.");
         }
 
         if (lint.TryGetProperty("tagRegistry", out JsonElement registry))
         {
-            if (registry.ValueKind != JsonValueKind.Array)
-            {
-                throw new OkfConfigException($"Config file '{source}': `lint.tagRegistry` must be an array of strings.");
-            }
-
-            List<string> tags = new List<string>();
-            foreach (JsonElement tag in registry.EnumerateArray())
-            {
-                tags.Add(tag.ValueKind == JsonValueKind.String
-                    ? tag.GetString()!
-                    : throw new OkfConfigException(
-                        $"Config file '{source}': `lint.tagRegistry` must be an array of strings."));
-            }
-
-            config.TagRegistry = tags;
+            config.TagRegistry = ReadTagRegistry(registry, source);
         }
     }
+
+    private static void ReadSeverities(OkfConfig config, JsonElement severities, string source)
+    {
+        if (severities.ValueKind != JsonValueKind.Object)
+        {
+            throw new OkfConfigException($"Config file '{source}': `lint.severities` must be an object.");
+        }
+
+        foreach (JsonProperty entry in severities.EnumerateObject())
+        {
+            if (entry.Value.ValueKind != JsonValueKind.String
+                || !OkfSeverityExtensions.TryParse(entry.Value.GetString(), out OkfSeverity severity))
+            {
+                throw new OkfConfigException(
+                    $"Config file '{source}': `lint.severities.{entry.Name}` must be one of " +
+                    "\"hidden\", \"info\", \"warning\", \"error\".");
+            }
+
+            config.Severities.Severities[entry.Name] = severity;
+        }
+    }
+
+    private static List<string> ReadTagRegistry(JsonElement registry, string source)
+    {
+        string message = $"Config file '{source}': `lint.tagRegistry` must be an array of strings.";
+        if (registry.ValueKind != JsonValueKind.Array)
+        {
+            throw new OkfConfigException(message);
+        }
+
+        List<string> tags = new List<string>();
+        foreach (JsonElement tag in registry.EnumerateArray())
+        {
+            tags.Add(tag.ValueKind == JsonValueKind.String
+                ? tag.GetString()!
+                : throw new OkfConfigException(message));
+        }
+
+        return tags;
+    }
+
+    private static bool ReadBoolean(JsonElement value, string message) => value.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => throw new OkfConfigException(message),
+    };
 }

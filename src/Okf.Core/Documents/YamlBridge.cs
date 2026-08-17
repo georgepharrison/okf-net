@@ -80,36 +80,47 @@ internal static class YamlBridge
             return already;
         }
 
-        switch (node)
+        return node switch
         {
-            case YamlScalarNode scalar:
-                OkfScalar converted = new OkfScalar(scalar.Value ?? string.Empty, FromYaml(scalar.Style));
-                seen[node] = converted;
-                return converted;
+            YamlScalarNode scalar => ConvertScalar(scalar, seen),
+            YamlSequenceNode sequence => ConvertSequence(sequence, seen),
+            YamlMappingNode mapping => ConvertMapping(mapping, seen),
+            _ => throw new OkfDocumentException(
+                $"Invalid YAML in frontmatter: unsupported node {node.GetType().Name}"),
+        };
+    }
 
-            case YamlSequenceNode sequence:
-                OkfSequence seq = new OkfSequence { Style = FromYaml(sequence.Style) };
-                seen[node] = seq;
-                foreach (YamlNode child in sequence.Children)
-                {
-                    seq.Add(Convert(child, seen));
-                }
+    private static OkfScalar ConvertScalar(YamlScalarNode node, Dictionary<YamlNode, OkfValue> seen)
+    {
+        OkfScalar converted = new OkfScalar(node.Value ?? string.Empty, FromYaml(node.Style));
+        seen[node] = converted;
+        return converted;
+    }
 
-                return seq;
-
-            case YamlMappingNode mapping:
-                OkfMapping map = new OkfMapping { Style = FromYaml(mapping.Style) };
-                seen[node] = map;
-                foreach (KeyValuePair<YamlNode, YamlNode> entry in mapping.Children)
-                {
-                    map.Add(Convert(entry.Key, seen), Convert(entry.Value, seen));
-                }
-
-                return map;
-
-            default:
-                throw new OkfDocumentException($"Invalid YAML in frontmatter: unsupported node {node.GetType().Name}");
+    // The node is registered in `seen` BEFORE its children are converted, so a graph that
+    // points back at this collection resolves to the same instance instead of recursing.
+    private static OkfSequence ConvertSequence(YamlSequenceNode node, Dictionary<YamlNode, OkfValue> seen)
+    {
+        OkfSequence converted = new OkfSequence { Style = FromYaml(node.Style) };
+        seen[node] = converted;
+        foreach (YamlNode child in node.Children)
+        {
+            converted.Add(Convert(child, seen));
         }
+
+        return converted;
+    }
+
+    private static OkfMapping ConvertMapping(YamlMappingNode node, Dictionary<YamlNode, OkfValue> seen)
+    {
+        OkfMapping converted = new OkfMapping { Style = FromYaml(node.Style) };
+        seen[node] = converted;
+        foreach (KeyValuePair<YamlNode, YamlNode> entry in node.Children)
+        {
+            converted.Add(Convert(entry.Key, seen), Convert(entry.Value, seen));
+        }
+
+        return converted;
     }
 
     private static void EmitValue(OkfValue value, IEmitter emitter, HashSet<OkfValue> path)
@@ -117,51 +128,65 @@ internal static class YamlBridge
         switch (value)
         {
             case OkfScalar scalar:
-                // An unquoted empty scalar is YAML null (`key:` with no value).
-                // YamlDotNet's emitter cannot write an empty *plain* scalar and
-                // falls back to `''`, which would silently retype a null into an
-                // empty string on round trip (PRD CORE-2). Emit the explicit
-                // `null` PyYAML's dumper uses instead. A code-built `Scalar("")`
-                // keeps style `Any` and still emits `''`, because that one really
-                // is an empty string.
-                string text = scalar is { Style: OkfScalarStyle.Plain, Value.Length: 0 } ? "null" : scalar.Value;
-                emitter.Emit(new Scalar(
-                    AnchorName.Empty,
-                    TagName.Empty,
-                    text,
-                    ToYaml(scalar.Style),
-                    isPlainImplicit: true,
-                    isQuotedImplicit: true));
+                EmitScalar(scalar, emitter);
                 return;
 
             case OkfSequence sequence:
-                Enter(value, path);
-                emitter.Emit(new SequenceStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYaml(sequence.Style)));
-                foreach (OkfValue item in sequence)
-                {
-                    EmitValue(item, emitter, path);
-                }
-
-                emitter.Emit(new SequenceEnd());
-                path.Remove(value);
+                EmitSequence(sequence, emitter, path);
                 return;
 
             case OkfMapping mapping:
-                Enter(value, path);
-                emitter.Emit(new MappingStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYamlMapping(mapping.Style)));
-                foreach (KeyValuePair<OkfValue, OkfValue> entry in mapping)
-                {
-                    EmitValue(entry.Key, emitter, path);
-                    EmitValue(entry.Value, emitter, path);
-                }
-
-                emitter.Emit(new MappingEnd());
-                path.Remove(value);
+                EmitMapping(mapping, emitter, path);
                 return;
 
             default:
                 throw new OkfDocumentException($"Cannot serialize unsupported value {value.GetType().Name}");
         }
+    }
+
+    private static void EmitScalar(OkfScalar scalar, IEmitter emitter)
+    {
+        // An unquoted empty scalar is YAML null (`key:` with no value). YamlDotNet's
+        // emitter cannot write an empty *plain* scalar and falls back to `''`, which
+        // would silently retype a null into an empty string on round trip (PRD CORE-2).
+        // Emit the explicit `null` PyYAML's dumper uses instead. A code-built
+        // `Scalar("")` keeps style `Any` and still emits `''`, because that one really
+        // is an empty string.
+        string text = scalar is { Style: OkfScalarStyle.Plain, Value.Length: 0 } ? "null" : scalar.Value;
+        emitter.Emit(new Scalar(
+            AnchorName.Empty,
+            TagName.Empty,
+            text,
+            ToYaml(scalar.Style),
+            isPlainImplicit: true,
+            isQuotedImplicit: true));
+    }
+
+    private static void EmitSequence(OkfSequence sequence, IEmitter emitter, HashSet<OkfValue> path)
+    {
+        Enter(sequence, path);
+        emitter.Emit(new SequenceStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYaml(sequence.Style)));
+        foreach (OkfValue item in sequence)
+        {
+            EmitValue(item, emitter, path);
+        }
+
+        emitter.Emit(new SequenceEnd());
+        path.Remove(sequence);
+    }
+
+    private static void EmitMapping(OkfMapping mapping, IEmitter emitter, HashSet<OkfValue> path)
+    {
+        Enter(mapping, path);
+        emitter.Emit(new MappingStart(AnchorName.Empty, TagName.Empty, isImplicit: true, ToYamlMapping(mapping.Style)));
+        foreach (KeyValuePair<OkfValue, OkfValue> entry in mapping)
+        {
+            EmitValue(entry.Key, emitter, path);
+            EmitValue(entry.Value, emitter, path);
+        }
+
+        emitter.Emit(new MappingEnd());
+        path.Remove(mapping);
     }
 
     private static void Enter(OkfValue value, HashSet<OkfValue> path)

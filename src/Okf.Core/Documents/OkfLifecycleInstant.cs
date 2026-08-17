@@ -68,35 +68,15 @@ public readonly struct OkfLifecycleInstant
         timestamp = default;
 
         string? trimmed = text?.Trim();
-        if (trimmed is null || trimmed.Length < 10)
+        if (trimmed is null || !TryParseWrittenDate(trimmed, out DateOnly date))
         {
             return false;
         }
 
-        if (!DateOnly.TryParseExact(
-                trimmed[..10],
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out DateOnly date))
-        {
-            return false;
-        }
+        timestamp = TryParseTimeOfDay(trimmed, out DateTimeOffset instant)
+            ? new OkfLifecycleInstant(date, instant, hasTime: true)
+            : new OkfLifecycleInstant(date, Midnight(date), hasTime: false);
 
-        // A value with no offset is read as UTC rather than as this machine's local time:
-        // okf output must not depend on the reader's timezone (PRD ACC-7).
-        if (trimmed.Length > 10
-            && DateTimeOffset.TryParse(
-                trimmed,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out DateTimeOffset instant))
-        {
-            timestamp = new OkfLifecycleInstant(date, instant, hasTime: true);
-            return true;
-        }
-
-        timestamp = new OkfLifecycleInstant(date, Midnight(date), hasTime: false);
         return true;
     }
 
@@ -153,6 +133,31 @@ public readonly struct OkfLifecycleInstant
     /// <param name="today">The date to measure to.</param>
     /// <returns>The day count; negative when the timestamp is in the future.</returns>
     public int DaysUntil(DateOnly today) => today.DayNumber - Date.DayNumber;
+
+    private static bool TryParseWrittenDate(string trimmed, out DateOnly date)
+    {
+        date = default;
+        return trimmed.Length >= 10
+            && DateOnly.TryParseExact(
+                trimmed[..10],
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out date);
+    }
+
+    // A value with no offset is read as UTC rather than as this machine's local time: okf
+    // output must not depend on the reader's timezone (PRD ACC-7).
+    private static bool TryParseTimeOfDay(string trimmed, out DateTimeOffset instant)
+    {
+        instant = default;
+        return trimmed.Length > 10
+            && DateTimeOffset.TryParse(
+                trimmed,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out instant);
+    }
 
     private static DateTimeOffset Midnight(DateOnly date) =>
         new(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);

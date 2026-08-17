@@ -64,48 +64,15 @@ public sealed class OkfDocument
             return new OkfDocument(new OkfMapping(), text);
         }
 
-        int end = -1;
-        for (int i = 1; i < lines.Count; i++)
-        {
-            if (IsDelimiter(lines[i]))
-            {
-                end = i;
-                break;
-            }
-        }
-
+        int end = ClosingDelimiterIndex(lines);
         if (end < 0)
         {
             throw new OkfDocumentException("Unterminated YAML frontmatter block");
         }
 
-        string frontmatterText = string.Join('\n', lines.GetRange(1, end - 1));
-        OkfValue? loaded = YamlBridge.Load(frontmatterText);
-
-        // The reference implementation writes `yaml.safe_load(fm_text) or {}`, so any
-        // falsy document — null, `false`, `0`, `[]`, `{}`, "" — becomes empty
-        // frontmatter, and only a *truthy* non-mapping is an error.
-        OkfMapping frontmatter;
-        if (loaded is null || !loaded.IsTruthy)
-        {
-            frontmatter = new OkfMapping();
-        }
-        else if (loaded is OkfMapping mapping)
-        {
-            frontmatter = mapping;
-        }
-        else
-        {
-            throw new OkfDocumentException("Frontmatter must be a YAML mapping");
-        }
-
-        string body = string.Join('\n', lines.GetRange(end + 1, lines.Count - end - 1));
-        if (body.StartsWith('\n'))
-        {
-            body = body[1..];
-        }
-
-        return new OkfDocument(frontmatter, body);
+        return new OkfDocument(
+            ParseFrontmatter(string.Join('\n', lines.GetRange(1, end - 1))),
+            BodyAfter(lines, end));
     }
 
     /// <summary>
@@ -226,6 +193,44 @@ public sealed class OkfDocument
 
     private static bool IsDelimiter(string line) => line.Trim() == FrontmatterDelimiter;
 
+    private static int ClosingDelimiterIndex(List<string> lines)
+    {
+        for (int i = 1; i < lines.Count; i++)
+        {
+            if (IsDelimiter(lines[i]))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static OkfMapping ParseFrontmatter(string frontmatterText)
+    {
+        OkfValue? loaded = YamlBridge.Load(frontmatterText);
+
+        // The reference implementation writes `yaml.safe_load(fm_text) or {}`, so any
+        // falsy document — null, `false`, `0`, `[]`, `{}`, "" — becomes empty
+        // frontmatter, and only a *truthy* non-mapping is an error.
+        if (loaded is null || !loaded.IsTruthy)
+        {
+            return new OkfMapping();
+        }
+
+        return loaded as OkfMapping
+            ?? throw new OkfDocumentException("Frontmatter must be a YAML mapping");
+    }
+
+    private static string BodyAfter(List<string> lines, int frontmatterEndIndex)
+    {
+        string body = string.Join(
+            '\n',
+            lines.GetRange(frontmatterEndIndex + 1, lines.Count - frontmatterEndIndex - 1));
+
+        return body.StartsWith('\n') ? body[1..] : body;
+    }
+
     // Mirrors Python's str.splitlines() for the line terminators that occur in real
     // markdown (LF, CRLF, CR); the exotic ones Python also splits on (\v, \f, U+2028,
     // U+0085, ...) are deliberately treated as ordinary characters.
@@ -235,21 +240,15 @@ public sealed class OkfDocument
         int start = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            if (text[i] == '\r')
+            int terminator = TerminatorLength(text, i);
+            if (terminator == 0)
             {
-                lines.Add(text[start..i]);
-                if (i + 1 < text.Length && text[i + 1] == '\n')
-                {
-                    i++;
-                }
+                continue;
+            }
 
-                start = i + 1;
-            }
-            else if (text[i] == '\n')
-            {
-                lines.Add(text[start..i]);
-                start = i + 1;
-            }
+            lines.Add(text[start..i]);
+            i += terminator - 1;
+            start = i + 1;
         }
 
         if (start < text.Length)
@@ -259,4 +258,11 @@ public sealed class OkfDocument
 
         return lines;
     }
+
+    private static int TerminatorLength(string text, int index) => text[index] switch
+    {
+        '\r' => index + 1 < text.Length && text[index + 1] == '\n' ? 2 : 1,
+        '\n' => 1,
+        _ => 0,
+    };
 }

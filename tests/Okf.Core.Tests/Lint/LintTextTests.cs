@@ -103,6 +103,23 @@ public class LintTextTests
             Enum.Parse<SourceResource>(expected),
             LintText.ClassifyResource(resource, Root, SubDirectory));
 
+    /// <summary>
+    /// A bundle root that is not a usable path makes a target resolve to nothing rather
+    /// than throw. <c>Path.GetFullPath(string.Empty)</c> raises <c>ArgumentException</c>,
+    /// and a bare <c>/</c> against an empty root is the one input that still reaches it
+    /// once the invalid-character check has passed — every other spelling either keeps a
+    /// segment or is rejected earlier. <see cref="Okf.Core.Bundle.OkfBundle.Root" /> is
+    /// always <c>Path.GetFullPath</c>-ed and so never empty, so no lint rule can produce
+    /// this; <see cref="LintText.Resolve" /> is the shared §6.2 entry point all the same,
+    /// and answering "not a path" is what keeps a caller's bad root from ending the run.
+    /// </summary>
+    [Fact]
+    public void ARootThatIsNotAPathResolvesToNothingRatherThanThrowing()
+    {
+        Assert.Equal(LinkTarget.NotAPath, LintText.Resolve("/", string.Empty, SubDirectory, out var resolved));
+        Assert.Null(resolved);
+    }
+
     /// <summary>§6.2: a relative <c>resource</c> that names a real file resolves.</summary>
     [Fact]
     public void AResourceNamingAFileInTheBundleResolves()
