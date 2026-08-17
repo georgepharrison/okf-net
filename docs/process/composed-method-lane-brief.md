@@ -1,6 +1,8 @@
 # Captain brief — polish step H (#14 composed method), one area
 
-Lane brief used for #14 lanes H1–H2 on 2026-08-16; H3/H4 should follow it
+> Historical lane brief: H1–H4 are complete on `dev` as of 2026-08-17.
+
+Lane brief used for #14 lanes H1–H2 on 2026-08-16; H3/H4 were run from it
 verbatim (any orchestrating model). Paths under `/tmp` in it refer to the
 orchestrator's scratchpad — the inventory now lives at
 `docs/spikes/2026-08-16-composed-method.md`.
