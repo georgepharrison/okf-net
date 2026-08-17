@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Okf.Core;
 
 namespace Okf.Cli.Search;
@@ -31,42 +32,57 @@ internal static class SearchJson
             writer.WriteStartArray();
             foreach (OkfSearchResult result in outcome.Results)
             {
-                writer.WriteStartObject();
-                writer.WriteString("id", result.Id);
-                writer.WriteString("path", result.Path);
-                writer.WriteString("absolutePath", result.AbsolutePath);
-                writer.WriteString("bundle", result.Bundle);
-                writer.WriteString("bundleName", result.BundleName);
-                writer.WriteString("title", result.Title);
-                JsonOutput.WriteStringOrNull(writer, "type", result.Type);
-                JsonOutput.WriteStringOrNull(writer, "description", result.Description);
-                writer.WriteStartArray("tags");
-                foreach (string tag in result.Tags)
-                {
-                    writer.WriteStringValue(tag);
-                }
-
-                writer.WriteEndArray();
-                writer.WriteNumber("score", result.Score);
-                writer.WriteString("snippet", result.Snippet);
-                writer.WriteString("trustTier", result.TrustTier.ToSpecString());
-                writer.WriteBoolean("stale", result.Stale);
-
-                // Per result rather than in an envelope, so the contract stays one array:
-                // an OR fallback is something an agent must be able to see.
-                writer.WriteString("matchMode", MatchMode(outcome.MatchMode));
-                writer.WriteStartArray("matchedTerms");
-                foreach (string term in result.MatchedTerms)
-                {
-                    writer.WriteStringValue(term);
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
+                WriteResult(writer, result, outcome.MatchMode);
             }
 
             writer.WriteEndArray();
         });
+    }
+
+    private static void WriteResult(Utf8JsonWriter writer, OkfSearchResult result, OkfSearchMatchMode matchMode)
+    {
+        writer.WriteStartObject();
+        WriteIdentity(writer, result);
+        WriteJudgement(writer, result, matchMode);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteIdentity(Utf8JsonWriter writer, OkfSearchResult result)
+    {
+        writer.WriteString("id", result.Id);
+        writer.WriteString("path", result.Path);
+        writer.WriteString("absolutePath", result.AbsolutePath);
+        writer.WriteString("bundle", result.Bundle);
+        writer.WriteString("bundleName", result.BundleName);
+        writer.WriteString("title", result.Title);
+        JsonOutput.WriteStringOrNull(writer, "type", result.Type);
+        JsonOutput.WriteStringOrNull(writer, "description", result.Description);
+        writer.WriteStartArray("tags");
+        foreach (string tag in result.Tags)
+        {
+            writer.WriteStringValue(tag);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteJudgement(Utf8JsonWriter writer, OkfSearchResult result, OkfSearchMatchMode matchMode)
+    {
+        writer.WriteNumber("score", result.Score);
+        writer.WriteString("snippet", result.Snippet);
+        writer.WriteString("trustTier", result.TrustTier.ToSpecString());
+        writer.WriteBoolean("stale", result.Stale);
+
+        // Per result rather than in an envelope, so the contract stays one array:
+        // an OR fallback is something an agent must be able to see.
+        writer.WriteString("matchMode", MatchMode(matchMode));
+        writer.WriteStartArray("matchedTerms");
+        foreach (string term in result.MatchedTerms)
+        {
+            writer.WriteStringValue(term);
+        }
+
+        writer.WriteEndArray();
     }
 
     /// <summary>The wire spelling of a match mode: <c>all</c>, <c>any</c>, or <c>filter</c>.</summary>

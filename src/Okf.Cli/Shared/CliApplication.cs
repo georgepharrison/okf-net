@@ -48,30 +48,49 @@ internal static class CliApplication
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        if (args.Length == 0)
-        {
-            WriteUsage(error);
-            return ExitUsage;
-        }
+        return args.Length == 0
+            ? UsageFailure(error)
+            : Dispatch(new Invocation(args, environment, output, error, input ?? TextReader.Null));
+    }
 
+    private sealed record Invocation(
+        string[] Args,
+        OkfEnvironment Environment,
+        TextWriter Output,
+        TextWriter Error,
+        TextReader Input);
+
+    private static int Dispatch(Invocation invocation)
+    {
         // The flag spellings of the two verbs that have them; everything else is a verb or
         // nothing.
-        string verb = args[0] switch
-        {
-            "--help" or "-h" => "help",
-            "--version" => "version",
-            var word => word,
-        };
-
+        string verb = Verb(invocation.Args[0]);
         foreach ((string Verb, CommandRunner Run) command in Commands)
         {
             if (string.Equals(command.Verb, verb, StringComparison.Ordinal))
             {
-                return command.Run(args[1..], environment, output, error, input ?? TextReader.Null);
+                return command.Run(
+                    invocation.Args[1..],
+                    invocation.Environment,
+                    invocation.Output,
+                    invocation.Error,
+                    invocation.Input);
             }
         }
 
-        error.WriteLine($"okf: error: unknown command '{args[0]}'.");
+        invocation.Error.WriteLine($"okf: error: unknown command '{invocation.Args[0]}'.");
+        return UsageFailure(invocation.Error);
+    }
+
+    private static string Verb(string argument) => argument switch
+    {
+        "--help" or "-h" => "help",
+        "--version" => "version",
+        var word => word,
+    };
+
+    private static int UsageFailure(TextWriter error)
+    {
         WriteUsage(error);
         return ExitUsage;
     }
