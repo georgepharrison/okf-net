@@ -338,4 +338,29 @@ public class VerboseReportingTests
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
         Assert.Empty(run.Error);
     }
+
+    /// <summary>
+    /// A resolution note sits between the sentence and the bundle list, because it explains
+    /// the sentence: `okf mcp --scope all` reports why a registered vault contributed
+    /// nothing, and a reader who met that line after the bundles would read it as being
+    /// about the last bundle listed.
+    /// </summary>
+    [Fact]
+    public void AResolutionNoteIsReportedBetweenTheSentenceAndTheBundles()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CopyFixture("conformant", Path.Combine("okf", "bundles", "clean"));
+        var workingSet = Okf.Core.OkfDiscovery.Resolve(tree.Root, Cli.Environment(tree.Root, tree.Root));
+        using var error = new StringWriter();
+
+        VerboseReport.WorkingSet(error, workingSet, ["no project vault: nothing here"]);
+
+        Assert.Equal(
+            [
+                $"okf: resolved {workingSet.Resolution}",
+                "okf: no project vault: nothing here",
+                $"okf: bundle {bundle}",
+            ],
+            error.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+    }
 }
