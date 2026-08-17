@@ -97,7 +97,7 @@ public static class OkfUpgrade
         ArgumentNullException.ThrowIfNull(options);
 
         Uri baseUri = BaseUri(options.BaseUrl);
-        Uri manifestUri = ManifestUri(baseUri, options.Version);
+        Uri manifestUri = ManifestUri(baseUri, options.Version, options.Channel);
         OkfUpgradeManifest manifest = ReadManifest(manifestUri, fetch ?? HttpFetch(options.UserAgent));
         VerifyPinnedVersion(options.Version, manifest, manifestUri);
 
@@ -428,19 +428,24 @@ public static class OkfUpgrade
         return string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && uri.IsLoopback;
     }
 
-    /// <summary>The manifest URL for a release.</summary>
+    /// <summary>The stable-channel manifest URL for a release.</summary>
     /// <param name="baseUri">The normalized base URL.</param>
     /// <param name="version">The pinned version, or <see langword="null" /> for the newest.</param>
     /// <returns>The manifest URL.</returns>
+    public static Uri ManifestUri(Uri baseUri, string? version) =>
+        ManifestUri(baseUri, version, OkfUpgradeChannel.Stable);
+
+    /// <summary>The manifest URL for a release and channel.</summary>
+    /// <param name="baseUri">The normalized base URL.</param>
+    /// <param name="version">The pinned version, or <see langword="null" /> for the newest.</param>
+    /// <param name="channel">The moving channel to read when no version is pinned.</param>
+    /// <returns>The manifest URL.</returns>
     /// <remarks>
-    /// The host's layout, verified against it: the newest release is
-    /// <c>&lt;base&gt;/latest.json</c> and every published release keeps its own copy at
-    /// <c>&lt;base&gt;/v&lt;version&gt;/latest.json</c>, which is what makes a version
-    /// pinnable by name with no index to consult. The channel does not appear here, because
-    /// the host publishes one manifest at its root today (see
-    /// <see cref="OkfUpgradeChannel.Rc" />).
+    /// Stable and release candidates move independently at <c>stable/latest.json</c> and
+    /// <c>dev/latest.json</c>. Every published release keeps one shared immutable copy at
+    /// <c>v&lt;version&gt;/latest.json</c>, so a pin does not belong to either channel.
     /// </remarks>
-    public static Uri ManifestUri(Uri baseUri, string? version)
+    internal static Uri ManifestUri(Uri baseUri, string? version, OkfUpgradeChannel channel)
     {
         ArgumentNullException.ThrowIfNull(baseUri);
 
@@ -450,9 +455,18 @@ public static class OkfUpgrade
             normalized = normalized[1..];
         }
 
-        return normalized.Length == 0
-            ? Under(baseUri, ManifestFileName)
-            : Under(baseUri, $"v{normalized}/{ManifestFileName}");
+        if (normalized.Length > 0)
+        {
+            return Under(baseUri, $"v{normalized}/{ManifestFileName}");
+        }
+
+        string channelDirectory = channel switch
+        {
+            OkfUpgradeChannel.Stable => "stable",
+            OkfUpgradeChannel.Rc => "dev",
+            _ => throw new ArgumentOutOfRangeException(nameof(channel), channel, "Unknown upgrade channel."),
+        };
+        return Under(baseUri, $"{channelDirectory}/{ManifestFileName}");
     }
 
     /// <summary>Where an asset is downloaded from.</summary>

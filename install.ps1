@@ -18,6 +18,9 @@
 .PARAMETER Version
     Install this release instead of the newest, e.g. 1.0.0-rc.15 (a leading "v" is fine).
 
+.PARAMETER Channel
+    Install from stable/main (the default) or the rc/dev release-candidate channel.
+
 .PARAMETER InstallDir
     Install into this directory instead of $env:LOCALAPPDATA\okf\bin.
 
@@ -26,6 +29,9 @@
 
 .EXAMPLE
     irm https://get.okf.tychostation.dev/install.ps1 | iex
+
+.EXAMPLE
+    & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -Channel rc
 
 .EXAMPLE
     & ([scriptblock]::Create((irm https://get.okf.tychostation.dev/install.ps1))) -DryRun
@@ -60,6 +66,8 @@
 [CmdletBinding()]
 param(
     [string] $Version,
+    [ValidateSet('stable', 'rc')]
+    [string] $Channel = 'stable',
     [string] $InstallDir,
     [switch] $DryRun
 )
@@ -161,6 +169,9 @@ $requested = ''
 if ($Version) {
     $requested = $Version.TrimStart('v', 'V')
 }
+if ($requested -and $PSBoundParameters.ContainsKey('Channel')) {
+    Write-Failure '-Version pins one release, so -Channel has nothing left to choose; give one or the other.'
+}
 
 # ---------------------------------------------------------------------------
 # Manifest
@@ -185,12 +196,13 @@ function Get-JsonProperty {
     return $property.Value
 }
 
-$manifestUrl = if ($requested) { "$baseUrl/v$requested/latest.json" } else { "$baseUrl/latest.json" }
-
 if ($requested) {
+    $manifestUrl = "$baseUrl/v$requested/latest.json"
     Write-Note "==> okf $requested"
 } else {
-    Write-Note '==> okf (newest release)'
+    $channelDirectory = if ($Channel -eq 'rc') { 'dev' } else { 'stable' }
+    $manifestUrl = "$baseUrl/$channelDirectory/latest.json"
+    Write-Note "==> okf (newest $Channel release)"
 }
 Write-Note "    manifest: $manifestUrl"
 

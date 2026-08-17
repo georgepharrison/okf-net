@@ -3,7 +3,7 @@ type: Playbook
 title: Release and Versioning
 description: Conventional commits drive semantic-release, dev ships release candidates and main ships stable versions, every tag publishes a self-describing three-platform release the installers can verify, and the installed binary upgrades itself from the same manifest.
 tags: [okf-net, release, versioning, semantic-release, conventional-commits, distribution]
-generated: { by: "claude-fable/5", at: 2026-08-16T05:22:07Z }
+generated: { by: "openai/gpt-5.4", at: 2026-08-17T18:14:37Z }
 sources:
   - id: releaserc
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/.releaserc.yml
@@ -155,7 +155,8 @@ into a green log and reaches a tester's machine.
 
 `curl -fsSL https://get.okf.tychostation.dev/install.sh | sh` covers Linux and
 macOS; `irm https://get.okf.tychostation.dev/install.ps1 | iex` covers Windows.
-Each fetches `latest.json`, selects the asset for the machine it is running on,
+Each reads `stable/latest.json` by default, or `dev/latest.json` when explicitly
+pointed at the `rc` channel, selects the asset for the machine it is running on,
 verifies it against the digest in the manifest, and installs atomically — to
 `~/.local/bin/okf`, or to `%LOCALAPPDATA%\okf\bin\okf.exe` with the user
 `PATH` updated. Neither needs root or Administrator. Pinning a version,
@@ -203,9 +204,10 @@ registry token held by the host, and nothing needs inbound access to it at all.
 
 # Upgrading in place
 
-Once a binary is installed it replaces itself: `okf upgrade` reads the same
-`latest.json` from the same `OKF_INSTALL_URL`, selects the asset for the
-machine, downloads it **beside the binary being replaced**, checks the digest
+Once a binary is installed it replaces itself: `okf upgrade` reads
+`stable/latest.json` by default or `dev/latest.json` under `--channel rc`, from
+the same `OKF_INSTALL_URL`, selects the asset for the machine, downloads it
+**beside the binary being replaced**, checks the digest
 against the manifest and only then renames it into place. `okf upgrade --check`
 answers the cheaper question — what is installed against what is published —
 and answers it as an exit code, `0` current and `1` an upgrade available, so it
@@ -230,13 +232,14 @@ staleness banner, no background poll. The fetch is injected, so every test runs
 against a fake or an in-process listener on loopback and a host outage cannot
 turn a gate red.
 
-Two things it inherits rather than solves. The manifest is unsigned, so the
-digest proves integrity — a truncated download, a substituted file, a flipped
-byte — and proves nothing about origin; that is the same deferral made about
-`okf-bundle.json`, and it is tracked with the public-exposure work. And the
-second release channel is *decided but not served*: the host publishes one
-manifest at its root, so `--channel rc` parses, reads that same manifest, and
-says it is reserved, rather than requesting a URL nothing answers.
+Two moving channels share one immutable release tree. The artifact sync selects
+the newest plain tag into `stable/` and the newest `-rc.N` tag into `dev/`
+independently; root files alias stable for installers published before the
+split. Each channel pointer is replaced atomically, so a later candidate can
+never advance a default install. The manifest remains unsigned: its digest
+proves integrity — a truncated download, a substituted file, a flipped byte —
+and proves nothing about origin. That is the same deferral made about
+`okf-bundle.json`, tracked with the public-exposure work.
 
 One difference from the installer worth naming because its absence looks like an
 omission: nothing here clears `com.apple.quarantine`. `curl` sets that attribute

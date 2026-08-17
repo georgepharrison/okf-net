@@ -99,7 +99,7 @@ public sealed class UpgradeCommandTests
 
         Assert.Equal(CliApplication.ExitSuccess, exitCode);
         Assert.Contains("--dry-run: nothing was downloaded or written", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains($"{BaseUrl}/latest.json", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains($"{BaseUrl}/stable/latest.json", output.ToString(), StringComparison.Ordinal);
         Assert.Contains(target, output.ToString(), StringComparison.Ordinal);
         Assert.Equal(0, host.AssetRequests);
         Assert.Equal("the binary that is running", File.ReadAllText(target));
@@ -238,7 +238,7 @@ public sealed class UpgradeCommandTests
             error,
             Self(host, target));
 
-        Assert.Equal("https://mirror.example/okf/latest.json", host.ManifestRequest);
+        Assert.Equal("https://mirror.example/okf/stable/latest.json", host.ManifestRequest);
     }
 
     [Fact]
@@ -257,12 +257,8 @@ public sealed class UpgradeCommandTests
         Assert.Equal("the binary that is running", File.ReadAllText(target));
     }
 
-    /// <summary>
-    /// The channel is declared and its second URL is not, so `rc` says so instead of
-    /// inventing a path the host would answer with a 404.
-    /// </summary>
     [Fact]
-    public void SaysThatTheRcChannelIsReserved()
+    public void RcReadsTheDevelopmentChannel()
     {
         using var tree = new TempTree();
         var target = Install(tree);
@@ -274,22 +270,23 @@ public sealed class UpgradeCommandTests
             ["--check", "--channel", "rc"], Environment(), output, error, Self(host, target));
 
         Assert.Equal(CliApplication.ExitDiagnostics, exitCode);
-        Assert.Contains("reserved", error.ToString(), StringComparison.Ordinal);
-        Assert.Equal($"{BaseUrl}/latest.json", host.ManifestRequest);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Equal($"{BaseUrl}/dev/latest.json", host.ManifestRequest);
     }
 
     [Fact]
-    public void StableIsTheDefaultAndSaysNothing()
+    public void StableReadsTheStableChannelByDefault()
     {
         using var tree = new TempTree();
         var target = Install(tree);
-        var host = new FakeHost("1.1.0-rc.1");
+        var host = new FakeHost("1.0.0");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
         UpgradeCommand.Run(["--check"], Environment(), output, error, Self(host, target));
 
-        Assert.DoesNotContain("reserved", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Equal($"{BaseUrl}/stable/latest.json", host.ManifestRequest);
     }
 
     [Theory]

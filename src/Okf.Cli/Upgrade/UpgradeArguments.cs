@@ -24,7 +24,7 @@ internal sealed class UpgradeArguments
     /// <summary>The channel asked for.</summary>
     public OkfUpgradeChannel Channel { get; private set; }
 
-    /// <summary>Whether <c>--channel</c> was given at all, which is what earns the reserved-channel note.</summary>
+    /// <summary>Whether <c>--channel</c> was given, for detecting a contradictory version pin.</summary>
     public bool ChannelWasGiven { get; private set; }
 
     /// <summary>Whether the command should print its help and stop.</summary>

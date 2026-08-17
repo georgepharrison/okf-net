@@ -71,7 +71,6 @@ internal static class UpgradeCommand
         }
 
         OkfUpgradeOptions options = Options(parsed, environment, self);
-        NoteReservedChannel(parsed, error);
         if (Resolved(options, self, error) is not { } plan)
         {
             return CliApplication.ExitUsage;
@@ -109,24 +108,6 @@ internal static class UpgradeCommand
             ExecutablePath = self.ExecutablePath,
             UserAgent = $"okf/{self.Version}",
         };
-
-    /// <summary>
-    /// Said out loud rather than implemented as a second URL. The host serves one
-    /// manifest at its root, so `--channel rc` reading `latest-rc.json` would be a
-    /// 404 dressed up as a feature; the flag exists because the two-channel split is
-    /// decided (issue #23) and its URL is not.
-    /// </summary>
-    private static void NoteReservedChannel(UpgradeArguments parsed, TextWriter error)
-    {
-        if (parsed.Channel != OkfUpgradeChannel.Rc)
-        {
-            return;
-        }
-
-        error.WriteLine(
-            "okf: note: `--channel rc` is reserved. The artifact host publishes one manifest at "
-            + "its root today, so this reads the same release as `--channel stable`.");
-    }
 
     private static OkfUpgradePlan? Resolved(OkfUpgradeOptions options, UpgradeRuntime self, TextWriter error)
     {
@@ -340,8 +321,8 @@ internal static class UpgradeCommand
                                      and stop. Downloads nothing.
               --version <x.y.z>      Install this release instead of the newest, with or
                                      without a leading `v`. Downgrades too.
-              --channel <stable|rc>  Which channel to read (default: stable). `rc` is
-                                     reserved and reads the same manifest today.
+              --channel <stable|rc>  Which channel to read (default: stable). Stable reads
+                                     releases from main; rc reads candidates from dev.
               --dry-run              Resolve and report; download and write nothing.
               --json                 Report as JSON: current, available, asset, url,
                                      sha256, upToDate.

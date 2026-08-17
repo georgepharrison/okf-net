@@ -25,14 +25,10 @@ public sealed class OkfUpgradeException : Exception
 /// <summary>Which release channel <c>okf upgrade</c> was pointed at.</summary>
 public enum OkfUpgradeChannel
 {
-    /// <summary>The default: whatever the host publishes at <c>&lt;base&gt;/latest.json</c>.</summary>
+    /// <summary>The default: releases from <c>main</c>, served under <c>stable/</c>.</summary>
     Stable = 0,
 
-    /// <summary>
-    /// The release-candidate channel. Reserved: the host serves ONE manifest at its root
-    /// today, so this reads the same file as <see cref="Stable" /> and the command says so.
-    /// Inventing a second URL would produce a 404 dressed up as a feature.
-    /// </summary>
+    /// <summary>Release candidates from <c>dev</c>, served under <c>dev/</c>.</summary>
     Rc,
 }
 

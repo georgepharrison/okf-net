@@ -121,22 +121,32 @@ public sealed class OkfUpgradeTests
     [InlineData("https://get.okf.tychostation.dev///")]
     public void TrimsEveryTrailingSlashFromTheBaseUrl(string baseUrl) =>
         Assert.Equal(
-            "https://get.okf.tychostation.dev/latest.json",
-            OkfUpgrade.ManifestUri(OkfUpgrade.BaseUri(baseUrl), null).ToString());
+            "https://get.okf.tychostation.dev/stable/latest.json",
+            OkfUpgrade.ManifestUri(
+                OkfUpgrade.BaseUri(baseUrl),
+                null,
+                OkfUpgradeChannel.Stable).ToString());
 
     /// <summary>
-    /// The host's layout, verified against the host itself: the newest release sits at the
-    /// root and every published release keeps its own copy under `v&lt;version&gt;/`.
+    /// The stable and release-candidate channels move independently, while every pinned
+    /// release keeps one shared immutable path outside either channel tree.
     /// </summary>
     [Theory]
-    [InlineData(null, "https://get.okf.tychostation.dev/latest.json")]
-    [InlineData("1.0.0", "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
-    [InlineData("1.1.0-rc.1", "https://get.okf.tychostation.dev/v1.1.0-rc.1/latest.json")]
-    [InlineData("v1.0.0", "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
-    public void BuildsTheManifestUrlTheHostServes(string? version, string expected) =>
+    [InlineData(null, OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/stable/latest.json")]
+    [InlineData(null, OkfUpgradeChannel.Rc, "https://get.okf.tychostation.dev/dev/latest.json")]
+    [InlineData("1.0.0", OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
+    [InlineData("1.1.0-rc.1", OkfUpgradeChannel.Rc, "https://get.okf.tychostation.dev/v1.1.0-rc.1/latest.json")]
+    [InlineData("v1.0.0", OkfUpgradeChannel.Stable, "https://get.okf.tychostation.dev/v1.0.0/latest.json")]
+    public void BuildsTheManifestUrlTheHostServes(
+        string? version,
+        OkfUpgradeChannel channel,
+        string expected) =>
         Assert.Equal(
             expected,
-            OkfUpgrade.ManifestUri(OkfUpgrade.BaseUri(OkfUpgradeOptions.DefaultBaseUrl), version).ToString());
+            OkfUpgrade.ManifestUri(
+                OkfUpgrade.BaseUri(OkfUpgradeOptions.DefaultBaseUrl),
+                version,
+                channel).ToString());
 
     [Fact]
     public void ResolvesAnAssetAgainstTheBaseUrlAndNotTheRegistry()
