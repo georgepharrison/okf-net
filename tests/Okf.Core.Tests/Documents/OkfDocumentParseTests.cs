@@ -66,6 +66,35 @@ public class OkfDocumentParseTests
         Assert.Equal(once, twice);
     }
 
+    /// <summary>
+    /// Issue #61 neighbours (AD-10): a frontmatter-only concept — the bug case itself,
+    /// plus the near shapes <see cref="FileLayoutTests" /> probes at the line-bookkeeping
+    /// level — must parse to an empty body and serialize back to something that parses
+    /// to that same empty body again, with the frontmatter untouched. The raw input
+    /// itself is not always the byte-identical output: <see cref="Serialize" />
+    /// canonicalizes a body-less document onto its own trailing-newline convention
+    /// (<see cref="ParseDropsTheTrailingNewlineAndSerializeRestoresIt" />), so the
+    /// bit-for-bit guarantee is checked one hop later, on the canonical form.
+    /// </summary>
+    [Theory]
+    [InlineData("---\ntype: concept\n---\n\n")]
+    [InlineData("---\ntype: x\n---")]
+    [InlineData("---\ntype: x\n---\n")]
+    [InlineData("---\ntype: x\n---\n\n\n")]
+    [InlineData("---\r\ntype: x\r\n---\r\n\r\n")]
+    public void FrontmatterOnlyDocumentsRoundTripThroughSerializeOnceCanonical(string text)
+    {
+        var doc = OkfDocument.Parse(text);
+        Assert.Equal(string.Empty, doc.Body);
+
+        var canonical = doc.Serialize();
+        var reparsed = OkfDocument.Parse(canonical);
+
+        Assert.Equal(string.Empty, reparsed.Body);
+        OkfValues.AssertDeepEqual(doc.Frontmatter, reparsed.Frontmatter);
+        Assert.Equal(canonical, reparsed.Serialize());
+    }
+
     [Fact]
     public void RoundTripPreservesKeyOrderWithoutAlphabetizing()
     {

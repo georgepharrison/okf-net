@@ -8,6 +8,37 @@ namespace Okf.Cli.Tests.Lint;
 /// </summary>
 public class LintCommandTests
 {
+    /// <summary>
+    /// Issue #61 end-to-end: a bundle holding a concept that is nothing but frontmatter
+    /// and a trailing blank line must lint like anything else with a defect — an exit
+    /// code and a diagnostic list — never an unhandled exception. Exit 2 is reserved for
+    /// usage/environment failures (<see cref="CliApplication.ExitUsage" />), so a crash
+    /// would surface as neither 0 nor 1, and here it would surface as the test itself
+    /// erroring out of <see cref="CliHarness.RunIn" /> before any assertion ran.
+    /// </summary>
+    [Fact]
+    public void ABundleHoldingAFrontmatterOnlyConceptLintsInsteadOfCrashing()
+    {
+        using var project = new TempTree();
+        project.Write("bundle/index.md", """
+            ---
+            okf_version: "0.2"
+            ---
+
+            # Bundle
+
+            * [Empty](empty.md) - Nothing but frontmatter and a blank line.
+            """);
+        project.Write("bundle/empty.md", "---\ntype: concept\n---\n\n");
+
+        var run = CliHarness.RunIn(project.Root, project.Root, "lint", "bundle");
+
+        Assert.True(
+            run.ExitCode is CliApplication.ExitSuccess or CliApplication.ExitDiagnostics,
+            $"expected exit 0 or 1, got {run.ExitCode}");
+        Assert.StartsWith("Checked ", run.Summary, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ConformantFixtureIsSilentAndExitsZero()
     {

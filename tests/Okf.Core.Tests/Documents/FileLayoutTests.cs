@@ -120,4 +120,44 @@ public class FileLayoutTests
         Assert.Null(layout.FrontmatterKeyLine("type"));
         Assert.Equal(3, layout.FrontmatterKeyLine("title"));
     }
+
+    /// <summary>
+    /// Issue #61: frontmatter, one blank separator line, then nothing else crashed with
+    /// <see cref="ArgumentOutOfRangeException" />. The blank line closes out the body's
+    /// join with nothing left to consume a leading newline from, so the body is empty —
+    /// not a slice one character past its own end.
+    /// </summary>
+    [Fact]
+    public void AFrontmatterOnlyConceptWithATrailingBlankLineHasAnEmptyBody()
+    {
+        const string Text = "---\ntype: concept\n---\n\n";
+        var layout = FileLayout.Of(Text);
+
+        Assert.True(layout.HasFrontmatter);
+        Assert.Equal(string.Empty, layout.Body);
+        Assert.Equal(4, layout.BodyFirstLine);
+        Assert.Equal(OkfDocument.Parse(Text).Body, layout.Body);
+    }
+
+    /// <summary>
+    /// Neighbours of the #61 shape: no closing-fence trailing newline, exactly one,
+    /// two blank lines in a row, the same blank-line shape over CRLF, and a
+    /// whitespace-only (not blank) line right after the fence. None of these may throw,
+    /// and each must land on the same body <see cref="OkfDocument.Parse(string)" /> does.
+    /// </summary>
+    [Theory]
+    [InlineData("---\ntype: x\n---", 0, 4)]
+    [InlineData("---\ntype: x\n---\n", 0, 4)]
+    [InlineData("---\ntype: x\n---\n\n\n", 0, 5)]
+    [InlineData("---\r\ntype: x\r\n---\r\n\r\n", 0, 4)]
+    [InlineData("---\ntype: x\n---\n   \n", 3, 4)]
+    public void FrontmatterCloseToTheBugCaseLintsWithoutThrowing(string text, int expectedBodyLength, int expectedBodyFirstLine)
+    {
+        var layout = FileLayout.Of(text);
+
+        Assert.True(layout.HasFrontmatter);
+        Assert.Equal(expectedBodyLength, layout.Body.Length);
+        Assert.Equal(expectedBodyFirstLine, layout.BodyFirstLine);
+        Assert.Equal(OkfDocument.Parse(text).Body, layout.Body);
+    }
 }
