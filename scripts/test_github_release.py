@@ -175,6 +175,32 @@ class GitHubReleaseTests(unittest.TestCase):
             )
             self.assertFalse(release["draft"])
 
+    def test_refuses_to_fill_an_incomplete_release_that_is_already_public(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, data = make_release_tree(Path(directory))
+            release = release_for(TAG, data, draft=False)
+            release["assets"] = []
+            api = FakeApi(release)
+
+            with self.assertRaisesRegex(RuntimeError, "refusing to mutate it outside a draft"):
+                publish_github_release.publish(
+                    api, REPOSITORY, TAG, COMMIT, paths, attempts=1, interval=0
+                )
+
+            self.assertFalse(any(action == "UPLOAD" for action, _ in api.calls))
+
+    def test_refuses_an_existing_release_with_the_wrong_prerelease_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, data = make_release_tree(Path(directory))
+            release = release_for(TAG, data)
+            release["prerelease"] = False
+            api = FakeApi(release)
+
+            with self.assertRaisesRegex(RuntimeError, "expected True"):
+                publish_github_release.publish(
+                    api, REPOSITORY, TAG, COMMIT, paths, attempts=1, interval=0
+                )
+
     def test_refuses_a_tag_that_is_not_stable_or_strict_rc(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, _ = make_release_tree(Path(directory), "v2.3.0-rc.1-extra")

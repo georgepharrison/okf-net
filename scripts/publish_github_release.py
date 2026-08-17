@@ -303,6 +303,12 @@ def release_for_tag(api: GitHubApi, repository: str, tag: str, commit_sha: str) 
         )
     if release.get("tag_name") != tag:
         raise RuntimeError(f"GitHub returned release for unexpected tag {release.get('tag_name')!r}")
+    expected_prerelease = is_release_candidate(tag)
+    if bool(release.get("prerelease")) != expected_prerelease:
+        raise RuntimeError(
+            f"existing GitHub release {tag} has prerelease={release.get('prerelease')!r}, "
+            f"expected {expected_prerelease}"
+        )
     return release
 
 
@@ -327,6 +333,11 @@ def verify_release_assets(
 
 def upload_missing_assets(api: GitHubApi, release: dict[str, Any], local: dict[str, LocalAsset]) -> None:
     remote = {asset.get("name") for asset in release.get("assets", [])}
+    missing = [name for name in EXPECTED_ASSETS if name not in remote]
+    if missing and not release.get("draft"):
+        raise RuntimeError(
+            f"published GitHub release is missing assets {missing}; refusing to mutate it outside a draft"
+        )
     upload_url = release.get("upload_url", "").split("{", 1)[0]
     if not upload_url:
         raise RuntimeError("GitHub release has no upload URL")
