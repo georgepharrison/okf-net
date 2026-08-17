@@ -313,3 +313,205 @@ somebody with more time:
 
 Nothing here needed a decisions.md entry: no AD moved, and every judgement call
 above is about where a method boundary goes, not about what the code does.
+
+## Area: `Okf.Core/Index/` + `Okf.Core/Search/` + `Okf.Core/Trust/`
+
+Lane `14-core-index-search-trust`, branched off `dev` at `0c97802`.
+
+| File | Methods > 20, before → after | Longest method, before → after |
+| --- | --- | --- |
+| `Index/OkfIndex.cs` | 6 → 4 | `Plan` (143) → `Flatten` (27) |
+| `Search/OkfSearch.cs` | 5 → 1 | `Search` (78) → `Search` (24) |
+| `Search/OkfSearchQuery.cs` | 3 → 2 | `TokenizeWithOffsets` (32) → `TokenizeWithOffsets` (32) |
+| `Trust/OkfInbox.cs` | 4 → 2 | `Classify` (46) → `DriftedSources` (22) |
+| `Trust/OkfStamp.cs` | 5 → 1 | `TryInsert` (99) → `VerifyText` (23) |
+| `Trust/OkfTrustTier.cs` | 0 → 0 | — |
+| `Trust/OkfVerifyIdentity.cs` | 2 → 1 | `GlobalUserEmail` (52) → `FromConfig` (22) |
+| **Area** | **25 → 11** | |
+
+The area went from 59 methods to 97, and the longest method left in it is one
+the lane did not touch.
+
+### A correction to the scanner
+
+The blind spot the first lane found is not string literals. It is **nullable
+return types**: the scanner rejects a signature whose preceding text ends in
+`?`, because that is how a ternary's `?` looks, and
+`private static string? TryInsert(…)` looks the same. Every method it silently
+skipped in this area — `TryInsert`, `TryStampGenerated`, `Classify`, four of
+`OkfIndex`'s readers — returns a nullable. Allowing a trailing `?` when a type
+character precedes it makes the scanner reproduce the seven hand-corrected rows
+above exactly, so the counts in this section are machine-measured rather than
+hand-checked. The `over20` column of the solution-wide inventory is still a
+floor for the areas nobody has re-measured.
+
+### What made these splits possible
+
+- **`OkfIndexGenerator.Plan` (143 → 21).** Three things shared one scope:
+  walking the bundle's files into three dictionaries, deciding what each
+  directory's index would list, and turning that into indexes with drift
+  statuses. The walk became a private `BundleTree` — every directory an index
+  could belong in, the concepts under each, and the `index.md` already on disk
+  there — and the other two became `EntriesByDirectory` and `PlanDirectory`.
+  AD-13's one renderer is untouched; AD-14/15's four statuses moved intact into
+  a `Status(existing, content)` switch, which is now the only place a status is
+  decided.
+- **`OkfStamp.TryInsert` (99) and `TryStampGenerated` (56) → 16 and 18.** Half
+  of each was the same code: split the file into lines, require an opening
+  fence, find the closing one, note which ending the fence carries, locate a
+  top-level key, and work out which lines its value spills onto. That is one
+  concept — the frontmatter block seen as the file's own lines — and it is now
+  `FrontmatterText`, with a `FrontmatterKey` record for where one key's value
+  sits. What is left in each method is exactly the shapes §5.2 permits:
+  `TryInsert` names its four (`OpenListWithFirstEvent`,
+  `NormalizeBareMappingIntoList`, `AppendEventUnderEmptyKey`,
+  `AppendEventToSequence`) and `TryStampGenerated` its two. The parse-back check
+  did not move: `Accepts` and `AcceptsGenerated` are still the last thing
+  `VerifyText` and `StampGeneratedText` do before returning, on the insertion
+  path and on the emitter path alike.
+- **`OkfSearchEngine.Search` (78 → 24).** Read the corpus, rank it, report it.
+  `ReadCorpus` and `Rank` are the first two, and the corpus rule reads better
+  for the move: `Rank` takes the whole corpus and computes
+  `Statistics.Of(corpus, terms)` before it filters, so "statistics over the
+  corpus, not over the candidates" is visible in one method rather than spread
+  over forty lines. The total order is the tail of `Rank` and unchanged, as are
+  the BM25 constants.
+- **`OkfInboxScanner.Classify` (46 → 18).** `IsUnacknowledged` was carrying six
+  parameters, which is what a missing type looks like. A private `Lifecycle`
+  record — the `generated` block, both timestamps as written and as parsed, the
+  latest verification, `status` and `stale_after` — took them, and
+  `IsUnacknowledged(concept, lifecycle)` now has two. The rule that the tier
+  comes from `verified` alone is untouched; the record carries no tier.
+
+`Scan` and `ReadCorpus` ended up the same shape as each other, which they were
+not before: both return `(everything parsed, how many were skipped)` and leave
+the judging to the caller. That cost `okf inbox` its streaming read — it holds
+every `OkfConcept` for the length of a scan now, as search has always held its
+corpus — and bought a `Scan` of eleven lines.
+
+### The `Try…` helper trap, again
+
+The first lane found that a `bool`-returning `Try…` helper puts an unkillable
+`return false;` in a `catch` and switched those helpers to `string?`. That is
+only half the rule. A helper returning `OkfDocument?` has the same problem for
+the same reason: Stryker's block-removal mutant empties the `catch` body and
+supplies `return default;`, and `default(OkfDocument?)` **is** the `null` the
+clause returns. Both `OkfSearchEngine` and `OkfInboxScanner` grew such a helper
+in this lane and both were reverted to an inline `try`/`catch` whose clause does
+the counting (`skipped++`) rather than the returning. Emptying *that* clause
+loses the count, which a test notices.
+
+The shape to avoid is not "a `Try…` helper" — it is **a `catch` clause whose
+only statement returns a value equal to `default`**. `TargetEnd` in
+`OkfSearchEngine` hit the same trap without a `catch`, in an
+`if (…) { return null; }` guard whose fall-through also returns null; it is
+written as a `switch` expression with no block instead.
+
+### Mutation: killed rose everywhere, and one file's percentage did not
+
+Measured before and after with the same scoped command:
+
+```sh
+dotnet stryker --skip-version-check --reporter json \
+  -m "**/Okf.Core/Index/*.cs" -m "**/Okf.Core/Search/*.cs" \
+  -m "**/Okf.Core/Trust/*.cs"
+```
+
+| File | Killed, before → after | Score, before → after |
+| --- | --- | --- |
+| `Index/OkfIndex.cs` | 78 → 106 | 90.70 % → 90.60 % |
+| `Search/OkfSearch.cs` | 281 → 298 | 91.23 % → 91.41 % |
+| `Search/OkfSearchQuery.cs` | 52 → 53 | 100.00 % → 100.00 % |
+| `Trust/OkfInbox.cs` | 45 → 51 | 100.00 % → 100.00 % |
+| `Trust/OkfStamp.cs` | 132 → 91 | 81.99 % → 83.49 % |
+| `Trust/OkfTrustTier.cs` | 3 → 3 | 100.00 % → 100.00 % |
+| `Trust/OkfVerifyIdentity.cs` | 34 → 37 | 73.91 % → 75.51 % |
+| **Area (scoped run)** | **625 → 639** | **89.16 % → 90.25 %** |
+
+`OkfStamp`'s killed count falls because the file lost half its text surgery to
+deduplication: its tested mutants went 161 → 109 and its **survivors went 20 to
+10**, which is the number that says what happened. Six of the ten it shed were
+one mutant reported twice — the same guard, the same fence scan, the same region
+walk, once in `TryInsert` and once in `TryStampGenerated`.
+
+`OkfIndex` is the one file whose percentage did not rise, by a tenth of a point,
+on a denominator that grew 86 → 117. Its survivor set is the honest account:
+
+- **Gone:** the `start < 0` check in the old `IsGenerated` (`AfterFrontmatter`
+  returns `int?` now, so there is nothing to compare), and `OkfIndex.ToString`,
+  which had no test at all and now has one.
+- **Carried over, all five unkillable:** three at `Line(lines, index)`, whose
+  `index < lines.Length` false branch no caller can reach, and the two loop
+  bounds that guard it.
+- **New, all five in `BundleTree`, all five equivalent:** the `{ root }`
+  initializer, the `ThenBy` in `DeepestFirst`, and three in the ancestor walk.
+  They are equivalent for one reason: the walk breaks at the bundle root because
+  `_directories.Add(root)` returns `false` there, so the length guard, the
+  `break`, and the initializer each cover what the others do. Three were checked
+  rather than argued — applied to the source, the suite stays green and every
+  `okf index --check --json` surface in the repo is byte-identical; the fourth
+  (`&&` to `||`) does not compile outside Stryker's sandbox, and the fifth
+  reorders same-length sibling directories, which are independent of each other.
+
+None of the five was visible before, because the old 143-line `Plan` was one
+block tree and Stryker's *block already covered* filter hid them. That is the
+first lane's finding restated: extraction does not weaken a suite, it stops the
+filter hiding what the suite never covered.
+
+Read a per-file delta of a point or two as noise here too. Three runs of the
+same scoped command over this lane's tree returned 90.60 %, 88.89 % and 90.60 %
+for `OkfIndex` as tests were added; which mutants the coverage filter selects
+moves between runs.
+
+Six tests were added, each shown to fail against the mutant it is there for:
+
+- `okf index` honours a supplied file list, and honours a supplied text cache.
+  The old cache test asserted `Assert.All` over a list that was always empty —
+  vacuous, and it passed with the caches ignored.
+- a plan is ordered by bundle-relative path (PRD ACC-7); an orphan renders to
+  nothing; an index prints as its path and status.
+- `okf inbox` judges staleness against the injected date and not the clock
+  (PRD CORE-7).
+- `okf search` searches supplied text rather than the file on disk — the warm
+  cache seam had no test at all.
+
+### What was left long in index, search and trust
+
+Eleven methods in the area are still over 20 lines.
+
+- **`OkfTokenizer.TokenizeWithOffsets` (32) and `Tokenize` (26)** — untouched,
+  and the one judgement call here worth arguing with. They are two copies of one
+  rule (lowercase, split on everything that is not a letter or a digit, by
+  `Rune`), and the obvious dedup is to have `Tokenize` project
+  `TokenizeWithOffsets`. It was not taken: `Tokenize` is the corpus-indexing hot
+  path — called for `title`, `type`, `description`, every tag and the whole body
+  of every concept — and routing it through the offset tokenizer would allocate
+  a three-tuple per token in order to discard two thirds of it. Neither method
+  is long for want of structure; each is one rune loop, and the loop is the
+  algorithm. The duplication is real and is written down so the next reader does
+  not have to rediscover that it was seen.
+- **`OkfIndexGenerator.Flatten` (27)** — one whitespace-collapsing loop.
+  `OkfSearchEngine.CollapseWhitespace`, extracted in this lane, is the same loop
+  in another file; joining them is code motion across types, which is #15's job.
+- **`OkfIndexGenerator.Compare` (23)** — the tiebreak chain: subdirectory last,
+  then section case-insensitively, then ordinally, then link the same way. The
+  chain is the algorithm, and naming three of its five links would hide the
+  property a reader has to check, which is that every link falls through to the
+  next. `OkfDiagnostic.CompareTo` was left long for this reason in the first
+  lane.
+- **`OkfSearchEngine.Search` (24)** — ten of its lines are the
+  `OkfSearchOutcome` object initializer, which is the method's return shape.
+  Hiding it behind a seven-argument constructor call trades a readable literal
+  for an unreadable one.
+- **`OkfStamp.VerifyText` (23)** — three of its lines are the paragraph
+  explaining why the emitter fallback is held to the same parse-back terms as
+  the insertion. The check has to stay in the public method, and the paragraph
+  has to stay with the check.
+- **`Plan` (21), `Render` (21), `ReadConcepts` (21), `LatestVerification` (21),
+  `DriftedSources` (22), `FromConfig` (22)** — each is one or two lines over
+  after its extractions, and the only way under would be to delete a blank line
+  or a comment. `FromConfig` is the clearest: three refusals §7 spells out, one
+  `throw` each.
+
+No AD moved and no decisions.md entry was needed: every judgement call above is
+about where a method boundary goes, not about what the code does.
