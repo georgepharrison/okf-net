@@ -274,86 +274,93 @@ internal static class RegistryCommand
         switch (verb)
         {
             case "register":
-                writer.WriteLine("""
-                    okf register [path] [options]
-
-                    Adds a vault or a bundle root to okf's registry, which is the one way anything
-                    beyond the current project enters a command's scope. Idempotent: registering a
-                    path already in the registry succeeds and changes nothing.
-
-                    A directory holding bundles/ registers as a vault, a project root holding
-                    okf/bundles/ registers as the vault inside it, and any other directory registers
-                    as a bare bundle root. Each entry gets a short id — derived from the directory
-                    name, uniquified once, and never recomputed — that `okf unregister` accepts and
-                    that survives the directory being moved.
-
-                    The personal vault (OKF_HOME, else ~/okf) is an ordinary entry with no
-                    privileges. `okf register` with no path registers the vault this directory
-                    resolves to: the project vault found by walking up, and the personal vault when
-                    there is none.
-
-                    Nothing is ever registered automatically.
-
-                    Arguments:
-                      path                          The vault, project root, or bundle to register.
-
-                    Options:
-                      --verbose, -v                 Report the registry's location
-                      --help, -h                    Show this help
-
-                    Exit codes:
-                      0  registered, or already registered
-                      2  usage or environment failure (no such directory, unwritable registry)
-                    """);
+                WriteRegisterUsage(writer);
                 return;
-
             case "unregister":
-                writer.WriteLine("""
-                    okf unregister [path|id] [options]
-
-                    Removes an entry from okf's registry, by path or by the id `okf registry list`
-                    reports. Idempotent: removing something that is not registered succeeds and says
-                    so. With no argument it removes the vault this directory resolves to.
-
-                    Removing an entry never touches the directory it pointed at.
-
-                    Arguments:
-                      path|id                       The registered path, or its id.
-
-                    Options:
-                      --verbose, -v                 Report the registry's location
-                      --help, -h                    Show this help
-
-                    Exit codes:
-                      0  removed, or not registered in the first place
-                      2  usage or environment failure (unwritable registry)
-                    """);
+                WriteUnregisterUsage(writer);
                 return;
-
             default:
-                writer.WriteLine("""
-                    okf registry [list|prune] [options]
-
-                    Inspects okf's registry — the vaults and bundles `okf search --scope registered`
-                    and `okf mcp --scope registered` look at.
-
-                      list    Report every entry: its id, its kind, its path, and whether that path
-                            still exists. Entries whose path is gone are marked (missing); nothing
-                            is repaired or rewritten by reading.
-                      prune   Remove the entries whose paths no longer exist. This is the only
-                            reading-shaped command that writes, and it writes only the registry.
-
-                    Options:
-                      --format <text|json>          Output format for `list` (default: text)
-                      --json                        Alias for --format json
-                      --verbose, -v                 Report the registry's location
-                      --help, -h                    Show this help
-
-                    Exit codes:
-                      0  reported, or pruned
-                      2  usage or environment failure (unreadable or unwritable registry)
-                    """);
+                WriteRegistryUsage(writer);
                 return;
         }
     }
+
+    private static void WriteRegisterUsage(TextWriter writer) =>
+        writer.WriteLine("""
+            okf register [path] [options]
+
+            Adds a vault or a bundle root to okf's registry, which is the one way anything
+            beyond the current project enters a command's scope. Idempotent: registering a
+            path already in the registry succeeds and changes nothing.
+
+            A directory holding bundles/ registers as a vault, a project root holding
+            okf/bundles/ registers as the vault inside it, and any other directory registers
+            as a bare bundle root. Each entry gets a short id — derived from the directory
+            name, uniquified once, and never recomputed — that `okf unregister` accepts and
+            that survives the directory being moved.
+
+            The personal vault (OKF_HOME, else ~/okf) is an ordinary entry with no
+            privileges. `okf register` with no path registers the vault this directory
+            resolves to: the project vault found by walking up, and the personal vault when
+            there is none.
+
+            Nothing is ever registered automatically.
+
+            Arguments:
+              path                          The vault, project root, or bundle to register.
+
+            Options:
+              --verbose, -v                 Report the registry's location
+              --help, -h                    Show this help
+
+            Exit codes:
+              0  registered, or already registered
+              2  usage or environment failure (no such directory, unwritable registry)
+            """);
+
+    private static void WriteUnregisterUsage(TextWriter writer) =>
+        writer.WriteLine("""
+            okf unregister [path|id] [options]
+
+            Removes an entry from okf's registry, by path or by the id `okf registry list`
+            reports. Idempotent: removing something that is not registered succeeds and says
+            so. With no argument it removes the vault this directory resolves to.
+
+            Removing an entry never touches the directory it pointed at.
+
+            Arguments:
+              path|id                       The registered path, or its id.
+
+            Options:
+              --verbose, -v                 Report the registry's location
+              --help, -h                    Show this help
+
+            Exit codes:
+              0  removed, or not registered in the first place
+              2  usage or environment failure (unwritable registry)
+            """);
+
+    private static void WriteRegistryUsage(TextWriter writer) =>
+        writer.WriteLine("""
+            okf registry [list|prune] [options]
+
+            Inspects okf's registry — the vaults and bundles `okf search --scope registered`
+            and `okf mcp --scope registered` look at.
+
+              list    Report every entry: its id, its kind, its path, and whether that path
+                    still exists. Entries whose path is gone are marked (missing); nothing
+                    is repaired or rewritten by reading.
+              prune   Remove the entries whose paths no longer exist. This is the only
+                    reading-shaped command that writes, and it writes only the registry.
+
+            Options:
+              --format <text|json>          Output format for `list` (default: text)
+              --json                        Alias for --format json
+              --verbose, -v                 Report the registry's location
+              --help, -h                    Show this help
+
+            Exit codes:
+              0  reported, or pruned
+              2  usage or environment failure (unreadable or unwritable registry)
+            """);
 }
