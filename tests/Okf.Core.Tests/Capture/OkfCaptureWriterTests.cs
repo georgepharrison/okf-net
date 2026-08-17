@@ -244,6 +244,32 @@ public class OkfCaptureWriterTests
         Assert.Null(closed.Text);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("true")]
+    public void AManifestWithAMistypedCapturesCollectionDoesNotParse(string captures) =>
+        Assert.Null(OkfCaptureManifest.Parse(
+            $$"""{ "manifestVersion": 1, "captures": {{captures}} }""",
+            "manifest.json"));
+
+    [Fact]
+    public void AMistypedFilesCollectionIsTreatedAsAbsent()
+    {
+        OkfCaptureManifest? manifest = OkfCaptureManifest.Parse(
+            """
+            {
+              "manifestVersion": 1,
+              "captures": [
+                { "id": "2026-08-16-a-second-page", "files": {}, "ingestion": null }
+              ]
+            }
+            """,
+            "manifest.json");
+
+        Assert.NotNull(manifest);
+        Assert.Empty(Assert.Single(manifest.Captures).Files);
+    }
+
     [Fact]
     public void ClosingAnEntryThatIsAlreadyIngestedIsRefused()
     {
@@ -464,6 +490,15 @@ public class OkfCaptureWriterTests
             Dogfood,
             raw.Root,
             raw.Addition("2026-08-16-a-second-page.html", by: actor)));
+        Assert.Throws<ArgumentException>(() => OkfCaptureWriter.Close(
+            Dogfood,
+            new OkfCaptureClosure
+            {
+                Entry = "2026-08-16-a-second-page",
+                By = actor,
+                At = At,
+                Concepts = ["bundles/b/references/page.md"],
+            }));
     }
 
     [Fact]

@@ -969,6 +969,28 @@ public class OkfBundlerTests
         Assert.Equal("0.9", manifest.OkfVersion);
     }
 
+    [Fact]
+    public void A_manifest_treats_mistyped_optional_collections_as_absent()
+    {
+        var manifest = OkfDistributionManifest.Parse("""
+            {
+              "manifestVersion": 1,
+              "okfVersion": "0.2",
+              "generator": "okf/0.0.0",
+              "sourceVault": null,
+              "generatedAt": "2026-08-15T14:00:00Z",
+              "bundles": {},
+              "externalLinks": {},
+              "files": {}
+            }
+            """);
+
+        Assert.NotNull(manifest);
+        Assert.Empty(manifest.Bundles);
+        Assert.Empty(manifest.ExternalLinks);
+        Assert.Empty(manifest.Files);
+    }
+
     /// <summary>Appends one entry that is not a file to a written tar.gz.</summary>
     private static void Smuggle(string archive, string name, TarEntryType type, string linkName)
     {

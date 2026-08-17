@@ -197,38 +197,12 @@ public static class OkfCaptureWriter
             return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ItemRefused, problem!);
         }
 
-        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
-        if (Locate(bytes) is not { } manifest)
+        if (PrepareAddition(manifestText, item, addition) is not { } context)
         {
-            return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ManifestUnreadable, Unreadable);
+            return UnreadableManifest();
         }
 
-        string entry = Render(item, addition);
-        LocatedEntry? clash = manifest.Entries.FirstOrDefault(
-            candidate => string.Equals(candidate.Id, item.Id, StringComparison.Ordinal)
-                || candidate.Paths.Intersect(item.Paths, StringComparer.Ordinal).Any());
-
-        if (clash is null)
-        {
-            return ReadBack(OkfCaptureWriteOutcome.Added, item.Id, Append(bytes, manifest, entry), false);
-        }
-
-        if (clash.IsIngested)
-        {
-            return OkfCaptureWriteResult.Refused(
-                OkfCaptureWriteOutcome.AlreadyCaptured,
-                $"`{clash.Id}` is already captured and ingested, so it is immutable (AD-18). New evidence is a "
-                + "new capture under a new id, never an edit of this entry.",
-                clash.Id);
-        }
-
-        // An uningested entry is the custodian's work queue and nothing has been built on
-        // it yet, which is exactly what "freely re-capturable" means (AD-18).
-        return ReadBack(
-            OkfCaptureWriteOutcome.Recaptured,
-            item.Id,
-            Splice(bytes, clash.Start, clash.End, Reindent(entry, Indent(bytes, clash.Start), manifest.Newline)),
-            false);
+        return WriteAddition(context);
     }
 
     /// <summary>Closes an entry's <c>ingestion</c>.</summary>
@@ -246,49 +220,17 @@ public static class OkfCaptureWriter
             throw new ArgumentException("An ingestion names at least one concept.", nameof(closure));
         }
 
-        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
-        if (Locate(bytes) is not { } manifest)
+        if (PrepareClosure(manifestText, closure) is not { } context)
         {
-            return OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ManifestUnreadable, Unreadable);
+            return UnreadableManifest();
         }
 
-        string wanted = closure.Entry.Replace('\\', '/').Trim('/');
-        LocatedEntry? entry = manifest.Entries.FirstOrDefault(
-            candidate => string.Equals(candidate.Id, wanted, StringComparison.Ordinal)
-                || candidate.Paths.Contains(wanted, StringComparer.Ordinal));
-
-        if (entry is null)
+        if (FindEntry(context.Manifest, context.Wanted) is not { } entry)
         {
-            return OkfCaptureWriteResult.Refused(
-                OkfCaptureWriteOutcome.NoSuchEntry,
-                $"no capture entry has the id `{wanted}`, and none claims it as a path under raw/.");
+            return RefuseMissingEntry(context.Wanted);
         }
 
-        if (entry.IsIngested)
-        {
-            return OkfCaptureWriteResult.Refused(
-                OkfCaptureWriteOutcome.AlreadyClosed,
-                $"`{entry.Id}` is already ingested. Closing is what starts immutability, so a second close would "
-                + "rewrite the record of when the artifact froze.",
-                entry.Id);
-        }
-
-        if (entry.IngestionStart is not { } start
-            || entry.IngestionEnd is not { } end
-            || entry.IngestionKey is not { } key)
-        {
-            return OkfCaptureWriteResult.Refused(
-                OkfCaptureWriteOutcome.ManifestUnreadable,
-                $"`{entry.Id}` carries no `ingestion` key, so there is nothing to close and this writer will not "
-                + "add one: an entry that lost a required key is a record to resolve by hand.",
-                entry.Id);
-        }
-
-        return ReadBack(
-            OkfCaptureWriteOutcome.Closed,
-            entry.Id,
-            Splice(bytes, start, end, Reindent(RenderIngestion(closure), Indent(bytes, key), manifest.Newline)),
-            true);
+        return WriteClosure(context, entry);
     }
 
     /// <summary>
@@ -314,14 +256,20 @@ public static class OkfCaptureWriter
     /// </summary>
     /// <param name="id">The candidate id.</param>
     /// <returns><see langword="true" /> when the id is well formed.</returns>
-    public static bool IsValidId(string? id)
-    {
-        if (id is null || id.Length < 12 || id[10] != '-')
-        {
-            return false;
-        }
+    public static bool IsValidId(string? id) =>
+        HasCaptureIdPrefix(id)
+        && HasCaptureDate(id)
+        && HasCaptureSlug(id);
 
-        if (!DateOnly.TryParseExact(id[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+    private static bool HasCaptureIdPrefix(string? id) => id is { Length: >= 12 } && id[10] == '-';
+
+    private static bool HasCaptureDate(string? id) =>
+        id is not null
+        && DateOnly.TryParseExact(id[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+
+    private static bool HasCaptureSlug(string? id)
+    {
+        if (id is null)
         {
             return false;
         }
@@ -329,26 +277,35 @@ public static class OkfCaptureWriter
         bool previousWasHyphen = true;
         foreach (char character in id[11..])
         {
-            if (character == '-')
+            if (!IsSlugCharacter(character, ref previousWasHyphen))
             {
-                if (previousWasHyphen)
-                {
-                    return false;
-                }
-
-                previousWasHyphen = true;
-                continue;
+                return false;
             }
+        }
 
-            if (!char.IsAsciiDigit(character) && !char.IsAsciiLetterLower(character))
+        return !previousWasHyphen;
+    }
+
+    private static bool IsSlugCharacter(char character, ref bool previousWasHyphen)
+    {
+        if (character == '-')
+        {
+            if (previousWasHyphen)
             {
                 return false;
             }
 
-            previousWasHyphen = false;
+            previousWasHyphen = true;
+            return true;
         }
 
-        return !previousWasHyphen;
+        if (!char.IsAsciiDigit(character) && !char.IsAsciiLetterLower(character))
+        {
+            return false;
+        }
+
+        previousWasHyphen = false;
+        return true;
     }
 
     /// <summary>
@@ -361,18 +318,136 @@ public static class OkfCaptureWriter
         OkfCaptureWriteOutcome outcome,
         string id,
         string text,
-        bool expectIngested)
+        EntryState expectedState)
     {
         OkfCaptureEntry? entry = OkfCaptureManifest.Parse(text, "manifest.json")?.Captures
             .FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
 
-        return entry is not null && entry.IsIngested == expectIngested
+        return entry is not null && Matches(entry, expectedState)
             ? OkfCaptureWriteResult.Written(outcome, id, text)
             : OkfCaptureWriteResult.Refused(
                 OkfCaptureWriteOutcome.ManifestUnreadable,
                 $"the edit for `{id}` produced a manifest that does not read back as one, so nothing was written.",
                 id);
     }
+
+    private static bool Matches(OkfCaptureEntry entry, EntryState expectedState) =>
+        expectedState == EntryState.Ingested ? entry.IsIngested : !entry.IsIngested;
+
+    private static AdditionContext? PrepareAddition(string manifestText, CapturedItem item, OkfCaptureAddition addition)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
+        return Locate(bytes) is { } manifest ? new AdditionContext(bytes, manifest, item, Render(item, addition)) : null;
+    }
+
+    private static OkfCaptureWriteResult WriteAddition(AdditionContext context)
+    {
+        if (FindClash(context.Manifest, context.Item) is not { } clash)
+        {
+            return AppendAddition(context);
+        }
+
+        return clash.IsIngested ? RefuseAlreadyCaptured(clash) : Recapture(context, clash);
+    }
+
+    private static LocatedEntry? FindClash(LocatedManifest manifest, CapturedItem item) =>
+        manifest.Entries.FirstOrDefault(
+            candidate => string.Equals(candidate.Id, item.Id, StringComparison.Ordinal)
+                || candidate.Paths.Intersect(item.Paths, StringComparer.Ordinal).Any());
+
+    private static OkfCaptureWriteResult AppendAddition(AdditionContext context) =>
+        ReadBack(
+            OkfCaptureWriteOutcome.Added,
+            context.Item.Id,
+            Append(context.Bytes, context.Manifest, context.EntryText),
+            EntryState.Open);
+
+    private static OkfCaptureWriteResult RefuseAlreadyCaptured(LocatedEntry clash) =>
+        OkfCaptureWriteResult.Refused(
+            OkfCaptureWriteOutcome.AlreadyCaptured,
+            $"`{clash.Id}` is already captured and ingested, so it is immutable (AD-18). New evidence is a "
+            + "new capture under a new id, never an edit of this entry.",
+            clash.Id);
+
+    private static OkfCaptureWriteResult Recapture(AdditionContext context, LocatedEntry clash) =>
+        ReadBack(
+            OkfCaptureWriteOutcome.Recaptured,
+            context.Item.Id,
+            Splice(
+                context.Bytes,
+                clash.Start,
+                clash.End,
+                Reindent(context.EntryText, Indent(context.Bytes, clash.Start), context.Manifest.Newline)),
+            EntryState.Open);
+
+    private static ClosureContext? PrepareClosure(string manifestText, OkfCaptureClosure closure)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(manifestText);
+        return Locate(bytes) is { } manifest
+            ? new ClosureContext(bytes, manifest, closure.Entry.Replace('\\', '/').Trim('/'), closure)
+            : null;
+    }
+
+    private static LocatedEntry? FindEntry(LocatedManifest manifest, string wanted) =>
+        manifest.Entries.FirstOrDefault(
+            candidate => string.Equals(candidate.Id, wanted, StringComparison.Ordinal)
+                || candidate.Paths.Contains(wanted, StringComparer.Ordinal));
+
+    private static OkfCaptureWriteResult RefuseMissingEntry(string wanted) =>
+        OkfCaptureWriteResult.Refused(
+            OkfCaptureWriteOutcome.NoSuchEntry,
+            $"no capture entry has the id `{wanted}`, and none claims it as a path under raw/.");
+
+    private static OkfCaptureWriteResult WriteClosure(ClosureContext context, LocatedEntry entry)
+    {
+        if (entry.IsIngested)
+        {
+            return RefuseAlreadyClosed(entry);
+        }
+
+        if (IngestionOf(entry) is not { } ingestion)
+        {
+            return RefuseMissingIngestion(entry);
+        }
+
+        return CloseIngestion(context, entry, ingestion);
+    }
+
+    private static OkfCaptureWriteResult RefuseAlreadyClosed(LocatedEntry entry) =>
+        OkfCaptureWriteResult.Refused(
+            OkfCaptureWriteOutcome.AlreadyClosed,
+            $"`{entry.Id}` is already ingested. Closing is what starts immutability, so a second close would "
+            + "rewrite the record of when the artifact froze.",
+            entry.Id);
+
+    private static IngestionRegion? IngestionOf(LocatedEntry entry) =>
+        entry.IngestionKey is { } key && entry.IngestionStart is { } start && entry.IngestionEnd is { } end
+            ? new IngestionRegion(key, start, end)
+            : null;
+
+    private static OkfCaptureWriteResult RefuseMissingIngestion(LocatedEntry entry) =>
+        OkfCaptureWriteResult.Refused(
+            OkfCaptureWriteOutcome.ManifestUnreadable,
+            $"`{entry.Id}` carries no `ingestion` key, so there is nothing to close and this writer will not "
+            + "add one: an entry that lost a required key is a record to resolve by hand.",
+            entry.Id);
+
+    private static OkfCaptureWriteResult CloseIngestion(
+        ClosureContext context,
+        LocatedEntry entry,
+        IngestionRegion ingestion) =>
+        ReadBack(
+            OkfCaptureWriteOutcome.Closed,
+            entry.Id,
+            Splice(
+                context.Bytes,
+                ingestion.Start,
+                ingestion.End,
+                Reindent(RenderIngestion(context.Closure), Indent(context.Bytes, ingestion.Key), context.Manifest.Newline)),
+            EntryState.Ingested);
+
+    private static OkfCaptureWriteResult UnreadableManifest() =>
+        OkfCaptureWriteResult.Refused(OkfCaptureWriteOutcome.ManifestUnreadable, Unreadable);
 
     private static void ValidateActor(string actor, string parameter)
     {
@@ -390,80 +465,127 @@ public static class OkfCaptureWriter
     /// </summary>
     private static (CapturedItem? Item, string? Problem) Describe(string rawDirectory, OkfCaptureAddition addition)
     {
-        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
-        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(addition.ItemPath));
-        string relative = Path.GetRelativePath(root, full).Replace(Path.DirectorySeparatorChar, '/');
-
-        if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+        ItemLocation location = ItemLocation.For(rawDirectory, addition.ItemPath);
+        if (OutsideRawRefusal(location) is { } refusal)
         {
-            return (null, $"'{full}' is not under '{root}'. A capture records an item already dropped into raw/, "
+            return refusal;
+        }
+        if (ShapeOf(location) is not { } shape)
+        {
+            return MissingItem(location);
+        }
+        if (IsLink(location, shape))
+        {
+            return (null, Linked(location.RelativePath));
+        }
+        if (AssertedFormProblem(location.RelativePath, addition.Form, shape) is { } formProblem)
+        {
+            return (null, formProblem);
+        }
+
+        return DescribeCapturedItem(location, shape.Form);
+    }
+
+    private static (CapturedItem? Item, string? Problem)? OutsideRawRefusal(ItemLocation location)
+    {
+        if (location.RelativePath.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(location.RelativePath))
+        {
+            return (null, $"'{location.FullPath}' is not under '{location.RootPath}'. A capture records an item already dropped into raw/, "
                 + "which sits outside every bundle root (AD-17).");
         }
 
-        bool isDirectory = Directory.Exists(full);
-        if (!isDirectory && !File.Exists(full))
+        return null;
+    }
+
+    private static ItemShape? ShapeOf(ItemLocation location)
+    {
+        if (Directory.Exists(location.FullPath))
         {
-            return (null, $"no such file or directory: '{full}'.");
+            return new ItemShape(OkfCaptureForm.Packet, "a directory, which is a `packet`");
         }
 
-        if (IsLink(full, isDirectory))
+        return File.Exists(location.FullPath)
+            ? new ItemShape(OkfCaptureForm.Flat, "a file, which is `flat`")
+            : null;
+    }
+
+    private static (CapturedItem? Item, string? Problem) MissingItem(ItemLocation location) =>
+        (null, $"no such file or directory: '{location.FullPath}'.");
+
+    private static string? AssertedFormProblem(string relativePath, OkfCaptureForm? asserted, ItemShape actual)
+    {
+        if (asserted is not { } wanted || wanted == actual.Form)
         {
-            return (null, Linked(relative));
+            return null;
         }
 
-        OkfCaptureForm form = isDirectory ? OkfCaptureForm.Packet : OkfCaptureForm.Flat;
-        if (addition.Form is { } asserted && asserted != form)
+        return $"'{relativePath}' is {actual.Description}, and --form said `{Spell(wanted)}`. A packet is a directory "
+            + "and a flat capture is one file: the form is the item's shape, not a label on it.";
+    }
+
+    private static (CapturedItem? Item, string? Problem) DescribeCapturedItem(ItemLocation location, OkfCaptureForm form)
+    {
+        if (NestedProblem(location.RelativePath) is { } nestedProblem)
         {
-            return (null, $"'{relative}' is {(isDirectory ? "a directory, which is a `packet`" : "a file, which is `flat`")}, "
-                + $"and --form said `{Spell(asserted)}`. A packet is a directory and a flat capture is one file: the "
-                + "form is the item's shape, not a label on it.");
+            return (null, nestedProblem);
         }
 
-        if (relative.Contains('/', StringComparison.Ordinal))
+        string id = CaptureId(location.RelativePath, form);
+        if (CaptureIdProblem(location.RelativePath, id) is { } idProblem)
         {
-            return (null, $"'{relative}' is nested inside raw/. A capture is a file or a directory sitting directly "
-                + "in raw/, because the entry's id is the item's own name.");
+            return (null, idProblem);
         }
 
-        // `check-manifest.py` joins entry to disk through exactly this rule — a flat
-        // capture's file is `<id>.<ext>`, a packet's files live under `<id>/` — so
-        // deriving the id here is what keeps a CLI-written capture passing the gate that
-        // reads it.
-        string id = form == OkfCaptureForm.Flat ? Stem(relative) : relative;
-        if (!IsValidId(id))
+        if (CapturePaths(location, form) is not { } pathsResult)
         {
-            return (null, $"'{relative}' gives the capture id `{id}`, which is not `<YYYY-MM-DD>-<slug>`: a day that "
-                + "exists, then lowercase words joined by single hyphens. Rename the item, because the id is its name.");
+            return NoFiles(location.RelativePath);
         }
 
+        return pathsResult.LinkedPath is { } linked
+            ? (null, Linked(linked))
+            : (new CapturedItem(id, form, CaptureFiles(location.RootPath, pathsResult.Paths)), null);
+    }
+
+    private static (CapturedItem? Item, string? Problem) NoFiles(string relativePath) =>
+        (null, $"'{relativePath}' holds no files, and a capture records at least one.");
+
+    private static string? NestedProblem(string relativePath) =>
+        relativePath.Contains('/', StringComparison.Ordinal)
+            ? $"'{relativePath}' is nested inside raw/. A capture is a file or a directory sitting directly "
+              + "in raw/, because the entry's id is the item's own name."
+            : null;
+
+    private static string CaptureId(string relativePath, OkfCaptureForm form) =>
+        form == OkfCaptureForm.Flat ? Stem(relativePath) : relativePath;
+
+    private static string? CaptureIdProblem(string relativePath, string id) =>
+        IsValidId(id)
+            ? null
+            : $"'{relativePath}' gives the capture id `{id}`, which is not `<YYYY-MM-DD>-<slug>`: a day that "
+              + "exists, then lowercase words joined by single hyphens. Rename the item, because the id is its name.";
+
+    private static CapturedPaths? CapturePaths(ItemLocation location, OkfCaptureForm form)
+    {
         List<string> paths = new List<string>();
         if (form == OkfCaptureForm.Flat)
         {
-            paths.Add(relative);
+            return new CapturedPaths([location.RelativePath], null);
         }
-        else
+
+        if (Collect(location.RootPath, location.FullPath, paths) is { } linked)
         {
-            if (Collect(root, full, paths) is { } linked)
-            {
-                return (null, Linked(linked));
-            }
-
-            paths.Sort(StringComparer.Ordinal);
-            if (paths.Count == 0)
-            {
-                return (null, $"'{relative}' holds no files, and a capture records at least one.");
-            }
+            return new CapturedPaths(paths, linked);
         }
 
-        List<(string Path, string Sha256)> files = new List<(string Path, string Sha256)>();
-        foreach (string path in paths)
-        {
-            files.Add((path, OkfCaptureManifest.Sha256Of(
-                Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)))));
-        }
-
-        return (new CapturedItem(id, form, files), null);
+        paths.Sort(StringComparer.Ordinal);
+        return paths.Count == 0 ? null : new CapturedPaths(paths, null);
     }
+
+    private static IReadOnlyList<(string Path, string Sha256)> CaptureFiles(string root, IEnumerable<string> paths) =>
+    [
+        .. paths.Select(path => (path, OkfCaptureManifest.Sha256Of(
+            Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar))))),
+    ];
 
     /// <summary>
     /// Collects a packet's files, refusing at the first symlink instead of walking through
@@ -478,26 +600,30 @@ public static class OkfCaptureWriter
     {
         foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
         {
-            string relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
-            if (entry.LinkTarget is not null)
+            if (CollectEntry(root, entry, paths) is { } linked)
             {
-                return relative;
+                return linked;
             }
-
-            if (entry is DirectoryInfo child)
-            {
-                if (Collect(root, child.FullName, paths) is { } linked)
-                {
-                    return linked;
-                }
-
-                continue;
-            }
-
-            paths.Add(relative);
         }
 
         return null;
+    }
+
+    private static string? CollectEntry(string root, FileSystemInfo entry, List<string> paths)
+    {
+        string relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
+        if (entry.LinkTarget is not null)
+        {
+            return relative;
+        }
+
+        if (entry is not DirectoryInfo child)
+        {
+            paths.Add(relative);
+            return null;
+        }
+
+        return Collect(root, child.FullName, paths);
     }
 
     /// <summary>
@@ -505,8 +631,10 @@ public static class OkfCaptureWriter
     /// <see cref="FileAttributes.ReparsePoint" /> bit, because the bit is not set on a
     /// directory link on every platform and this is a containment check.
     /// </summary>
-    private static bool IsLink(string path, bool isDirectory) =>
-        (isDirectory ? new DirectoryInfo(path) : (FileSystemInfo)new FileInfo(path)).LinkTarget is not null;
+    private static bool IsLink(ItemLocation location, ItemShape shape) =>
+        (shape.Form == OkfCaptureForm.Packet
+            ? new DirectoryInfo(location.FullPath)
+            : (FileSystemInfo)new FileInfo(location.FullPath)).LinkTarget is not null;
 
     private static string Linked(string path) =>
         $"'{path}' is a symbolic link, not a captured artifact. raw/ holds the bytes that were retrieved, and a "
@@ -521,69 +649,78 @@ public static class OkfCaptureWriter
     }
 
     /// <summary>Renders one capture entry, in the key order the capture skill documents.</summary>
-    private static string Render(CapturedItem item, OkfCaptureAddition addition)
+    private static string Render(CapturedItem item, OkfCaptureAddition addition) =>
+        RenderJson(writer => WriteCaptureEntry(writer, item, addition));
+
+    private static void WriteCaptureEntry(Utf8JsonWriter writer, CapturedItem item, OkfCaptureAddition addition)
     {
-        using MemoryStream buffer = new MemoryStream();
-        using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
+        writer.WriteStartObject();
+        writer.WriteString("id", item.Id);
+        writer.WriteString("form", Spell(item.Form));
+        WriteCapturedFiles(writer, item.Files);
+        WriteCaptureMetadata(writer, addition);
+
+        // Always present and always null: `ingestion` is the work-queue flag, and
+        // `okf capture close` needs a key to close rather than one to invent.
+        writer.WriteNull("ingestion");
+        writer.WriteEndObject();
+    }
+
+    private static void WriteCapturedFiles(Utf8JsonWriter writer, IReadOnlyList<(string Path, string Sha256)> files)
+    {
+        writer.WriteStartArray("files");
+        foreach ((string path, string sha256) in files)
         {
             writer.WriteStartObject();
-            writer.WriteString("id", item.Id);
-            writer.WriteString("form", Spell(item.Form));
-
-            writer.WriteStartArray("files");
-            foreach ((string path, string sha256) in item.Files)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("path", path);
-                writer.WriteString("sha256", sha256);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-
-            writer.WriteString("capturedAt", OkfCanonicalTimestamp.ToCanonical(addition.CapturedAt));
-            writer.WriteString("capturedBy", addition.CapturedBy);
-
-            if (addition.OriginalUrl is { Length: > 0 } url)
-            {
-                writer.WriteString("originalUrl", url);
-            }
-
-            if (addition.Title is { Length: > 0 } title)
-            {
-                writer.WriteString("title", title);
-            }
-
-            if (addition.SourceLastModified is { Length: > 0 } modified)
-            {
-                writer.WriteString("sourceLastModified", modified);
-            }
-
-            // Always present and always null: `ingestion` is the work-queue flag, and
-            // `okf capture close` needs a key to close rather than one to invent.
-            writer.WriteNull("ingestion");
+            writer.WriteString("path", path);
+            writer.WriteString("sha256", sha256);
             writer.WriteEndObject();
         }
 
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        writer.WriteEndArray();
     }
 
-    private static string RenderIngestion(OkfCaptureClosure closure)
+    private static void WriteCaptureMetadata(Utf8JsonWriter writer, OkfCaptureAddition addition)
+    {
+        writer.WriteString("capturedAt", OkfCanonicalTimestamp.ToCanonical(addition.CapturedAt));
+        writer.WriteString("capturedBy", addition.CapturedBy);
+        WriteOptionalString(writer, "originalUrl", addition.OriginalUrl);
+        WriteOptionalString(writer, "title", addition.Title);
+        WriteOptionalString(writer, "sourceLastModified", addition.SourceLastModified);
+    }
+
+    private static void WriteOptionalString(Utf8JsonWriter writer, string propertyName, string? value)
+    {
+        if (value is { Length: > 0 })
+        {
+            writer.WriteString(propertyName, value);
+        }
+    }
+
+    private static string RenderIngestion(OkfCaptureClosure closure) =>
+        RenderJson(writer => WriteIngestion(writer, closure));
+
+    private static void WriteIngestion(Utf8JsonWriter writer, OkfCaptureClosure closure)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("at", OkfCanonicalTimestamp.ToCanonical(closure.At));
+        writer.WriteString("by", closure.By);
+        writer.WriteStartArray("concepts");
+        foreach (string concept in closure.Concepts)
+        {
+            writer.WriteStringValue(concept);
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static string RenderJson(Action<Utf8JsonWriter> write)
     {
         using MemoryStream buffer = new MemoryStream();
         using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, EntryWriterOptions))
         {
-            writer.WriteStartObject();
-            writer.WriteString("at", OkfCanonicalTimestamp.ToCanonical(closure.At));
-            writer.WriteString("by", closure.By);
-            writer.WriteStartArray("concepts");
-            foreach (string concept in closure.Concepts)
-            {
-                writer.WriteStringValue(concept);
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
+            write(writer);
         }
 
         return Encoding.UTF8.GetString(buffer.ToArray());
@@ -650,44 +787,90 @@ public static class OkfCaptureWriter
     {
         try
         {
-            Utf8JsonReader reader = new Utf8JsonReader(bytes, isFinalBlock: true, state: default);
-            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+            Utf8JsonReader reader = CreateReader(bytes);
+            if (!StartsAtObject(ref reader))
             {
                 return null;
             }
 
-            int version = 0;
-            LocatedManifest? manifest = null;
-            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
-            {
-                string? name = reader.GetString();
-                int propertyStart = (int)reader.TokenStartIndex;
-                if (!reader.Read())
-                {
-                    return null;
-                }
-
-                if (string.Equals(name, "manifestVersion", StringComparison.Ordinal)
-                    && reader.TokenType == JsonTokenType.Number)
-                {
-                    version = reader.GetInt32();
-                }
-                else if (string.Equals(name, "captures", StringComparison.Ordinal)
-                    && reader.TokenType == JsonTokenType.StartArray)
-                {
-                    manifest = ReadCaptures(ref reader, Indent(bytes, propertyStart), NewlineOf(bytes));
-                    continue;
-                }
-
-                reader.TrySkip();
-            }
-
-            return version == ManifestVersion ? manifest : null;
+            return ReadManifest(ref reader, bytes);
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    private static Utf8JsonReader CreateReader(byte[] bytes) =>
+        new(bytes, isFinalBlock: true, state: default);
+
+    private static bool StartsAtObject(ref Utf8JsonReader reader) =>
+        reader.Read() && reader.TokenType == JsonTokenType.StartObject;
+
+    private static LocatedManifest? ReadManifest(ref Utf8JsonReader reader, byte[] bytes)
+    {
+        int version = 0;
+        LocatedManifest? manifest = null;
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            ReadManifestProperty(ref reader, bytes, ref version, ref manifest);
+        }
+
+        return version == ManifestVersion ? manifest : null;
+    }
+
+    private static void ReadManifestProperty(
+        ref Utf8JsonReader reader,
+        byte[] bytes,
+        ref int version,
+        ref LocatedManifest? manifest)
+    {
+        string? name = reader.GetString();
+        int propertyStart = (int)reader.TokenStartIndex;
+        if (!MoveToPropertyValue(ref reader))
+        {
+            return;
+        }
+
+        if (TryReadManifestVersion(name, ref reader, ref version))
+        {
+            return;
+        }
+
+        if (ReadCapturesProperty(name, ref reader, bytes, propertyStart) is { } captures)
+        {
+            manifest = captures;
+            return;
+        }
+
+        reader.TrySkip();
+    }
+
+    private static bool MoveToPropertyValue(ref Utf8JsonReader reader) => reader.Read();
+
+    private static bool TryReadManifestVersion(string? name, ref Utf8JsonReader reader, ref int version)
+    {
+        if (!string.Equals(name, "manifestVersion", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.Number)
+        {
+            return false;
+        }
+
+        version = reader.GetInt32();
+        return true;
+    }
+
+    private static LocatedManifest? ReadCapturesProperty(
+        string? name,
+        ref Utf8JsonReader reader,
+        byte[] bytes,
+        int propertyStart)
+    {
+        if (!string.Equals(name, "captures", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.StartArray)
+        {
+            return null;
+        }
+
+        return ReadCaptures(ref reader, Indent(bytes, propertyStart), NewlineOf(bytes));
     }
 
     private static LocatedManifest ReadCaptures(ref Utf8JsonReader reader, string capturesIndent, string newline)
@@ -712,80 +895,150 @@ public static class OkfCaptureWriter
 
     private static LocatedEntry ReadEntry(ref Utf8JsonReader reader)
     {
-        int start = (int)reader.TokenStartIndex;
-        string id = string.Empty;
-        List<string> paths = new List<string>();
-        bool ingested = false;
-        int? ingestionKey = null;
-        int? ingestionStart = null;
-        int? ingestionEnd = null;
-
+        LocatedEntryBuilder builder = new LocatedEntryBuilder((int)reader.TokenStartIndex);
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
-            string? name = reader.GetString();
-            int keyStart = (int)reader.TokenStartIndex;
-            reader.Read();
-
-            if (string.Equals(name, "id", StringComparison.Ordinal) && reader.TokenType == JsonTokenType.String)
-            {
-                id = reader.GetString() ?? string.Empty;
-            }
-            else if (string.Equals(name, "files", StringComparison.Ordinal)
-                && reader.TokenType == JsonTokenType.StartArray)
-            {
-                ReadPaths(ref reader, paths);
-                continue;
-            }
-            else if (string.Equals(name, "ingestion", StringComparison.Ordinal))
-            {
-                ingestionKey = keyStart;
-                ingestionStart = (int)reader.TokenStartIndex;
-                ingested = reader.TokenType == JsonTokenType.StartObject;
-                reader.TrySkip();
-                ingestionEnd = (int)reader.BytesConsumed;
-                continue;
-            }
-
-            reader.TrySkip();
+            ReadEntryProperty(ref reader, builder);
         }
 
-        return new LocatedEntry(
-            start,
-            (int)reader.BytesConsumed,
-            id,
-            paths,
-            ingested,
-            ingestionKey,
-            ingestionStart,
-            ingestionEnd);
+        return builder.Build((int)reader.BytesConsumed);
+    }
+
+    private static void ReadEntryProperty(ref Utf8JsonReader reader, LocatedEntryBuilder builder)
+    {
+        string? name = reader.GetString();
+        int keyStart = (int)reader.TokenStartIndex;
+        if (!MoveToPropertyValue(ref reader))
+        {
+            return;
+        }
+        if (TryReadEntryId(name, ref reader, builder))
+        {
+            return;
+        }
+        if (TryReadEntryFiles(name, ref reader, builder))
+        {
+            return;
+        }
+        if (!TryReadEntryIngestion(name, keyStart, ref reader, builder))
+        {
+            reader.TrySkip();
+        }
     }
 
     private static void ReadPaths(ref Utf8JsonReader reader, List<string> paths)
     {
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
-            if (reader.TokenType != JsonTokenType.StartObject)
+            if (reader.TokenType == JsonTokenType.StartObject)
             {
-                reader.TrySkip();
+                ReadPathObject(ref reader, paths);
                 continue;
             }
 
-            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
-            {
-                string? name = reader.GetString();
-                reader.Read();
-                if (string.Equals(name, "path", StringComparison.Ordinal)
-                    && reader.TokenType == JsonTokenType.String
-                    && reader.GetString() is { Length: > 0 } path)
-                {
-                    paths.Add(path);
-                    continue;
-                }
-
-                reader.TrySkip();
-            }
+            reader.TrySkip();
         }
     }
+
+    private static bool TryReadEntryId(string? name, ref Utf8JsonReader reader, LocatedEntryBuilder builder)
+    {
+        if (!string.Equals(name, "id", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.String)
+        {
+            return false;
+        }
+
+        builder.Id = reader.GetString() ?? string.Empty;
+        return true;
+    }
+
+    private static bool TryReadEntryFiles(string? name, ref Utf8JsonReader reader, LocatedEntryBuilder builder)
+    {
+        if (!string.Equals(name, "files", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.StartArray)
+        {
+            return false;
+        }
+
+        ReadPaths(ref reader, builder.Paths);
+        return true;
+    }
+
+    private static bool TryReadEntryIngestion(
+        string? name,
+        int keyStart,
+        ref Utf8JsonReader reader,
+        LocatedEntryBuilder builder)
+    {
+        if (!string.Equals(name, "ingestion", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        builder.IngestionKey = keyStart;
+        builder.IngestionStart = (int)reader.TokenStartIndex;
+        builder.IsIngested = reader.TokenType == JsonTokenType.StartObject;
+        reader.TrySkip();
+        builder.IngestionEnd = (int)reader.BytesConsumed;
+        return true;
+    }
+
+    private static void ReadPathObject(ref Utf8JsonReader reader, List<string> paths)
+    {
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (TryReadPath(ref reader, out string? path))
+            {
+                paths.Add(path);
+                continue;
+            }
+
+            reader.TrySkip();
+        }
+    }
+
+    private static bool TryReadPath(ref Utf8JsonReader reader, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? path)
+    {
+        path = null;
+        string? name = reader.GetString();
+        if (!MoveToPropertyValue(ref reader))
+        {
+            return false;
+        }
+
+        if (!string.Equals(name, "path", StringComparison.Ordinal) || reader.TokenType != JsonTokenType.String)
+        {
+            return false;
+        }
+
+        path = reader.GetString();
+        return path is { Length: > 0 };
+    }
+
+    private sealed record AdditionContext(byte[] Bytes, LocatedManifest Manifest, CapturedItem Item, string EntryText);
+
+    private sealed record ClosureContext(byte[] Bytes, LocatedManifest Manifest, string Wanted, OkfCaptureClosure Closure);
+
+    private sealed record IngestionRegion(int Key, int Start, int End);
+
+    private sealed record ItemShape(OkfCaptureForm Form, string Description);
+
+    private enum EntryState
+    {
+        Open,
+        Ingested,
+    }
+
+    private sealed record ItemLocation(string RootPath, string FullPath, string RelativePath)
+    {
+        public static ItemLocation For(string rawDirectory, string itemPath)
+        {
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawDirectory));
+            string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(itemPath));
+            string relative = Path.GetRelativePath(root, full).Replace(Path.DirectorySeparatorChar, '/');
+            return new ItemLocation(root, full, relative);
+        }
+    }
+
+    private sealed record CapturedPaths(IReadOnlyList<string> Paths, string? LinkedPath);
 
     private sealed record CapturedItem(
         string Id,
@@ -811,4 +1064,29 @@ public static class OkfCaptureWriter
         int? IngestionKey,
         int? IngestionStart,
         int? IngestionEnd);
+
+    private sealed class LocatedEntryBuilder
+    {
+        public LocatedEntryBuilder(int start)
+        {
+            Start = start;
+        }
+
+        public int Start { get; }
+
+        public string Id { get; set; } = string.Empty;
+
+        public List<string> Paths { get; } = new List<string>();
+
+        public bool IsIngested { get; set; }
+
+        public int? IngestionKey { get; set; }
+
+        public int? IngestionStart { get; set; }
+
+        public int? IngestionEnd { get; set; }
+
+        public LocatedEntry Build(int end) =>
+            new(Start, end, Id, Paths, IsIngested, IngestionKey, IngestionStart, IngestionEnd);
+    }
 }

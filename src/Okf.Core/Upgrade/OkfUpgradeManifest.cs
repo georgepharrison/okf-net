@@ -103,10 +103,22 @@ public sealed class OkfUpgradeManifest
     {
         ArgumentNullException.ThrowIfNull(json);
 
-        JsonDocument document;
+        using JsonDocument document = ParseDocument(json);
+        JsonElement root = RequireManifestObject(document);
+        string version = RequireVersion(root);
+
+        return new OkfUpgradeManifest(
+            version,
+            StrictJson.String(root, "tag"),
+            StrictJson.String(root, "generatedAt"),
+            ParseAssets(root));
+    }
+
+    private static JsonDocument ParseDocument(string json)
+    {
         try
         {
-            document = JsonDocument.Parse(json, new JsonDocumentOptions
+            return JsonDocument.Parse(json, new JsonDocumentOptions
             {
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
@@ -116,62 +128,76 @@ public sealed class OkfUpgradeManifest
         {
             throw new OkfUpgradeException($"the release manifest is not valid JSON: {exception.Message}");
         }
+    }
 
-        using (document)
+    private static JsonElement RequireManifestObject(JsonDocument document)
+    {
+        JsonElement root = document.RootElement;
+        return root.ValueKind == JsonValueKind.Object
+            ? root
+            : throw new OkfUpgradeException("the release manifest is not a JSON object.");
+    }
+
+    private static string RequireVersion(JsonElement root) =>
+        StrictJson.String(root, "version") is { Length: > 0 } version
+            ? version
+            : throw new OkfUpgradeException(
+                "the release manifest names no version — is it a release manifest?");
+
+    private static Dictionary<string, OkfUpgradeAsset> ParseAssets(JsonElement root)
+    {
+        Dictionary<string, OkfUpgradeAsset> assets = new Dictionary<string, OkfUpgradeAsset>(StringComparer.Ordinal);
+        if (!root.TryGetProperty("assets", out JsonElement map) || map.ValueKind != JsonValueKind.Object)
         {
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                throw new OkfUpgradeException("the release manifest is not a JSON object.");
-            }
+            return assets;
+        }
 
-            if (StrictJson.String(root, "version") is not { Length: > 0 } version)
-            {
-                throw new OkfUpgradeException(
-                    "the release manifest names no version — is it a release manifest?");
-            }
+        foreach (JsonProperty entry in map.EnumerateObject())
+        {
+            AddAsset(assets, entry);
+        }
 
-            Dictionary<string, OkfUpgradeAsset> assets = new Dictionary<string, OkfUpgradeAsset>(StringComparer.Ordinal);
-            if (root.TryGetProperty("assets", out JsonElement map) && map.ValueKind == JsonValueKind.Object)
-            {
-                foreach (JsonProperty entry in map.EnumerateObject())
-                {
-                    if (entry.Value.ValueKind != JsonValueKind.Object)
-                    {
-                        continue;
-                    }
+        return assets;
+    }
 
-                    string? path = StrictJson.String(entry.Value, "path");
-                    string? sha256 = StrictJson.String(entry.Value, "sha256");
-                    if (path is not { Length: > 0 } || sha256 is not { Length: > 0 })
-                    {
-                        // Left out of the map rather than kept with holes: an asset that
-                        // cannot be located or cannot be verified is not selectable, and
-                        // "this release has no asset for your platform" is then the honest
-                        // answer rather than a null dereference three steps later.
-                        continue;
-                    }
-
-                    long size = entry.Value.TryGetProperty("size", out JsonElement sizeValue)
-                        && sizeValue.ValueKind == JsonValueKind.Number
-                        && sizeValue.TryGetInt64(out long bytes)
-                            ? bytes
-                            : 0L;
-
-                    assets[entry.Name] = new OkfUpgradeAsset(
-                        entry.Name,
-                        path,
-                        sha256,
-                        size,
-                        StrictJson.String(entry.Value, "url"));
-                }
-            }
-
-            return new OkfUpgradeManifest(
-                version,
-                StrictJson.String(root, "tag"),
-                StrictJson.String(root, "generatedAt"),
-                assets);
+    private static void AddAsset(Dictionary<string, OkfUpgradeAsset> assets, JsonProperty entry)
+    {
+        if (Asset(entry) is { } asset)
+        {
+            assets[entry.Name] = asset;
         }
     }
+
+    private static OkfUpgradeAsset? Asset(JsonProperty entry)
+    {
+        if (entry.Value.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        string? path = StrictJson.String(entry.Value, "path");
+        string? sha256 = StrictJson.String(entry.Value, "sha256");
+        if (path is not { Length: > 0 } || sha256 is not { Length: > 0 })
+        {
+            // Left out of the map rather than kept with holes: an asset that cannot be
+            // located or cannot be verified is not selectable, and "this release has no
+            // asset for your platform" is then the honest answer rather than a null
+            // dereference three steps later.
+            return null;
+        }
+
+        return new OkfUpgradeAsset(
+            entry.Name,
+            path,
+            sha256,
+            AssetSize(entry.Value),
+            StrictJson.String(entry.Value, "url"));
+    }
+
+    private static long AssetSize(JsonElement asset) =>
+        asset.TryGetProperty("size", out JsonElement sizeValue)
+        && sizeValue.ValueKind == JsonValueKind.Number
+        && sizeValue.TryGetInt64(out long bytes)
+            ? bytes
+            : 0L;
 }

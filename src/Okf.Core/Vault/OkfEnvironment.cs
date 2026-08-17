@@ -11,6 +11,17 @@ public sealed class OkfEnvironment
     /// <summary>The environment variable that overrides the personal vault location (decisions.md §6).</summary>
     public const string HomeVariable = "OKF_HOME";
 
+    private static readonly string[] CapturedVariableNames =
+    [
+        "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "LOCALAPPDATA",
+        HomeVariable, "USERPROFILE",
+        // `okf upgrade` reads the same base URL the two installers do
+        // (work item #23), so a machine that installed from a mirror
+        // upgrades from the same one.
+        OkfUpgradeOptions.BaseUrlVariable,
+        "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
+    ];
+
     private readonly Dictionary<string, string> _variables;
 
     /// <summary>Initializes an environment.</summary>
@@ -92,35 +103,34 @@ public sealed class OkfEnvironment
 
     /// <summary>Captures the real process environment.</summary>
     /// <returns>An environment reading the current process's working directory and variables.</returns>
-    public static OkfEnvironment FromProcess()
+    public static OkfEnvironment FromProcess() =>
+        new(Directory.GetCurrentDirectory(), CapturedVariables());
+
+    /// <summary>Reads one environment variable.</summary>
+    /// <param name="name">The variable's name.</param>
+    /// <returns>Its value, or <see langword="null" /> when unset.</returns>
+    public string? GetVariable(string name) => _variables.GetValueOrDefault(name);
+
+    private static List<KeyValuePair<string, string>> CapturedVariables()
     {
         List<KeyValuePair<string, string>> variables = new List<KeyValuePair<string, string>>();
         // The GIT_CONFIG_* variables are captured for the one read that shells out to git
         // (`okf verify`'s identity fallback, decisions.md Q6). A child process would
         // inherit them anyway; carrying them here is what lets a caller *override* them,
         // which is how that read is made hermetic in a test.
-        foreach (string name in (string[])
-                 [
-                     "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "LOCALAPPDATA",
-                     HomeVariable, "USERPROFILE",
-                     // `okf upgrade` reads the same base URL the two installers do
-                     // (work item #23), so a machine that installed from a mirror
-                     // upgrades from the same one.
-                     OkfUpgradeOptions.BaseUrlVariable,
-                     "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
-                 ])
+        foreach (string name in CapturedVariableNames)
         {
-            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
-            {
-                variables.Add(new KeyValuePair<string, string>(name, value));
-            }
+            AddVariableIfPresent(variables, name);
         }
 
-        return new OkfEnvironment(Directory.GetCurrentDirectory(), variables);
+        return variables;
     }
 
-    /// <summary>Reads one environment variable.</summary>
-    /// <param name="name">The variable's name.</param>
-    /// <returns>Its value, or <see langword="null" /> when unset.</returns>
-    public string? GetVariable(string name) => _variables.GetValueOrDefault(name);
+    private static void AddVariableIfPresent(List<KeyValuePair<string, string>> variables, string name)
+    {
+        if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
+        {
+            variables.Add(new KeyValuePair<string, string>(name, value));
+        }
+    }
 }

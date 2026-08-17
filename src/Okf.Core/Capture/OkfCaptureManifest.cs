@@ -151,24 +151,7 @@ public sealed class OkfCaptureManifest
 
         using (document)
         {
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("captures", out JsonElement captures)
-                || captures.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            List<OkfCaptureEntry> entries = new List<OkfCaptureEntry>();
-            foreach (JsonElement capture in captures.EnumerateArray())
-            {
-                if (capture.ValueKind == JsonValueKind.Object)
-                {
-                    entries.Add(ReadEntry(capture));
-                }
-            }
-
-            return new OkfCaptureManifest(path, entries);
+            return ParseDocument(document.RootElement, path);
         }
     }
 
@@ -205,36 +188,75 @@ public sealed class OkfCaptureManifest
     /// <returns>The abbreviated form.</returns>
     internal static string Short(string sha256) => sha256.Length > 12 ? sha256[..12] + "…" : sha256;
 
-    private static OkfCaptureEntry ReadEntry(JsonElement capture)
+    private static OkfCaptureManifest? ParseDocument(JsonElement root, string path)
     {
-        string id = StrictJson.String(capture, "id") ?? string.Empty;
-
-        // `ingestion` closes the entry only when it is an object. Absent, null, or any
-        // other shape leaves the capture open — an entry the linter has no verdict on.
-        bool isIngested = capture.TryGetProperty("ingestion", out JsonElement ingestion)
-            && ingestion.ValueKind == JsonValueKind.Object;
-
-        List<OkfCaptureFile> files = new List<OkfCaptureFile>();
-        if (capture.TryGetProperty("files", out JsonElement recorded) && recorded.ValueKind == JsonValueKind.Array)
+        if (!TryReadCaptures(root, out JsonElement captures))
         {
-            foreach (JsonElement file in recorded.EnumerateArray())
-            {
-                if (file.ValueKind != JsonValueKind.Object
-                    || !file.TryGetProperty("path", out JsonElement filePath)
-                    || filePath.ValueKind != JsonValueKind.String
-                    || !file.TryGetProperty("sha256", out JsonElement sha)
-                    || sha.ValueKind != JsonValueKind.String)
-                {
-                    continue;
-                }
+            return null;
+        }
 
-                if (filePath.GetString() is { Length: > 0 } value && sha.GetString() is { Length: > 0 } digest)
-                {
-                    files.Add(new OkfCaptureFile(value, digest));
-                }
+        return new OkfCaptureManifest(path, ReadEntries(captures));
+    }
+
+    private static bool TryReadCaptures(JsonElement root, out JsonElement captures)
+    {
+        captures = default;
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("captures", out captures)
+            && captures.ValueKind == JsonValueKind.Array;
+    }
+
+    private static List<OkfCaptureEntry> ReadEntries(JsonElement captures)
+    {
+        List<OkfCaptureEntry> entries = new List<OkfCaptureEntry>();
+        foreach (JsonElement capture in captures.EnumerateArray())
+        {
+            if (capture.ValueKind == JsonValueKind.Object)
+            {
+                entries.Add(ReadEntry(capture));
             }
         }
 
-        return new OkfCaptureEntry(id, files, isIngested);
+        return entries;
+    }
+
+    private static OkfCaptureEntry ReadEntry(JsonElement capture) =>
+        new(ReadId(capture), ReadFiles(capture), IsIngested(capture));
+
+    private static string ReadId(JsonElement capture) => StrictJson.String(capture, "id") ?? string.Empty;
+
+    private static bool IsIngested(JsonElement capture) =>
+        capture.TryGetProperty("ingestion", out JsonElement ingestion)
+        && ingestion.ValueKind == JsonValueKind.Object;
+
+    private static List<OkfCaptureFile> ReadFiles(JsonElement capture)
+    {
+        List<OkfCaptureFile> files = new List<OkfCaptureFile>();
+        if (!capture.TryGetProperty("files", out JsonElement recorded) || recorded.ValueKind != JsonValueKind.Array)
+        {
+            return files;
+        }
+
+        foreach (JsonElement file in recorded.EnumerateArray())
+        {
+            if (ReadFile(file) is { } recordedFile)
+            {
+                files.Add(recordedFile);
+            }
+        }
+
+        return files;
+    }
+
+    private static OkfCaptureFile? ReadFile(JsonElement file)
+    {
+        if (file.ValueKind != JsonValueKind.Object
+            || StrictJson.String(file, "path") is not { Length: > 0 } path
+            || StrictJson.String(file, "sha256") is not { Length: > 0 } sha256)
+        {
+            return null;
+        }
+
+        return new OkfCaptureFile(path, sha256);
     }
 }

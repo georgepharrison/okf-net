@@ -168,49 +168,19 @@ public static class OkfConceptReader
     public static OkfConceptResult Read(OkfBundle bundle, string? id, OkfConceptOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(bundle);
-        options ??= new OkfConceptOptions();
+        OkfConceptOptions resolvedOptions = options ?? new OkfConceptOptions();
 
-        string? relative = Normalize(id);
-        if (relative is null)
+        if (Normalize(id) is not { } relative)
         {
-            return OkfConceptResult.Fail(
-                OkfConceptStatus.InvalidPath,
-                $"'{id}' is not a bundle-relative path. Give a path like 'topics/widgets.md', " +
-                "without a leading '/' and without '..' segments.");
+            return InvalidPath(id);
         }
 
         if (!bundle.TryResolve(relative, out string? path))
         {
-            return OkfConceptResult.Fail(
-                OkfConceptStatus.Outside,
-                $"'{relative}' resolves outside bundle '{bundle.Name}'. okf serves only paths inside a bundle root.");
+            return Outside(bundle, relative);
         }
 
-        string? text = options.ReadText?.Invoke(path);
-        if (text is null)
-        {
-            if (!File.Exists(path))
-            {
-                return OkfConceptResult.Fail(
-                    OkfConceptStatus.NotFound,
-                    $"No concept '{relative}' in bundle '{bundle.Name}'. Search for it, or list the directory.");
-            }
-
-            text = File.ReadAllText(path);
-        }
-
-        try
-        {
-            OkfDocument document = OkfDocument.Parse(text);
-            return OkfConceptResult.Ok(new OkfConcept(bundle, path, document, options.Today));
-        }
-        catch (OkfDocumentException exception)
-        {
-            return OkfConceptResult.Fail(
-                OkfConceptStatus.Unparseable,
-                $"'{relative}' in bundle '{bundle.Name}' has frontmatter that does not parse " +
-                $"({exception.Message}). Run `okf lint` on the bundle.");
-        }
+        return ReadResolvedConcept(bundle, relative, path, resolvedOptions);
     }
 
     /// <summary>
@@ -231,41 +201,130 @@ public static class OkfConceptReader
     /// </remarks>
     public static string? Normalize(string? id)
     {
-        string? trimmed = id?.Trim();
-        if (string.IsNullOrEmpty(trimmed)
-            || trimmed.Contains('\\', StringComparison.Ordinal)
-            || trimmed.Contains('\0', StringComparison.Ordinal))
+        string trimmed = TrimmedId(id) ?? string.Empty;
+        if (!IsRelativeId(trimmed))
         {
             return null;
         }
 
-        if (trimmed.StartsWith('/') || trimmed.StartsWith('~') || Path.IsPathRooted(trimmed))
-        {
-            return null;
-        }
-
-        List<string> segments = new List<string>();
-        foreach (string segment in trimmed.Split('/'))
-        {
-            if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (string.Equals(segment, "..", StringComparison.Ordinal))
-            {
-                return null;
-            }
-
-            segments.Add(segment);
-        }
-
+        List<string> segments = NormalizeSegments(trimmed);
         if (segments.Count == 0)
         {
             return null;
         }
 
-        string relative = string.Join('/', segments);
-        return relative.EndsWith(".md", StringComparison.Ordinal) ? relative : relative + ".md";
+        return EnsureMarkdownSuffix(string.Join('/', segments));
     }
+
+    private static OkfConceptResult InvalidPath(string? id) =>
+        OkfConceptResult.Fail(
+            OkfConceptStatus.InvalidPath,
+            $"'{id}' is not a bundle-relative path. Give a path like 'topics/widgets.md', " +
+            "without a leading '/' and without '..' segments.");
+
+    private static OkfConceptResult Outside(OkfBundle bundle, string relative) =>
+        OkfConceptResult.Fail(
+            OkfConceptStatus.Outside,
+            $"'{relative}' resolves outside bundle '{bundle.Name}'. okf serves only paths inside a bundle root.");
+
+    private static OkfConceptResult ReadResolvedConcept(
+        OkfBundle bundle,
+        string relative,
+        string path,
+        OkfConceptOptions options)
+    {
+        ResolvedConceptPath conceptPath = new(bundle, relative, path);
+        string? text = LoadText(conceptPath.Path, options.ReadText);
+        if (text is null)
+        {
+            return NotFound(conceptPath);
+        }
+
+        return ParseConcept(conceptPath, text, options.Today);
+    }
+
+    private static string? LoadText(string path, Func<string, string?>? readText)
+    {
+        string? text = readText?.Invoke(path);
+        if (text is not null)
+        {
+            return text;
+        }
+
+        return File.Exists(path) ? File.ReadAllText(path) : null;
+    }
+
+    private static OkfConceptResult NotFound(ResolvedConceptPath conceptPath) =>
+        OkfConceptResult.Fail(
+            OkfConceptStatus.NotFound,
+            $"No concept '{conceptPath.Relative}' in bundle '{conceptPath.Bundle.Name}'. Search for it, or list the directory.");
+
+    private static OkfConceptResult ParseConcept(ResolvedConceptPath conceptPath, string text, DateOnly today)
+    {
+        OkfDocument document;
+        try
+        {
+            document = OkfDocument.Parse(text);
+        }
+        catch (OkfDocumentException exception)
+        {
+            return Unparseable(conceptPath, exception);
+        }
+
+        return OkfConceptResult.Ok(new OkfConcept(conceptPath.Bundle, conceptPath.Path, document, today));
+    }
+
+    private static OkfConceptResult Unparseable(ResolvedConceptPath conceptPath, OkfDocumentException exception) =>
+        OkfConceptResult.Fail(
+            OkfConceptStatus.Unparseable,
+            $"'{conceptPath.Relative}' in bundle '{conceptPath.Bundle.Name}' has frontmatter that does not parse " +
+            $"({exception.Message}). Run `okf lint` on the bundle.");
+
+    private static string? TrimmedId(string? id) => id?.Trim();
+
+    private static bool IsRelativeId(string trimmed)
+    {
+        if (string.IsNullOrEmpty(trimmed)
+            || trimmed.Contains('\\', StringComparison.Ordinal)
+            || trimmed.Contains('\0', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !trimmed.StartsWith('/')
+            && !trimmed.StartsWith('~')
+            && !Path.IsPathRooted(trimmed);
+    }
+
+    private static List<string> NormalizeSegments(string trimmed)
+    {
+        List<string> segments = new List<string>();
+        foreach (string segment in trimmed.Split('/'))
+        {
+            if (IgnoresSegment(segment))
+            {
+                continue;
+            }
+
+            if (IsParentTraversal(segment))
+            {
+                return [];
+            }
+
+            segments.Add(segment);
+        }
+
+        return segments;
+    }
+
+    private static bool IgnoresSegment(string segment) =>
+        segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal);
+
+    private static bool IsParentTraversal(string segment) =>
+        string.Equals(segment, "..", StringComparison.Ordinal);
+
+    private static string EnsureMarkdownSuffix(string relative) =>
+        relative.EndsWith(".md", StringComparison.Ordinal) ? relative : relative + ".md";
+
+    private sealed record ResolvedConceptPath(OkfBundle Bundle, string Relative, string Path);
 }

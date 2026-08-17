@@ -222,44 +222,65 @@ public static class OkfScaffold
         ArgumentException.ThrowIfNullOrEmpty(vaultRoot);
         options ??= new OkfScaffoldOptions();
 
-        string vault = Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
+        string vault = NormalizeVault(vaultRoot);
         RefuseBundleRoot(vault);
-
-        if (File.Exists(vault))
-        {
-            throw new OkfScaffoldException($"'{vault}' is a file; okf init needs a directory.");
-        }
+        RequireDirectoryTarget(vault);
 
         string name = BundleName(vault, options.BundleName);
         string bundleRoot = Path.Combine(vault, OkfDiscovery.BundlesDirectoryName, name);
-        string stamp = OkfCanonicalTimestamp.ToCanonical(options.Now);
-        string day = options.Now.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-        Directory.CreateDirectory(bundleRoot);
-        Directory.CreateDirectory(Path.Combine(vault, CustodianDirectoryName));
-        Directory.CreateDirectory(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName));
+        ScaffoldDirectories(vault, bundleRoot);
 
         IReadOnlyList<OkfSkillPointer> pointers = SkillPointers(vault);
-
-        List<OkfScaffoldFile> files = new List<OkfScaffoldFile>
-        {
-            Write(Path.Combine(vault, "README.md"), VaultReadme(name)),
-            Write(Path.Combine(vault, OkfDiscovery.ConfigFileName), ProjectConfig(name)),
-            Write(Path.Combine(vault, MarkdownLintFileName), MarkdownLintConfig(vault)),
-            Write(Path.Combine(vault, CustodianDirectoryName, "README.md"), CustodianReadme(name, pointers)),
-            Write(Path.Combine(vault, CustodianDirectoryName, "recipe.json"), CustodianRecipe(name, pointers)),
-            Write(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
-            Write(
-                Path.Combine(vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
-                OkfCaptureWriter.EmptyManifest),
-            Write(Path.Combine(bundleRoot, AboutThisBundleFileName), AboutThisBundle(name, options.Actor, stamp)),
-            Write(Path.Combine(bundleRoot, OkfBundle.LogFileName), BundleLog(day)),
-        };
-
+        ScaffoldStamp stamp = ScaffoldStamp.For(options.Now);
+        ScaffoldLayout layout = new ScaffoldLayout(vault, bundleRoot, name);
+        List<OkfScaffoldFile> files = ScaffoldFiles(layout, options.Actor, pointers, stamp);
         files.Add(WriteRootIndex(bundleRoot));
 
         return new OkfScaffoldResult(vault, bundleRoot, files, pointers);
     }
+
+    private static string NormalizeVault(string vaultRoot) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(vaultRoot));
+
+    private static void RequireDirectoryTarget(string vault)
+    {
+        if (File.Exists(vault))
+        {
+            throw new OkfScaffoldException($"'{vault}' is a file; okf init needs a directory.");
+        }
+    }
+
+    private static void ScaffoldDirectories(string vault, string bundleRoot)
+    {
+        Directory.CreateDirectory(bundleRoot);
+        Directory.CreateDirectory(Path.Combine(vault, CustodianDirectoryName));
+        Directory.CreateDirectory(Path.Combine(vault, OkfCaptureManifest.RawDirectoryName));
+    }
+
+    private static List<OkfScaffoldFile> ScaffoldFiles(
+        ScaffoldLayout layout,
+        string actor,
+        IReadOnlyList<OkfSkillPointer> pointers,
+        ScaffoldStamp stamp) =>
+    [
+        Write(Path.Combine(layout.Vault, "README.md"), VaultReadme(layout.Name)),
+        Write(Path.Combine(layout.Vault, OkfDiscovery.ConfigFileName), ProjectConfig(layout.Name)),
+        Write(Path.Combine(layout.Vault, MarkdownLintFileName), MarkdownLintConfig(layout.Vault)),
+        Write(
+            Path.Combine(layout.Vault, CustodianDirectoryName, "README.md"),
+            CustodianReadme(layout.Name, pointers)),
+        Write(
+            Path.Combine(layout.Vault, CustodianDirectoryName, "recipe.json"),
+            CustodianRecipe(layout.Name, pointers)),
+        Write(Path.Combine(layout.Vault, OkfCaptureManifest.RawDirectoryName, ".gitignore"), RawGitignore()),
+        Write(
+            Path.Combine(layout.Vault, OkfCaptureManifest.RawDirectoryName, OkfCaptureManifest.FileName),
+            OkfCaptureWriter.EmptyManifest),
+        Write(
+            Path.Combine(layout.BundleRoot, AboutThisBundleFileName),
+            AboutThisBundle(layout.Name, actor, stamp.Instant)),
+        Write(Path.Combine(layout.BundleRoot, OkfBundle.LogFileName), BundleLog(stamp.Day)),
+    ];
 
     /// <summary>
     /// Writes the bundle-root <c>index.md</c> through the real generator rather than from
@@ -314,30 +335,50 @@ public static class OkfScaffold
     private static void RefuseBundleRoot(string vault)
     {
         string real = RealPath(vault);
-        string shown = string.Equals(real, vault, StringComparison.Ordinal)
-            ? $"'{vault}'"
-            : $"'{vault}' (which resolves to '{real}')";
-
-        for (DirectoryInfo? directory = new DirectoryInfo(real); directory is not null; directory = directory.Parent)
+        DirectoryInfo? bundleRoot = EnclosingBundleRoot(real);
+        if (bundleRoot is null)
         {
-            DirectoryInfo? parent = directory.Parent;
-            if (parent is null
-                || !string.Equals(parent.Name, OkfDiscovery.BundlesDirectoryName, StringComparison.Ordinal)
-                || parent.Parent is null)
-            {
-                continue;
-            }
-
-            string relation = string.Equals(directory.FullName, real, StringComparison.Ordinal)
-                ? "is a bundle root"
-                : $"sits inside the bundle root '{directory.FullName}'";
-
-            throw new OkfScaffoldException(
-                $"Refusing to initialize: {shown} {relation}. " +
-                "okf init writes a README.md at the vault root, and OKF v0.2 does not reserve that name — " +
-                "inside a bundle root it would be read as a frontmatter-less concept and fail §11 conformance. " +
-                "A bundle root is never a vault root (decisions.md §2); initialize beside the bundles, not in one.");
+            return;
         }
+
+        throw new OkfScaffoldException(BundleRootRefusal(vault, real, bundleRoot.FullName));
+    }
+
+    private static DirectoryInfo? EnclosingBundleRoot(string realPath)
+    {
+        for (DirectoryInfo? directory = new DirectoryInfo(realPath); directory is not null; directory = directory.Parent)
+        {
+            if (IsBundleRoot(directory))
+            {
+                return directory;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsBundleRoot(DirectoryInfo directory)
+    {
+        DirectoryInfo? parent = directory.Parent;
+        return parent is not null
+            && string.Equals(parent.Name, OkfDiscovery.BundlesDirectoryName, StringComparison.Ordinal)
+            && parent.Parent is not null;
+    }
+
+    private static string BundleRootRefusal(string vault, string realPath, string bundleRoot)
+    {
+        string shown = string.Equals(realPath, vault, StringComparison.Ordinal)
+            ? $"'{vault}'"
+            : $"'{vault}' (which resolves to '{realPath}')";
+
+        string relation = string.Equals(bundleRoot, realPath, StringComparison.Ordinal)
+            ? "is a bundle root"
+            : $"sits inside the bundle root '{bundleRoot}'";
+
+        return $"Refusing to initialize: {shown} {relation}. "
+            + "okf init writes a README.md at the vault root, and OKF v0.2 does not reserve that name — "
+            + "inside a bundle root it would be read as a frontmatter-less concept and fail §11 conformance. "
+            + "A bundle root is never a vault root (decisions.md §2); initialize beside the bundles, not in one.";
     }
 
     /// <summary>
@@ -348,7 +389,18 @@ public static class OkfScaffold
     private static string RealPath(string path)
     {
         string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        if (FindExistingAncestor(full) is not { } ancestor)
+        {
+            return full;
+        }
 
+        int budget = MaxLinkDepth;
+        string resolved = Resolve(ancestor.Existing, ref budget);
+        return AppendPendingSegments(resolved, ancestor.Pending);
+    }
+
+    private static ExistingAncestor? FindExistingAncestor(string full)
+    {
         Stack<string> pending = new Stack<string>();
         string existing = full;
         while (!Directory.Exists(existing) && !File.Exists(existing))
@@ -356,15 +408,18 @@ public static class OkfScaffold
             string? parent = Path.GetDirectoryName(existing);
             if (string.IsNullOrEmpty(parent))
             {
-                return full;
+                return null;
             }
 
             pending.Push(Path.GetFileName(existing));
             existing = parent;
         }
 
-        int budget = MaxLinkDepth;
-        string resolved = Resolve(existing, ref budget);
+        return new ExistingAncestor(existing, pending);
+    }
+
+    private static string AppendPendingSegments(string resolved, Stack<string> pending)
+    {
         while (pending.Count > 0)
         {
             resolved = Path.Combine(resolved, pending.Pop());
@@ -632,30 +687,11 @@ public static class OkfScaffold
     private static string TagRegistryLines() =>
         string.Join(",\n", SeedTags.Select(tag => $"      \"{tag}\""));
 
-    private static string MarkdownLintConfig(string vault)
-    {
-        string? host = HostMarkdownLintConfig(vault);
-
-        // A nested config REPLACES the parent rather than merging with it, so a vault
-        // config written without `extends` silently switches every rule the host repo
-        // turned off back on (dogfood friction #19-6). The line is emitted only when
-        // there is something to extend: `extends` naming a file that does not exist is
-        // an error, which would break markdownlint for a repo that had no config at all.
-        string extends = host is null
-            ? string.Empty
-            : $"""
-                # A nested config REPLACES the repository-root one rather than merging with it,
-                # so the root file is pulled in explicitly and exactly one extra rule is turned
-                # off for the vault.
-                extends: ../{host}
-
-
-                """;
-
-        return $"""
+    private static string MarkdownLintConfig(string vault) =>
+        $"""
             # markdownlint configuration for the OKF vault only.
 
-            {extends}# MD025 (single H1) is structurally incompatible with OKF v0.2 markdown, in
+            {MarkdownLintExtends(vault)}# MD025 (single H1) is structurally incompatible with OKF v0.2 markdown, in
             # two independent ways:
             #
             #   1. §8 specifies an index.md as "one or more `#` sections". Every generated
@@ -671,6 +707,24 @@ public static class OkfScaffold
             MD025: false
 
             """;
+
+    private static string MarkdownLintExtends(string vault)
+    {
+        // A nested config REPLACES the parent rather than merging with it, so a vault
+        // config written without `extends` silently switches every rule the host repo
+        // turned off back on (dogfood friction #19-6). The line is emitted only when
+        // there is something to extend: `extends` naming a file that does not exist is
+        // an error, which would break markdownlint for a repo that had no config at all.
+        return HostMarkdownLintConfig(vault) is { } host
+            ? $"""
+                # A nested config REPLACES the repository-root one rather than merging with it,
+                # so the root file is pulled in explicitly and exactly one extra rule is turned
+                # off for the vault.
+                extends: ../{host}
+
+
+                """
+            : string.Empty;
     }
 
     private static string? HostMarkdownLintConfig(string vault)
@@ -930,4 +984,16 @@ public static class OkfScaffold
           `about-this-bundle.md`, written by the tool and left unverified.
 
         """;
+
+    private sealed record ScaffoldLayout(string Vault, string BundleRoot, string Name);
+
+    private sealed record ScaffoldStamp(string Instant, string Day)
+    {
+        public static ScaffoldStamp For(DateTimeOffset now) =>
+            new(
+                OkfCanonicalTimestamp.ToCanonical(now),
+                now.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+    }
+
+    private sealed record ExistingAncestor(string Existing, Stack<string> Pending);
 }

@@ -176,36 +176,8 @@ public static class OkfBundler
         options ??= new OkfBundlerOptions();
 
         List<OkfBundle> bundles = Select(workingSet, options.Bundles);
-        List<OkfDistributionEntry> entries = new List<OkfDistributionEntry>();
-
-        foreach (OkfBundle bundle in bundles)
-        {
-            foreach (string file in bundle.ContentFiles())
-            {
-                if (IsJunk(file))
-                {
-                    continue;
-                }
-
-                entries.Add(new OkfDistributionEntry(
-                    BundlesPrefix + bundle.Name + "/" + bundle.RelativePath(file),
-                    file,
-                    OkfCaptureManifest.Sha256Of(file),
-                    new FileInfo(file).Length,
-                    bundle));
-            }
-        }
-
-        entries.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
-
-        OkfDistributionManifest manifest = new OkfDistributionManifest(
-            options.Generator,
-            VaultName(workingSet.VaultRoot),
-            OkfCanonicalTimestamp.ToCanonical(options.GeneratedAt),
-            [.. bundles.Select(bundle => bundle.Name)],
-            DanglingLinks(entries, workingSet.VaultRoot),
-            [.. entries.Select(entry => new OkfDistributionFile(entry.Path, entry.Sha256))]);
-
+        List<OkfDistributionEntry> entries = CollectEntries(bundles);
+        OkfDistributionManifest manifest = CreateManifest(workingSet.VaultRoot, bundles, entries, options);
         return new OkfDistributionPlan(bundles, entries, manifest);
     }
 
@@ -250,95 +222,60 @@ public static class OkfBundler
         ArgumentException.ThrowIfNullOrEmpty(path);
         string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-        string? manifestText;
-        Dictionary<string, string> digests;
-        List<string> foreign;
-
-        if (Directory.Exists(full))
+        VerificationPreparation preparation = PrepareVerification(full);
+        if (preparation.Refusal is { } refusal)
         {
-            (manifestText, digests, foreign) = ReadDirectory(full);
-        }
-        else if (File.Exists(full))
-        {
-            try
-            {
-                (manifestText, digests, foreign) = ReadArchive(full);
-            }
-            catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException)
-            {
-                // A file that is not an archive at all, or one that stops in the middle:
-                // someone verified the wrong path, a download landed as an error page, or
-                // — the case these hashes exist for — the transfer was cut short. Both are
-                // reported, never thrown. `InvalidDataException` is not an `IOException`,
-                // so letting it escape would crash the process; `EndOfStreamException` IS
-                // one, so letting it escape merely turned a bad download into exit 2 and
-                // a stray "Unable to read beyond the end of the stream" that names no file.
-                return Unreadable(full, $"'{full}' is not a readable archive: {exception.Message}");
-            }
-        }
-        else
-        {
-            return Unreadable(full, $"'{full}' is neither an archive nor a directory.");
+            return refusal;
         }
 
-        if (manifestText is null)
+        return VerifyDistribution(preparation.Input!);
+    }
+
+    private static VerificationPreparation PrepareVerification(string full)
+    {
+        if (ReadDistribution(full) is not { } distribution)
         {
-            return Unreadable(
-                full,
-                $"'{full}' carries no {OkfDistributionManifest.FileName}; it was not written by `okf bundle`.");
+            return MissingDistribution(full);
         }
 
-        if (OkfDistributionManifest.Parse(manifestText) is not { } manifest)
+        if (RefusalForVerification(full, distribution) is { } refusal)
         {
-            return Unreadable(full, $"{OkfDistributionManifest.FileName} does not parse as a distribution manifest.");
+            return new VerificationPreparation(null, refusal);
         }
 
+        return new VerificationPreparation(ReadVerificationInput(full, distribution), null);
+    }
+
+    private static VerificationPreparation MissingDistribution(string full) =>
+        new(null, Unreadable(full, $"'{full}' is neither an archive nor a directory."));
+
+    private static OkfDistributionVerification? RefusalForVerification(string full, DistributionContents distribution)
+    {
+        if (distribution.Problem is { Length: > 0 } problem)
+        {
+            return Unreadable(full, problem);
+        }
+
+        if (distribution.ManifestText is null)
+        {
+            return Unreadable(full, $"'{full}' carries no {OkfDistributionManifest.FileName}; it was not written by `okf bundle`.");
+        }
+
+        return OkfDistributionManifest.Parse(distribution.ManifestText) is null
+            ? Unreadable(full, $"{OkfDistributionManifest.FileName} does not parse as a distribution manifest.")
+            : null;
+    }
+
+    private static VerificationInput ReadVerificationInput(string full, DistributionContents distribution) =>
+        new(full, distribution, OkfDistributionManifest.Parse(distribution.ManifestText!)!);
+
+    private static OkfDistributionVerification VerifyDistribution(VerificationInput input)
+    {
         List<OkfDistributionFinding> findings = new List<OkfDistributionFinding>();
-        HashSet<string> recorded = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (OkfDistributionFile file in manifest.Files)
-        {
-            recorded.Add(file.Path);
-            if (!digests.TryGetValue(file.Path, out string? actual))
-            {
-                findings.Add(new OkfDistributionFinding(
-                    OkfDistributionIssue.Missing,
-                    file.Path,
-                    "recorded in the manifest and not present."));
-                continue;
-            }
-
-            if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
-            {
-                findings.Add(new OkfDistributionFinding(
-                    OkfDistributionIssue.Modified,
-                    file.Path,
-                    $"recorded {OkfCaptureManifest.Short(file.Sha256)}, found {OkfCaptureManifest.Short(actual)}."));
-            }
-        }
-
-        foreach (string extra in digests.Keys.Where(key => !recorded.Contains(key)).Order(StringComparer.Ordinal))
-        {
-            findings.Add(new OkfDistributionFinding(
-                OkfDistributionIssue.Unlisted,
-                extra,
-                "present and recorded nowhere in the manifest."));
-        }
-
-        // Entries that are not files at all. The bundler writes regular files and nothing
-        // else, so every one of these joined the archive after it was written — and a
-        // symlink is the one an attacker would add, because extracting it plants a path
-        // into somebody else's filesystem. They carry no bytes to hash, so they can never
-        // match a recorded digest and are always unlisted.
-        foreach (string link in foreign.Order(StringComparer.Ordinal))
-        {
-            findings.Add(new OkfDistributionFinding(
-                OkfDistributionIssue.Unlisted,
-                link,
-                "present as a link or device entry; the bundler writes regular files only."));
-        }
-
-        return new OkfDistributionVerification(full, manifest, findings, manifest.Files.Count);
+        HashSet<string> recorded = VerifyRecordedFiles(input.Manifest, input.Contents.Digests, findings);
+        VerifyUnlistedFiles(input.Contents.Digests, recorded, findings);
+        VerifyForeignEntries(input.Contents.Foreign, findings);
+        return new OkfDistributionVerification(input.Source, input.Manifest, findings, input.Manifest.Files.Count);
     }
 
     /// <summary>
@@ -359,36 +296,171 @@ public static class OkfBundler
         return OkfDistributionFormat.TarGz;
     }
 
+    private static List<OkfDistributionEntry> CollectEntries(IEnumerable<OkfBundle> bundles)
+    {
+        List<OkfDistributionEntry> entries = new List<OkfDistributionEntry>();
+        foreach (OkfBundle bundle in bundles)
+        {
+            foreach (string file in bundle.ContentFiles())
+            {
+                AddDistributionEntry(bundle, file, entries);
+            }
+        }
+
+        entries.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+        return entries;
+    }
+
+    private static void AddDistributionEntry(OkfBundle bundle, string file, List<OkfDistributionEntry> entries)
+    {
+        if (IsJunk(file))
+        {
+            return;
+        }
+
+        entries.Add(new OkfDistributionEntry(
+            BundlesPrefix + bundle.Name + "/" + bundle.RelativePath(file),
+            file,
+            OkfCaptureManifest.Sha256Of(file),
+            new FileInfo(file).Length,
+            bundle));
+    }
+
+    private static OkfDistributionManifest CreateManifest(
+        string? vaultRoot,
+        IReadOnlyList<OkfBundle> bundles,
+        IReadOnlyList<OkfDistributionEntry> entries,
+        OkfBundlerOptions options) =>
+        new(
+            options.Generator,
+            VaultName(vaultRoot),
+            OkfCanonicalTimestamp.ToCanonical(options.GeneratedAt),
+            [.. bundles.Select(bundle => bundle.Name)],
+            DanglingLinks([.. entries], vaultRoot),
+            [.. entries.Select(entry => new OkfDistributionFile(entry.Path, entry.Sha256))]);
+
+    private static DistributionContents? ReadDistribution(string full)
+    {
+        if (Directory.Exists(full))
+        {
+            return ReadDirectoryDistribution(full);
+        }
+
+        return File.Exists(full) ? ReadArchiveDistribution(full) : null;
+    }
+
+    private static DistributionContents ReadDirectoryDistribution(string full)
+    {
+        (string? manifestText, Dictionary<string, string> digests, List<string> foreign) = ReadDirectory(full);
+        return new DistributionContents(manifestText, digests, foreign);
+    }
+
+    private static DistributionContents ReadArchiveDistribution(string full)
+    {
+        try
+        {
+            (string? manifestText, Dictionary<string, string> digests, List<string> foreign) = ReadArchive(full);
+            return new DistributionContents(manifestText, digests, foreign);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException)
+        {
+            return new DistributionContents(
+                null,
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                [],
+                $"'{full}' is not a readable archive: {exception.Message}");
+        }
+    }
+
+    private static HashSet<string> VerifyRecordedFiles(
+        OkfDistributionManifest manifest,
+        IReadOnlyDictionary<string, string> digests,
+        List<OkfDistributionFinding> findings)
+    {
+        HashSet<string> recorded = new HashSet<string>(StringComparer.Ordinal);
+        foreach (OkfDistributionFile file in manifest.Files)
+        {
+            VerifyRecordedFile(file, digests, findings, recorded);
+        }
+
+        return recorded;
+    }
+
+    private static void VerifyRecordedFile(
+        OkfDistributionFile file,
+        IReadOnlyDictionary<string, string> digests,
+        List<OkfDistributionFinding> findings,
+        HashSet<string> recorded)
+    {
+        recorded.Add(file.Path);
+        if (!digests.TryGetValue(file.Path, out string? actual))
+        {
+            findings.Add(new OkfDistributionFinding(
+                OkfDistributionIssue.Missing,
+                file.Path,
+                "recorded in the manifest and not present."));
+            return;
+        }
+
+        if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            findings.Add(new OkfDistributionFinding(
+                OkfDistributionIssue.Modified,
+                file.Path,
+                $"recorded {OkfCaptureManifest.Short(file.Sha256)}, found {OkfCaptureManifest.Short(actual)}."));
+        }
+    }
+
+    private static void VerifyUnlistedFiles(
+        IReadOnlyDictionary<string, string> digests,
+        HashSet<string> recorded,
+        List<OkfDistributionFinding> findings)
+    {
+        foreach (string extra in digests.Keys.Where(key => !recorded.Contains(key)).Order(StringComparer.Ordinal))
+        {
+            findings.Add(new OkfDistributionFinding(
+                OkfDistributionIssue.Unlisted,
+                extra,
+                "present and recorded nowhere in the manifest."));
+        }
+    }
+
+    private static void VerifyForeignEntries(IEnumerable<string> foreign, List<OkfDistributionFinding> findings)
+    {
+        foreach (string link in foreign.Order(StringComparer.Ordinal))
+        {
+            findings.Add(new OkfDistributionFinding(
+                OkfDistributionIssue.Unlisted,
+                link,
+                "present as a link or device entry; the bundler writes regular files only."));
+        }
+    }
+
     /// <summary>The bundles a selection names, or all of them when it names none.</summary>
     private static List<OkfBundle> Select(OkfWorkingSet workingSet, IReadOnlyList<string> names)
     {
-        List<OkfBundle> available = workingSet.Bundles
-            .OrderBy(bundle => bundle.Name, StringComparer.Ordinal)
-            .ToList();
+        List<OkfBundle> available = AvailableBundles(workingSet);
+        return names.Count == 0 ? available : SelectedBundles(names, available);
+    }
 
-        if (names.Count == 0)
-        {
-            return available;
-        }
+    private static List<OkfBundle> AvailableBundles(OkfWorkingSet workingSet) =>
+        workingSet.Bundles.OrderBy(bundle => bundle.Name, StringComparer.Ordinal).ToList();
 
+    private static List<OkfBundle> SelectedBundles(IReadOnlyList<string> names, IReadOnlyList<OkfBundle> available)
+    {
         List<OkfBundle> selected = new List<OkfBundle>();
         foreach (string name in names.Distinct(StringComparer.Ordinal))
         {
-            OkfBundle? bundle = available.FirstOrDefault(candidate =>
-                string.Equals(candidate.Name, name, StringComparison.Ordinal));
-
-            if (bundle is null)
-            {
-                throw new OkfDiscoveryException(
-                    $"No bundle named '{name}' in the working set. Available: " +
-                    $"{string.Join(", ", available.Select(candidate => candidate.Name))}.");
-            }
-
-            selected.Add(bundle);
+            selected.Add(RequiredBundle(name, available));
         }
 
         return [.. selected.OrderBy(bundle => bundle.Name, StringComparer.Ordinal)];
     }
+
+    private static OkfBundle RequiredBundle(string name, IReadOnlyList<OkfBundle> available) =>
+        available.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
+        ?? throw new OkfDiscoveryException(
+            $"No bundle named '{name}' in the working set. Available: {string.Join(", ", available.Select(candidate => candidate.Name))}.");
 
     /// <summary>
     /// The links that will dangle for a consumer: those leaving their bundle root and
@@ -398,45 +470,58 @@ public static class OkfBundler
     /// </summary>
     private static List<OkfExternalLink> DanglingLinks(List<OkfDistributionEntry> entries, string? vaultRoot)
     {
-        HashSet<string> shipped = new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal);
-        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> dangling = new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>();
+        ExternalLinkScan scan = new ExternalLinkScan(
+            new HashSet<string>(entries.Select(entry => entry.SourcePath), StringComparer.Ordinal),
+            vaultRoot,
+            new Dictionary<(string From, string To, string? Bundle), OkfExternalLink>());
 
         foreach (OkfDistributionEntry entry in entries.Where(entry => entry.Path.EndsWith(".md", StringComparison.Ordinal)))
         {
-            string directory = Path.GetDirectoryName(entry.SourcePath)!;
-            FileLayout layout = FileLayout.Of(File.ReadAllText(entry.SourcePath));
-            MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
-
-            foreach (MarkdownLink link in scan.Links)
-            {
-                if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out string? resolved) != LinkTarget.Outside
-                    || resolved is null)
-                {
-                    continue;
-                }
-
-                // A link may name a directory (`../other-bundle/`), and a trailing slash
-                // survives normalization — so it is trimmed before the target is compared
-                // against the packaged paths, or a link to a bundle that *is* shipped
-                // would be reported as dangling.
-                string target = Path.TrimEndingDirectorySeparator(resolved);
-                if (IsShipped(shipped, target))
-                {
-                    continue;
-                }
-
-                (string Path, string Target, string?) key = (entry.Path, link.Target, BundleNameOf(target, vaultRoot));
-                if (!dangling.ContainsKey(key))
-                {
-                    dangling[key] = new OkfExternalLink(key.Item1, key.Item2, key.Item3, link.Line);
-                }
-            }
+            ScanExternalLinks(entry, scan);
         }
 
-        return [.. dangling.Values
+        return [.. scan.Dangling.Values
             .OrderBy(link => link.From, StringComparer.Ordinal)
             .ThenBy(link => link.Line)
             .ThenBy(link => link.To, StringComparer.Ordinal)];
+    }
+
+    private static void ScanExternalLinks(OkfDistributionEntry entry, ExternalLinkScan context)
+    {
+        string directory = Path.GetDirectoryName(entry.SourcePath)!;
+        FileLayout layout = FileLayout.Of(File.ReadAllText(entry.SourcePath));
+        MarkdownScan scan = MarkdownScanner.Scan(layout.Body, layout.BodyFirstLine);
+
+        foreach (MarkdownLink link in scan.Links)
+        {
+            RecordExternalLink(entry, link, directory, context);
+        }
+    }
+
+    private static void RecordExternalLink(
+        OkfDistributionEntry entry,
+        MarkdownLink link,
+        string directory,
+        ExternalLinkScan context)
+    {
+        if (LintText.Resolve(link.Target, entry.Bundle.Root, directory, out string? resolved) != LinkTarget.Outside
+            || resolved is null)
+        {
+            return;
+        }
+
+        string target = Path.TrimEndingDirectorySeparator(resolved);
+        if (IsShipped(context.Shipped, target))
+        {
+            return;
+        }
+
+        (string Path, string Target, string? Bundle) key =
+            (entry.Path, link.Target, BundleNameOf(target, context.VaultRoot));
+        if (!context.Dangling.ContainsKey(key))
+        {
+            context.Dangling[key] = new OkfExternalLink(key.Path, key.Target, key.Bundle, link.Line);
+        }
     }
 
     /// <summary>Whether a resolved target is packaged — as a file, or as a directory holding packaged files.</summary>
@@ -518,46 +603,58 @@ public static class OkfBundler
 
     private static void WriteTarGz(OkfDistributionPlan plan, Stream output)
     {
-        // No directory entries: tar and every extractor create the directories a file's
-        // path implies, and an entry that carries no bytes is one more thing to have to
-        // make deterministic. The gzip header .NET writes carries no timestamp and no
-        // filename, which is what keeps the compressed stream reproducible.
-        //
-        // GNU rather than PAX, and this is a reproducibility decision rather than a taste
-        // one: .NET names every PAX extended-header entry `./PaxHeaders.<process-id>/.`,
-        // so a PAX archive embeds the pid of the process that wrote it and two builds of
-        // the same vault differ. GNU carries mtime in the header itself, needs no extended
-        // headers, and — unlike ustar — has no 100-character limit on a path, which an
-        // arbitrary consumer's bundle may well exceed.
-        //
-        // `AccessTime` and `ChangeTime` are deliberately LEFT UNSET, which writes GNU's
-        // atime/ctime fields as NUL bytes — what GNU tar's own writer puts there for a
-        // non-incremental entry. They are already deterministic either way, so this is an
-        // interoperability fix rather than a reproducibility one: those two fields occupy
-        // bytes 345–368, which in *ustar* is the start of the `prefix` field, and CPython's
-        // `tarfile` joins `prefix` onto the name for every non-GNU-typed entry without
-        // first checking the magic. Pinning them to a real instant therefore made the
-        // stdlib module every Python consumer reaches for — including the OKF reference
-        // implementation — extract this archive into a directory named after the octal
-        // timestamp (`02263523000/bundles/…`). GNU tar and libarchive read it correctly
-        // either way; writing NULs makes CPython read it correctly too, and costs nothing.
         using GZipStream gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true);
-        using TarWriter tar = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
+        using TarWriter tar = CreateTarWriter(gzip);
+        WriteTarContents(plan, tar);
+    }
 
+    // No directory entries: tar and every extractor create the directories a file's
+    // path implies, and an entry that carries no bytes is one more thing to have to make
+    // deterministic. The gzip header .NET writes carries no timestamp and no filename,
+    // which is what keeps the compressed stream reproducible.
+    //
+    // GNU rather than PAX, and this is a reproducibility decision rather than a taste
+    // one: .NET names every PAX extended-header entry `./PaxHeaders.<process-id>/.`, so a
+    // PAX archive embeds the pid of the process that wrote it and two builds of the same
+    // vault differ. GNU carries mtime in the header itself, needs no extended headers,
+    // and — unlike ustar — has no 100-character limit on a path, which an arbitrary
+    // consumer's bundle may well exceed.
+    //
+    // `AccessTime` and `ChangeTime` are deliberately LEFT UNSET, which writes GNU's
+    // atime/ctime fields as NUL bytes — what GNU tar's own writer puts there for a
+    // non-incremental entry. They are already deterministic either way, so this is an
+    // interoperability fix rather than a reproducibility one: those two fields occupy
+    // bytes 345–368, which in *ustar* is the start of the `prefix` field, and CPython's
+    // `tarfile` joins `prefix` onto the name for every non-GNU-typed entry without first
+    // checking the magic. Pinning them to a real instant therefore made the stdlib module
+    // every Python consumer reaches for — including the OKF reference implementation —
+    // extract this archive into a directory named after the octal timestamp
+    // (`02263523000/bundles/…`). GNU tar and libarchive read it correctly either way;
+    // writing NULs makes CPython read it correctly too, and costs nothing.
+    private static TarWriter CreateTarWriter(GZipStream gzip) =>
+        new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: true);
+
+    private static void WriteTarContents(OkfDistributionPlan plan, TarWriter tar)
+    {
         foreach ((string path, Func<Stream> open) in Contents(plan))
         {
-            using Stream content = open();
-            tar.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, path)
-            {
-                DataStream = content,
-                ModificationTime = ArchiveTimestamp,
-                Mode = FileMode,
-                Uid = 0,
-                Gid = 0,
-                UserName = string.Empty,
-                GroupName = string.Empty,
-            });
+            WriteTarEntry(tar, path, open);
         }
+    }
+
+    private static void WriteTarEntry(TarWriter tar, string path, Func<Stream> open)
+    {
+        using Stream content = open();
+        tar.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, path)
+        {
+            DataStream = content,
+            ModificationTime = ArchiveTimestamp,
+            Mode = FileMode,
+            Uid = 0,
+            Gid = 0,
+            UserName = string.Empty,
+            GroupName = string.Empty,
+        });
     }
 
     private static void WriteZip(OkfDistributionPlan plan, Stream output)
@@ -602,39 +699,51 @@ public static class OkfBundler
     /// </summary>
     private static void Clear(string output)
     {
-        if (!Directory.Exists(output))
+        if (!Directory.Exists(output) || IsEmptyDirectory(output))
         {
             return;
         }
 
-        if (!Directory.EnumerateFileSystemEntries(output).Any())
-        {
-            return;
-        }
-
-        string manifestPath = Path.Combine(output, OkfDistributionManifest.FileName);
-        if (!File.Exists(manifestPath)
-            || OkfDistributionManifest.Parse(File.ReadAllText(manifestPath)) is not { } manifest)
-        {
-            throw new IOException(
-                $"'{output}' is not empty and holds no readable {OkfDistributionManifest.FileName}, " +
-                "so it was not written by `okf bundle`. Point --out at an empty or new directory.");
-        }
-
-        foreach (OkfDistributionFile file in manifest.Files)
-        {
-            string target = Path.Combine(output, file.Path.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(target))
-            {
-                File.Delete(target);
-            }
-        }
-
-        File.Delete(manifestPath);
+        OkfDistributionManifest manifest = ReadExistingManifest(output);
+        DeleteRecordedFiles(output, manifest);
+        File.Delete(ManifestPath(output));
         PruneEmptyDirectories(output);
     }
 
-    /// <summary>Removes the directories a cleared distribution left behind, deepest first.</summary>
+    private static bool IsEmptyDirectory(string output) => !Directory.EnumerateFileSystemEntries(output).Any();
+
+    private static OkfDistributionManifest ReadExistingManifest(string output)
+    {
+        string manifestPath = ManifestPath(output);
+        if (File.Exists(manifestPath) && OkfDistributionManifest.Parse(File.ReadAllText(manifestPath)) is { } manifest)
+        {
+            return manifest;
+        }
+
+        throw new IOException(
+            $"'{output}' is not empty and holds no readable {OkfDistributionManifest.FileName}, "
+            + "so it was not written by `okf bundle`. Point --out at an empty or new directory.");
+    }
+
+    private static string ManifestPath(string output) => Path.Combine(output, OkfDistributionManifest.FileName);
+
+    private static void DeleteRecordedFiles(string output, OkfDistributionManifest manifest)
+    {
+        foreach (OkfDistributionFile file in manifest.Files)
+        {
+            DeleteRecordedFile(output, file);
+        }
+    }
+
+    private static void DeleteRecordedFile(string output, OkfDistributionFile file)
+    {
+        string target = Path.Combine(output, file.Path.Replace('/', Path.DirectorySeparatorChar));
+        if (File.Exists(target))
+        {
+            File.Delete(target);
+        }
+    }
+
     private static void PruneEmptyDirectories(string root)
     {
         foreach (string directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
@@ -687,80 +796,88 @@ public static class OkfBundler
 
     private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadZip(string archive)
     {
-        string? manifest = null;
-        Dictionary<string, string> digests = new Dictionary<string, string>(StringComparer.Ordinal);
-
+        ArchiveReadState state = new ArchiveReadState();
         using ZipArchive zip = ZipFile.OpenRead(archive);
         foreach (ZipArchiveEntry entry in zip.Entries)
         {
-            if (entry.FullName.EndsWith('/'))
-            {
-                continue;
-            }
-
-            using Stream content = entry.Open();
-            if (string.Equals(entry.FullName, OkfDistributionManifest.FileName, StringComparison.Ordinal))
-            {
-                manifest = Read(content);
-                continue;
-            }
-
-            digests[entry.FullName] = OkfCaptureManifest.Sha256Of(content);
+            ReadZipEntry(entry, state);
         }
 
-        return (manifest, digests, []);
+        return state.Result();
     }
 
     private static (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) ReadTarGz(
         string archive)
     {
-        string? manifest = null;
-        Dictionary<string, string> digests = new Dictionary<string, string>(StringComparer.Ordinal);
-        List<string> foreign = new List<string>();
-
+        ArchiveReadState state = new ArchiveReadState();
         using FileStream file = File.OpenRead(archive);
         using GZipStream gzip = new GZipStream(file, CompressionMode.Decompress);
         using TarReader reader = new TarReader(gzip);
 
         while (reader.GetNextEntry() is { } entry)
         {
-            string path = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
-
-            if (entry.EntryType is TarEntryType.Directory or TarEntryType.DirectoryList)
-            {
-                // The bundler writes none, and every extractor makes the directories a
-                // file's path implies, so a directory entry carries nothing to check.
-                continue;
-            }
-
-            if (entry.EntryType is not (TarEntryType.RegularFile
-                or TarEntryType.V7RegularFile
-                or TarEntryType.ContiguousFile))
-            {
-                // A symlink, a hard link, a device node. Reported rather than skipped:
-                // `entry.DataStream` is null for all of them, so reading the stream to
-                // decide what an entry is would let one join a distribution unnoticed.
-                foreign.Add(Path.TrimEndingDirectorySeparator(path));
-                continue;
-            }
-
-            // A zero-length file has no data section at all, so `DataStream` is null for
-            // it — which means "empty", not "absent". Reading it as absent made `--verify`
-            // report the bundler's OWN output as missing a file the moment a bundle held
-            // one, which the zip and directory shapes handled correctly all along.
-            Stream content = entry.DataStream ?? Stream.Null;
-
-            if (string.Equals(path, OkfDistributionManifest.FileName, StringComparison.Ordinal))
-            {
-                manifest = Read(content);
-                continue;
-            }
-
-            digests[path] = OkfCaptureManifest.Sha256Of(content);
+            ReadTarEntry(entry, state);
         }
 
-        return (manifest, digests, foreign);
+        return state.Result();
     }
+
+    private static void ReadZipEntry(ZipArchiveEntry entry, ArchiveReadState state)
+    {
+        if (entry.FullName.EndsWith('/'))
+        {
+            return;
+        }
+
+        using Stream content = entry.Open();
+        if (IsManifestEntry(entry.FullName))
+        {
+            state.Manifest = Read(content);
+            return;
+        }
+
+        state.Digests[entry.FullName] = OkfCaptureManifest.Sha256Of(content);
+    }
+
+    private static void ReadTarEntry(TarEntry entry, ArchiveReadState state)
+    {
+        string path = TarPath(entry);
+        if (IsTarDirectory(entry))
+        {
+            return;
+        }
+
+        if (!IsTarRegularFile(entry))
+        {
+            state.Foreign.Add(Path.TrimEndingDirectorySeparator(path));
+            return;
+        }
+
+        ReadTarFile(path, entry, state);
+    }
+
+    private static string TarPath(TarEntry entry) =>
+        entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
+
+    private static bool IsTarDirectory(TarEntry entry) => entry.EntryType is TarEntryType.Directory or TarEntryType.DirectoryList;
+
+    private static bool IsTarRegularFile(TarEntry entry) =>
+        entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile or TarEntryType.ContiguousFile;
+
+    private static void ReadTarFile(string path, TarEntry entry, ArchiveReadState state)
+    {
+        Stream content = entry.DataStream ?? Stream.Null;
+        if (IsManifestEntry(path))
+        {
+            state.Manifest = Read(content);
+            return;
+        }
+
+        state.Digests[path] = OkfCaptureManifest.Sha256Of(content);
+    }
+
+    private static bool IsManifestEntry(string path) =>
+        string.Equals(path, OkfDistributionManifest.FileName, StringComparison.Ordinal);
 
     private static string Read(Stream stream)
     {
@@ -770,4 +887,36 @@ public static class OkfBundler
 
     private static OkfDistributionVerification Unreadable(string source, string detail) =>
         new(source, null, [new OkfDistributionFinding(OkfDistributionIssue.Unreadable, source, detail)], 0);
+
+    private sealed record ExternalLinkScan(
+        HashSet<string> Shipped,
+        string? VaultRoot,
+        Dictionary<(string From, string To, string? Bundle), OkfExternalLink> Dangling);
+
+    private sealed record DistributionContents(
+        string? ManifestText,
+        Dictionary<string, string> Digests,
+        List<string> Foreign,
+        string? Problem = null);
+
+    private sealed record VerificationInput(
+        string Source,
+        DistributionContents Contents,
+        OkfDistributionManifest Manifest);
+
+    private sealed record VerificationPreparation(
+        VerificationInput? Input,
+        OkfDistributionVerification? Refusal);
+
+    private sealed class ArchiveReadState
+    {
+        public string? Manifest { get; set; }
+
+        public Dictionary<string, string> Digests { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        public List<string> Foreign { get; } = new List<string>();
+
+        public (string? Manifest, Dictionary<string, string> Digests, List<string> Foreign) Result() =>
+            (Manifest, Digests, Foreign);
+    }
 }

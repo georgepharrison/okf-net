@@ -136,6 +136,15 @@ public class OkfSiteBuilderTests
     }
 
     [Fact]
+    public void ExternalLinksAlsoOpenInANewTab()
+    {
+        using var fixture = new SiteFixture();
+        var hub = fixture.Build().Pages.Single(page => page.Href == "kb/hub.html");
+
+        Assert.Contains("<a href=\"https://example.invalid/\" class=\"external\" target=\"_blank\"", hub.BodyHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EdgesAndBacklinksComeFromConceptsOnlyNeverFromGeneratedIndexes()
     {
         using var fixture = new SiteFixture();
@@ -283,6 +292,22 @@ public class OkfSiteBuilderTests
         // The allowlist is not a filter on external links: the reader's own web is still the
         // reader's to follow, and §6.1 leaves a destination okf-net cannot resolve alone.
         Assert.Contains($"\"{expected}\"", model.Pages.Single().BodyHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABlockedDestinationIsMarkedBrokenInsteadOfLookingLive()
+    {
+        using var bundle = new TempBundle("kb");
+        bundle.Add("x.md", "---\ntype: Concept\n---\n\n[x](javascript:alert(1))\n");
+
+        var body = OkfSiteBuilder.Build(
+                new OkfWorkingSet([bundle.Bundle], null, "fixture"),
+                new OkfSiteOptions { Today = SiteFixture.Today })
+            .Pages.Single()
+            .BodyHtml;
+
+        Assert.Contains("class=\"broken\"", body, StringComparison.Ordinal);
+        Assert.Contains("javascript%3Aalert%281%29", body, StringComparison.Ordinal);
     }
 
     [Fact]

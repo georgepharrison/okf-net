@@ -91,32 +91,84 @@ public static class OkfSiteGenerator
     private static IReadOnlyList<OkfSiteFile> MultiPage(OkfSiteModel model)
 #pragma warning restore CA1859
     {
-        List<OkfSiteFile> files = new List<OkfSiteFile>
-        {
-            new(OkfSiteAssets.StyleSheetPath, OkfSiteAssets.StyleSheet),
-            new(OkfSiteAssets.ScriptPath, OkfSiteAssets.Script),
-            new(OkfSiteAssets.DataPath, OkfSiteHtml.SiteData(model, page => page.Href)),
-        };
+        List<OkfSiteFile> files = StaticFiles(model);
+        AddRootPages(model, files);
+        AddConceptPages(model, files);
+        files.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+        return files;
+    }
 
-        // The landing page is the vault's index hierarchy, not the dashboard: a reader
-        // arrives through progressive disclosure, and the dashboard answers a different
-        // question. Every tile on the strip links here to `dashboard.html` pre-filtered.
-        files.Add(new OkfSiteFile(
+    private static string PageWithoutData(PageRequest request) =>
+        Page(request, ScriptReference(OkfSiteHtml.Root(request.Href)));
+
+    private static string PageWithData(PageRequest request)
+    {
+        string root = OkfSiteHtml.Root(request.Href);
+        return Page(request, DataReference(root) + ScriptReference(root));
+    }
+
+    private static string Page(PageRequest request, string scripts)
+    {
+        string root = OkfSiteHtml.Root(request.Href);
+        string head = $"<link rel=\"stylesheet\" href=\"{root}{OkfSiteAssets.StyleSheetPath}\" />\n";
+        string content = PageContent(request.Model, root, request.Current, request.Body);
+        return OkfSiteHtml.Document(request.Title, request.Description, head, content, scripts);
+    }
+
+    private static IReadOnlyList<OkfSiteFile> SingleFile(OkfSiteModel model)
+    {
+        List<KeyValuePair<string, string>> articles = SingleFileArticles(model);
+        string head = "<style>" + OkfSiteHtml.Cdata(OkfSiteAssets.StyleSheet) + "</style>\n";
+        string body = SingleFileBody(model);
+        string tail = SingleFileTail(model, articles);
+
+        return
+        [
+            new OkfSiteFile(
+                OkfSiteBuilder.IndexHref,
+                OkfSiteHtml.Document(
+                    model.Name,
+                    LandingDescription(model),
+                    head,
+                    body,
+                    tail)),
+        ];
+    }
+
+    private static List<OkfSiteFile> StaticFiles(OkfSiteModel model) =>
+    [
+        new OkfSiteFile(OkfSiteAssets.StyleSheetPath, OkfSiteAssets.StyleSheet),
+        new OkfSiteFile(OkfSiteAssets.ScriptPath, OkfSiteAssets.Script),
+        new OkfSiteFile(OkfSiteAssets.DataPath, OkfSiteHtml.SiteData(model, page => page.Href)),
+    ];
+
+    private static void AddRootPages(OkfSiteModel model, List<OkfSiteFile> files)
+    {
+        files.Add(LandingFile(model));
+        files.Add(DashboardFile(model));
+        files.Add(GraphFile(model));
+    }
+
+    private static OkfSiteFile LandingFile(OkfSiteModel model) =>
+        new(
             OkfSiteBuilder.IndexHref,
-            Page(
+            PageWithoutData(new PageRequest(
                 model,
                 OkfSiteBuilder.IndexHref,
                 model.Name,
-                $"{model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} across "
-                + $"{OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}, "
-                + "browsable from each bundle's index.",
+                LandingDescription(model),
                 "home",
-                OkfSiteHtml.Landing(model, string.Empty, page => page.Href),
-                withData: false)));
+                OkfSiteHtml.Landing(model, string.Empty, page => page.Href))));
 
-        files.Add(new OkfSiteFile(
+    private static string LandingDescription(OkfSiteModel model) =>
+        $"{model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} across "
+        + $"{OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}, "
+        + "browsable from each bundle's index.";
+
+    private static OkfSiteFile DashboardFile(OkfSiteModel model) =>
+        new(
             OkfSiteBuilder.DashboardHref,
-            Page(
+            PageWithData(new PageRequest(
                 model,
                 OkfSiteBuilder.DashboardHref,
                 $"Dashboard — {model.Name}",
@@ -124,63 +176,51 @@ public static class OkfSiteGenerator
                 + $"across {OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}.",
                 "dashboard",
                 OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Dashboard")
-                + OkfSiteHtml.Dashboard(model, page => page.Href, "#t="),
-                withData: true)));
+                + OkfSiteHtml.Dashboard(model, page => page.Href, "#t="))));
 
-        files.Add(new OkfSiteFile(
+    private static OkfSiteFile GraphFile(OkfSiteModel model) =>
+        new(
             OkfSiteBuilder.GraphHref,
-            Page(
+            PageWithData(new PageRequest(
                 model,
                 OkfSiteBuilder.GraphHref,
                 $"Graph — {model.Name}",
                 $"Force-directed graph of {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} "
                 + $"and {OkfSiteHtml.Plural(model.Edges.Count, "cross-link")}.",
                 "graph",
-                OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Graph") + OkfSiteHtml.Graph(model),
-                withData: true)));
+                OkfSiteHtml.HomeCrumbs(model, OkfSiteBuilder.IndexHref, "Graph") + OkfSiteHtml.Graph(model))));
 
+    private static void AddConceptPages(OkfSiteModel model, List<OkfSiteFile> files)
+    {
         foreach (OkfSitePage page in model.Pages)
         {
-            string root = OkfSiteHtml.Root(page.Href);
-            string body = OkfSiteHtml.Article(
-                page,
-                model,
-                other => OkfSiteBuilder.RelativeHref(page.Href, other.Href),
-                root + OkfSiteBuilder.IndexHref,
-                OkfSiteHtml.TagBase(model, root));
-
-            files.Add(new OkfSiteFile(
-                page.Href,
-                Page(model, page.Href, $"{page.Title} — {model.Name}", page.Description, null, body, withData: false)));
+            files.Add(ConceptFile(model, page));
         }
-
-        files.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
-        return files;
     }
 
-    private static string Page(
-        OkfSiteModel model,
-        string href,
-        string title,
-        string? description,
-        string? current,
-        string body,
-        bool withData)
+    private static OkfSiteFile ConceptFile(OkfSiteModel model, OkfSitePage page)
     {
-        string root = OkfSiteHtml.Root(href);
-        string head = $"<link rel=\"stylesheet\" href=\"{root}{OkfSiteAssets.StyleSheetPath}\" />\n";
+        string root = OkfSiteHtml.Root(page.Href);
+        string body = OkfSiteHtml.Article(
+            page,
+            model,
+            other => OkfSiteBuilder.RelativeHref(page.Href, other.Href),
+            root + OkfSiteBuilder.IndexHref,
+            OkfSiteHtml.TagBase(model, root));
 
-        StringBuilder scripts = new StringBuilder();
-        if (withData)
-        {
-            scripts.Append("<script src=\"").Append(root).Append(OkfSiteAssets.DataPath)
-                .Append("\" defer=\"defer\"></script>\n");
-        }
+        return new OkfSiteFile(
+            page.Href,
+            PageWithoutData(new PageRequest(
+                model,
+                page.Href,
+                $"{page.Title} — {model.Name}",
+                page.Description,
+                null,
+                body)));
+    }
 
-        scripts.Append("<script src=\"").Append(root).Append(OkfSiteAssets.ScriptPath)
-            .Append("\" defer=\"defer\"></script>\n");
-
-        string content = new StringBuilder()
+    private static string PageContent(OkfSiteModel model, string root, string? current, string body) =>
+        new StringBuilder()
             .Append(OkfSiteHtml.TopBar(model, root, current))
             .Append("<main class=\"shell\">\n")
             .Append(body)
@@ -188,10 +228,13 @@ public static class OkfSiteGenerator
             .Append("</main>\n")
             .ToString();
 
-        return OkfSiteHtml.Document(title, description, head, content, scripts.ToString());
-    }
+    private static string DataReference(string root) =>
+        $"<script src=\"{root}{OkfSiteAssets.DataPath}\" defer=\"defer\"></script>\n";
 
-    private static IReadOnlyList<OkfSiteFile> SingleFile(OkfSiteModel model)
+    private static string ScriptReference(string root) =>
+        $"<script src=\"{root}{OkfSiteAssets.ScriptPath}\" defer=\"defer\"></script>\n";
+
+    private static List<KeyValuePair<string, string>> SingleFileArticles(OkfSiteModel model)
     {
         string tagBase = OkfSiteHtml.TagBase(model, string.Empty);
         List<KeyValuePair<string, string>> articles = new List<KeyValuePair<string, string>>();
@@ -202,49 +245,63 @@ public static class OkfSiteGenerator
                 OkfSiteHtml.Article(page, model, other => "#c=" + Uri.EscapeDataString(other.Id), "#", tagBase)));
         }
 
-        string head = "<style>" + OkfSiteHtml.Cdata(OkfSiteAssets.StyleSheet) + "</style>\n";
+        return articles;
+    }
 
-        // The same four destinations the multi-page site has as files, as fragment routes:
-        // nothing (home), `#v=dashboard`, `#v=graph`, `#c=<id>`.
-        string body = new StringBuilder()
+    private static string SingleFileBody(OkfSiteModel model)
+    {
+        string tagBase = OkfSiteHtml.TagBase(model, string.Empty);
+        return new StringBuilder()
             .Append(OkfSiteHtml.TopBar(model, string.Empty, null))
             .Append("<main class=\"shell\">\n")
-            .Append("<div class=\"view active\" data-view=\"home\">\n")
-            .Append(OkfSiteHtml.Landing(model, string.Empty, page => "#c=" + Uri.EscapeDataString(page.Id)))
-            .Append("</div>\n")
-            .Append("<div class=\"view\" data-view=\"dashboard\">\n")
-            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Dashboard"))
-            .Append(OkfSiteHtml.Dashboard(model, page => "#c=" + Uri.EscapeDataString(page.Id), tagBase))
-            .Append("</div>\n")
-            .Append("<div class=\"view\" data-view=\"graph\">\n")
-            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Graph"))
-            .Append(OkfSiteHtml.Graph(model))
-            .Append("</div>\n")
+            .Append(SingleFileHome(model))
+            .Append(SingleFileDashboard(model, tagBase))
+            .Append(SingleFileGraph(model))
             .Append("<div class=\"view\" data-view=\"concept\"><div id=\"article-host\"></div></div>\n")
             .Append(OkfSiteHtml.Footer(model))
             .Append("</main>\n")
             .ToString();
+    }
 
-        string tail = new StringBuilder()
+    private static string SingleFileHome(OkfSiteModel model) =>
+        new StringBuilder()
+            .Append("<div class=\"view active\" data-view=\"home\">\n")
+            .Append(OkfSiteHtml.Landing(model, string.Empty, page => "#c=" + Uri.EscapeDataString(page.Id)))
+            .Append("</div>\n")
+            .ToString();
+
+    private static string SingleFileDashboard(OkfSiteModel model, string tagBase) =>
+        new StringBuilder()
+            .Append("<div class=\"view\" data-view=\"dashboard\">\n")
+            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Dashboard"))
+            .Append(OkfSiteHtml.Dashboard(model, page => "#c=" + Uri.EscapeDataString(page.Id), tagBase))
+            .Append("</div>\n")
+            .ToString();
+
+    private static string SingleFileGraph(OkfSiteModel model) =>
+        new StringBuilder()
+            .Append("<div class=\"view\" data-view=\"graph\">\n")
+            .Append(OkfSiteHtml.HomeCrumbs(model, "#", "Graph"))
+            .Append(OkfSiteHtml.Graph(model))
+            .Append("</div>\n")
+            .ToString();
+
+    private static string SingleFileTail(OkfSiteModel model, IEnumerable<KeyValuePair<string, string>> articles) =>
+        new StringBuilder()
             .Append("<script type=\"application/json\" id=\"okf-articles\">")
             .Append(OkfSiteHtml.Articles(articles))
             .Append("</script>\n")
-            .Append("<script>").Append(OkfSiteHtml.Cdata(OkfSiteHtml.SiteData(model, page => "#c=" + Uri.EscapeDataString(page.Id)))).Append("</script>\n")
+            .Append("<script>")
+            .Append(OkfSiteHtml.Cdata(OkfSiteHtml.SiteData(model, page => "#c=" + Uri.EscapeDataString(page.Id))))
+            .Append("</script>\n")
             .Append("<script>").Append(OkfSiteHtml.Cdata(OkfSiteAssets.Script)).Append("</script>\n")
             .ToString();
 
-        return
-        [
-            new OkfSiteFile(
-                OkfSiteBuilder.IndexHref,
-                OkfSiteHtml.Document(
-                    model.Name,
-                    $"{model.Name}: {OkfSiteHtml.Plural(model.Counts.Concepts, "concept")} across "
-                    + $"{OkfSiteHtml.Plural(model.Counts.Bundles, "bundle")}, "
-                    + "browsable from each bundle's index.",
-                    head,
-                    body,
-                    tail)),
-        ];
-    }
+    private sealed record PageRequest(
+        OkfSiteModel Model,
+        string Href,
+        string Title,
+        string? Description,
+        string? Current,
+        string Body);
 }

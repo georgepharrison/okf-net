@@ -143,7 +143,12 @@ public sealed class OkfUpgradeManifestTests
               "tag": 20,
               "generatedAt": null,
               "assets": {
-                "okf-linux-x64": { "path": "v2.0.0/okf-linux-x64", "sha256": "ab", "signature": "x" }
+                "okf-linux-x64": {
+                  "path": "v2.0.0/okf-linux-x64",
+                  "sha256": "ab",
+                  "size": "large",
+                  "signature": "x"
+                }
               }
             }
             """);
@@ -154,5 +159,16 @@ public sealed class OkfUpgradeManifestTests
         Assert.Null(asset.Url);
         Assert.Equal(0, asset.Size);
         Assert.Equal("v2.0.0/okf-linux-x64", asset.Path);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("true")]
+    public void AManifestWithAMistypedAssetsMapTreatsItAsEmpty(string assets)
+    {
+        OkfUpgradeManifest manifest = OkfUpgradeManifest.Parse(
+            $$"""{ "version": "2.0.0", "assets": {{assets}} }""");
+
+        Assert.Empty(manifest.Assets);
     }
 }

@@ -76,67 +76,109 @@ internal static class OkfSiteMarkdown
         ArgumentNullException.ThrowIfNull(resolve);
 
         MarkdownDocument document = Markdown.Parse(markdown, Pipeline);
-        List<string> links = new List<string>();
-        HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+        LinkTargets links = new LinkTargets();
 
+        RewriteLinks(document, resolve, links);
+        RewriteAutolinks(document);
+        Dictionary<string, int> orders = FootnoteOrders(document);
+        string html = RenderHtml(document);
+        return new OkfSiteBody(html, links.Items, orders);
+    }
+
+    private static void RewriteLinks(
+        MarkdownDocument document,
+        Func<string, OkfSiteLink> resolve,
+        LinkTargets links)
+    {
         foreach (LinkInline link in document.Descendants<LinkInline>())
         {
-            if (link.Url is not { Length: > 0 } url)
-            {
-                continue;
-            }
+            RewriteLink(link, resolve, links);
+        }
+    }
 
-            // Checked before the destination is resolved, and for an image's `src` as well
-            // as an anchor's `href`: a scheme this generator will not emit must not reach a
-            // page by any route, including the one where `resolve` calls it external and
-            // hands it back untouched.
-            if (Blocked(url))
-            {
-                link.Url = Uri.EscapeDataString(url);
-                link.GetAttributes().AddClass("broken");
-                continue;
-            }
-
-            OkfSiteLink resolved = resolve(url);
-
-            if (!link.IsImage && resolved.Href is { Length: > 0 } href)
-            {
-                link.Url = href;
-            }
-
-            if (resolved.TargetId is { Length: > 0 } target && seen.Add(target))
-            {
-                links.Add(target);
-            }
-
-            HtmlAttributes attributes = link.GetAttributes();
-            if (resolved.CssClass is { Length: > 0 } cssClass)
-            {
-                attributes.AddClass(cssClass);
-            }
-
-            if (resolved.IsExternal && !link.IsImage)
-            {
-                attributes.AddPropertyIfNotExist("target", "_blank");
-                attributes.AddPropertyIfNotExist("rel", "noopener noreferrer");
-            }
+    private static void RewriteLink(
+        LinkInline link,
+        Func<string, OkfSiteLink> resolve,
+        LinkTargets links)
+    {
+        if (link.Url is not { Length: > 0 } url)
+        {
+            return;
         }
 
-        // A CommonMark autolink is neither a link inline nor raw HTML, so neither the loop
-        // above nor `DisableHtml` has seen `<javascript:alert(1)>`. It carries its own
-        // destination as its own text, so a blocked one becomes exactly the text it was
-        // written as, with no anchor around it.
+        if (Blocked(url))
+        {
+            NeutralizeBlockedLink(link, url);
+            return;
+        }
+
+        OkfSiteLink resolved = resolve(url);
+        RewriteDestination(link, resolved);
+        links.Add(resolved.TargetId);
+        ApplyAttributes(link, resolved);
+    }
+
+    private static void NeutralizeBlockedLink(LinkInline link, string url)
+    {
+        // Checked before the destination is resolved, and for an image's `src` as well as
+        // an anchor's `href`: a scheme this generator will not emit must not reach a page
+        // by any route, including the one where `resolve` calls it external and hands it
+        // back untouched.
+        link.Url = Uri.EscapeDataString(url);
+        link.GetAttributes().AddClass("broken");
+    }
+
+    private static void RewriteDestination(LinkInline link, OkfSiteLink resolved)
+    {
+        if (!link.IsImage && resolved.Href is { Length: > 0 } href)
+        {
+            link.Url = href;
+        }
+    }
+
+    private static void ApplyAttributes(LinkInline link, OkfSiteLink resolved)
+    {
+        HtmlAttributes attributes = link.GetAttributes();
+        if (resolved.CssClass is { Length: > 0 } cssClass)
+        {
+            attributes.AddClass(cssClass);
+        }
+
+        if (resolved.IsExternal && !link.IsImage)
+        {
+            attributes.AddPropertyIfNotExist("target", "_blank");
+            attributes.AddPropertyIfNotExist("rel", "noopener noreferrer");
+        }
+    }
+
+    private static void RewriteAutolinks(MarkdownDocument document)
+    {
         foreach (AutolinkInline autolink in document.Descendants<AutolinkInline>().ToList())
         {
-            if (Blocked(autolink.IsEmail ? "mailto:" + autolink.Url : autolink.Url))
-            {
-                autolink.ReplaceBy(new LiteralInline(autolink.Url));
-            }
+            RewriteAutolink(autolink);
         }
+    }
 
-        // Read before rendering: `Order` is assigned while the document is parsed, and it
-        // is exactly the number the rendered `fn:N` anchors carry, so the scan does not
-        // depend on what the footnote-group renderer does to the group on its way out.
+    private static void RewriteAutolink(AutolinkInline autolink)
+    {
+        // A CommonMark autolink is neither a link inline nor raw HTML, so neither the link
+        // rewrite above nor `DisableHtml` has seen `<javascript:alert(1)>`. It carries its
+        // own destination as its own text, so a blocked one becomes exactly the text it was
+        // written as, with no anchor around it.
+        if (Blocked(AutolinkUrl(autolink)))
+        {
+            autolink.ReplaceBy(new LiteralInline(autolink.Url));
+        }
+    }
+
+    private static string AutolinkUrl(AutolinkInline autolink) =>
+        autolink.IsEmail ? "mailto:" + autolink.Url : autolink.Url;
+
+    private static Dictionary<string, int> FootnoteOrders(MarkdownDocument document)
+    {
+        // Read before rendering: `Order` is assigned while the document is parsed, and it is
+        // exactly the number the rendered `fn:N` anchors carry, so the scan does not depend
+        // on what the footnote-group renderer does to the group on its way out.
         Dictionary<string, int> orders = new Dictionary<string, int>(StringComparer.Ordinal);
         int position = 0;
         foreach (Footnote footnote in document.Descendants<Footnote>())
@@ -148,13 +190,17 @@ internal static class OkfSiteMarkdown
             }
         }
 
+        return orders;
+    }
+
+    private static string RenderHtml(MarkdownDocument document)
+    {
         using StringWriter writer = new StringWriter { NewLine = "\n" };
         HtmlRenderer renderer = new HtmlRenderer(writer);
         Pipeline.Setup(renderer);
         renderer.Render(document);
         writer.Flush();
-
-        return new OkfSiteBody(writer.ToString(), links, orders);
+        return writer.ToString();
     }
 
     /// <summary>Whether a destination carries a scheme the site refuses to point at.</summary>
@@ -177,6 +223,19 @@ internal static class OkfSiteMarkdown
     /// </remarks>
     private static string? Scheme(string url)
     {
+        string text = StripControlsAndWhitespace(url);
+        int end = SchemeLength(text);
+
+        // RFC 3986 §3.1: a scheme is a letter followed by letters, digits, `+`, `-` and `.`,
+        // and then a colon. Anything else — a leading `/`, a `#`, a bare relative path — has
+        // no scheme, which is the ordinary case for a link inside a bundle.
+        return end > 0 && end < text.Length && text[end] == ':' && char.IsAsciiLetter(text[0])
+            ? text[..end]
+            : null;
+    }
+
+    private static string StripControlsAndWhitespace(string url)
+    {
         StringBuilder builder = new StringBuilder(url.Length);
         foreach (char character in url)
         {
@@ -186,7 +245,11 @@ internal static class OkfSiteMarkdown
             }
         }
 
-        string text = builder.ToString();
+        return builder.ToString();
+    }
+
+    private static int SchemeLength(string text)
+    {
         int end = 0;
         while (end < text.Length
                && (char.IsAsciiLetterOrDigit(text[end]) || text[end] is '+' or '-' or '.'))
@@ -194,12 +257,7 @@ internal static class OkfSiteMarkdown
             end++;
         }
 
-        // RFC 3986 §3.1: a scheme is a letter followed by letters, digits, `+`, `-` and `.`,
-        // and then a colon. Anything else — a leading `/`, a `#`, a bare relative path — has
-        // no scheme, which is the ordinary case for a link inside a bundle.
-        return end > 0 && end < text.Length && text[end] == ':' && char.IsAsciiLetter(text[0])
-            ? text[..end]
-            : null;
+        return end;
     }
 
     /// <summary>
@@ -218,5 +276,21 @@ internal static class OkfSiteMarkdown
         }
 
         return text.StartsWith('^') ? text[1..] : text;
+    }
+
+    private sealed class LinkTargets
+    {
+        private readonly List<string> _items = [];
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+        public IReadOnlyList<string> Items => _items;
+
+        public void Add(string? target)
+        {
+            if (target is { Length: > 0 } id && _seen.Add(id))
+            {
+                _items.Add(id);
+            }
+        }
     }
 }

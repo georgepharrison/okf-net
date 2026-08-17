@@ -24,6 +24,7 @@ public sealed class OkfUpgradeHttpTests : IDisposable
     private readonly string _baseUrl;
     private readonly List<string> _userAgents = [];
     private readonly Task _server;
+    private int _boundedRedirectRequests;
 
     public OkfUpgradeHttpTests()
     {
@@ -89,6 +90,24 @@ public sealed class OkfUpgradeHttpTests : IDisposable
     }
 
     [Fact]
+    public void StopsAtTheDocumentedRedirectLimit()
+    {
+        using var tree = new TempTree();
+        var target = Path.Combine(tree.Root, "okf");
+        File.WriteAllText(target, "old");
+
+        var refusal = Assert.Throws<OkfUpgradeException>(() => OkfUpgrade.Resolve(new OkfUpgradeOptions
+        {
+            BaseUrl = $"{_baseUrl}/too-many/0",
+            CurrentVersion = "1.0.0",
+            ExecutablePath = target,
+        }));
+
+        Assert.Contains("gave up after 5 redirects", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(6, Volatile.Read(ref _boundedRedirectRequests));
+    }
+
+    [Fact]
     public void ReportsAReleaseTheHostDoesNotHave()
     {
         using var tree = new TempTree();
@@ -145,6 +164,25 @@ public sealed class OkfUpgradeHttpTests : IDisposable
                 response.Headers["Location"] = "/latest.json";
                 response.Close();
                 continue;
+            }
+
+            const string redirectPrefix = "/too-many/";
+            const string manifestSuffix = "/latest.json";
+            if (path.StartsWith(redirectPrefix, StringComparison.Ordinal)
+                && path.EndsWith(manifestSuffix, StringComparison.Ordinal)
+                && int.TryParse(
+                    path[redirectPrefix.Length..^manifestSuffix.Length],
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int redirect))
+            {
+                Interlocked.Increment(ref _boundedRedirectRequests);
+                if (redirect < 6)
+                {
+                    response.StatusCode = 302;
+                    response.Headers["Location"] = $"{redirectPrefix}{redirect + 1}{manifestSuffix}";
+                    response.Close();
+                    continue;
+                }
             }
 
             var body = path switch
