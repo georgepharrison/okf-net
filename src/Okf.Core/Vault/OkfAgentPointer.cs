@@ -117,42 +117,10 @@ public static class OkfAgentPointer
 
         if (!File.Exists(path))
         {
-            FileText.WriteAtomic(path, Block + "\n");
-            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Created);
+            return CreateAgentsMd(path);
         }
 
-        string original = File.ReadAllText(path);
-        List<Line> lines = SplitLines(original);
-        string newline = DetectNewline(lines);
-        List<(int Begin, int End)> fences = FindFences(lines);
-
-        if (fences.Count > 1)
-        {
-            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Refused);
-        }
-
-        if (fences.Count == 1)
-        {
-            (int Begin, int End) found = fences[0];
-            string[] canonical = Block.Split('\n');
-            IEnumerable<string> existing = lines.Skip(found.Begin).Take(found.End - found.Begin + 1).Select(line => line.Content);
-            if (existing.SequenceEqual(canonical, StringComparer.Ordinal))
-            {
-                return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Unchanged);
-            }
-
-            string spliced = Splice(lines, found.Begin, found.End, canonical, newline);
-            FileText.WriteAtomic(path, spliced);
-            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
-        }
-
-        // No complete fence: append after exactly one blank line, however the existing file
-        // ends — trailing blank lines are trimmed first so "one blank line" is not "one plus
-        // however many the file already had".
-        string trimmed = original.TrimEnd('\r', '\n');
-        string appended = trimmed + newline + newline + Block.Replace("\n", newline, StringComparison.Ordinal) + newline;
-        FileText.WriteAtomic(path, appended);
-        return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
+        return UpdateAgentsMd(path);
     }
 
     /// <summary>
@@ -181,6 +149,77 @@ public static class OkfAgentPointer
     /// <param name="Terminator"><c>"\r\n"</c>, <c>"\n"</c>, or <c>""</c> for a final line with none.</param>
     private readonly record struct Line(string Content, string Terminator);
 
+    private static OkfAgentPointerFile CreateAgentsMd(string path)
+    {
+        FileText.WriteAtomic(path, Block + "\n");
+        return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Created);
+    }
+
+    private static OkfAgentPointerFile UpdateAgentsMd(string path)
+    {
+        string original = File.ReadAllText(path);
+        AgentFileLayout layout = ReadLayout(original);
+
+        if (HasMultipleFences(layout))
+        {
+            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Refused);
+        }
+
+        if (TryUpdateFence(path, layout) is { } updated)
+        {
+            return updated;
+        }
+
+        return AppendFence(path, original, layout.Newline);
+    }
+
+    private static AgentFileLayout ReadLayout(string original)
+    {
+        List<Line> lines = SplitLines(original);
+        return new AgentFileLayout(lines, DetectNewline(lines), FindFences(lines));
+    }
+
+    private static bool HasMultipleFences(AgentFileLayout layout) => layout.Fences.Count > 1;
+
+    private static OkfAgentPointerFile? TryUpdateFence(string path, AgentFileLayout layout)
+    {
+        if (layout.Fences.Count != 1)
+        {
+            return null;
+        }
+
+        (int Begin, int End) fence = layout.Fences[0];
+        if (FenceMatchesCanonicalBlock(layout.Lines, fence))
+        {
+            return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Unchanged);
+        }
+
+        string spliced = Splice(
+            layout.Lines,
+            new ReplacementRange(fence.Begin, fence.End, Block.Split('\n'), layout.Newline));
+        FileText.WriteAtomic(path, spliced);
+        return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
+    }
+
+    private static bool FenceMatchesCanonicalBlock(IReadOnlyList<Line> lines, (int Begin, int End) fence)
+    {
+        IEnumerable<string> existing = lines.Skip(fence.Begin)
+            .Take(fence.End - fence.Begin + 1)
+            .Select(line => line.Content);
+        return existing.SequenceEqual(Block.Split('\n'), StringComparer.Ordinal);
+    }
+
+    private static OkfAgentPointerFile AppendFence(string path, string original, string newline)
+    {
+        // No complete fence: append after exactly one blank line, however the existing file
+        // ends — trailing blank lines are trimmed first so "one blank line" is not "one plus
+        // however many the file already had".
+        string trimmed = original.TrimEnd('\r', '\n');
+        string appended = trimmed + newline + newline + Block.Replace("\n", newline, StringComparison.Ordinal) + newline;
+        FileText.WriteAtomic(path, appended);
+        return new OkfAgentPointerFile(path, OkfAgentPointerStatus.Updated);
+    }
+
     /// <summary>
     /// Splits text into lines carrying their own terminators, so joining
     /// <c>Content + Terminator</c> back together reproduces the input byte for byte. That
@@ -193,23 +232,30 @@ public static class OkfAgentPointer
         int start = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            if (text[i] != '\n')
+            if (text[i] == '\n')
             {
-                continue;
+                AddTerminatedLine(lines, text, start, i);
+                start = i + 1;
             }
-
-            lines.Add(i > start && text[i - 1] == '\r'
-                ? new Line(text[start..(i - 1)], "\r\n")
-                : new Line(text[start..i], "\n"));
-            start = i + 1;
         }
 
+        AddFinalLine(lines, text, start);
+        return lines;
+    }
+
+    private static void AddTerminatedLine(List<Line> lines, string text, int start, int end)
+    {
+        lines.Add(end > start && text[end - 1] == '\r'
+            ? new Line(text[start..(end - 1)], "\r\n")
+            : new Line(text[start..end], "\n"));
+    }
+
+    private static void AddFinalLine(List<Line> lines, string text, int start)
+    {
         if (start < text.Length)
         {
             lines.Add(new Line(text[start..], string.Empty));
         }
-
-        return lines;
     }
 
     /// <summary>
@@ -253,39 +299,46 @@ public static class OkfAgentPointer
     }
 
     /// <summary>
-    /// Replaces lines <paramref name="begin" />..<paramref name="end" /> (inclusive) with
-    /// <paramref name="replacement" />, rendered in <paramref name="newline" />, and rejoins
-    /// every other line with the exact terminator it already carried — the splice touches
-    /// nothing outside the range it was given.
+    /// Replaces the inclusive line range <c>range.Begin..range.End</c> with
+    /// <c>range.Replacement</c>, rendered in <c>range.Newline</c>, and rejoins every other
+    /// line with the exact terminator it already carried — the splice touches nothing
+    /// outside the range it was given.
     /// </summary>
-    private static string Splice(
-        IReadOnlyList<Line> lines,
-        int begin,
-        int end,
-        string[] replacement,
-        string newline)
+    private static string Splice(IReadOnlyList<Line> lines, ReplacementRange range)
+    {
+        string lastTerminator = lines[range.End].Terminator;
+        StringBuilder builder = new StringBuilder();
+
+        AppendLines(builder, lines, 0, range.Begin);
+        AppendReplacement(builder, range.Replacement, range.Newline, lastTerminator);
+        AppendLines(builder, lines, range.End + 1, lines.Count);
+
+        return builder.ToString();
+    }
+
+    private static void AppendLines(StringBuilder builder, IReadOnlyList<Line> lines, int begin, int end)
+    {
+        for (int i = begin; i < end; i++)
+        {
+            builder.Append(lines[i].Content).Append(lines[i].Terminator);
+        }
+    }
+
+    private static void AppendReplacement(StringBuilder builder, string[] replacement, string newline, string lastTerminator)
     {
         // The replaced region's last line keeps the terminator the line it replaces had —
         // typically the file's own convention, but preserved exactly even for the edge case
         // of a fence closing at end of file with no trailing newline at all.
-        string lastTerminator = lines[end].Terminator;
-
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < begin; i++)
-        {
-            builder.Append(lines[i].Content).Append(lines[i].Terminator);
-        }
-
         for (int i = 0; i < replacement.Length; i++)
         {
             builder.Append(replacement[i]).Append(i == replacement.Length - 1 ? lastTerminator : newline);
         }
-
-        for (int i = end + 1; i < lines.Count; i++)
-        {
-            builder.Append(lines[i].Content).Append(lines[i].Terminator);
-        }
-
-        return builder.ToString();
     }
+
+    private sealed record AgentFileLayout(
+        IReadOnlyList<Line> Lines,
+        string Newline,
+        IReadOnlyList<(int Begin, int End)> Fences);
+
+    private sealed record ReplacementRange(int Begin, int End, string[] Replacement, string Newline);
 }

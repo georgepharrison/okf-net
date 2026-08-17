@@ -142,21 +142,7 @@ public sealed class OkfRegistry
             return Empty();
         }
 
-        string text;
-        try
-        {
-            text = File.ReadAllText(path);
-        }
-        catch (IOException ex)
-        {
-            throw new OkfConfigException($"Cannot read registry '{path}': {ex.Message}", ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw new OkfConfigException($"Cannot read registry '{path}': {ex.Message}", ex);
-        }
-
-        return Parse(text, path);
+        return Parse(ReadRegistryText(path), path);
     }
 
     /// <summary>Parses registry text.</summary>
@@ -174,52 +160,11 @@ public sealed class OkfRegistry
             return Empty();
         }
 
-        JsonDocument document;
-        try
-        {
-            // Strict: no comments, no trailing commas. `okf register` is the only writer,
-            // so there is no author whose comments a rewrite would destroy (AD-32).
-            document = JsonDocument.Parse(json);
-        }
-        catch (JsonException ex)
-        {
-            throw new OkfConfigException($"Registry '{source}' is not valid JSON: {ex.Message}", ex);
-        }
-
-        using (document)
-        {
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                throw new OkfConfigException($"Registry '{source}' must contain a JSON object at its root.");
-            }
-
-            if (!root.TryGetProperty("entries", out JsonElement array))
-            {
-                return Empty();
-            }
-
-            if (array.ValueKind != JsonValueKind.Array)
-            {
-                throw new OkfConfigException($"Registry '{source}': `entries` must be an array.");
-            }
-
-            List<OkfRegistryEntry> parsed = new List<OkfRegistryEntry>();
-            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (JsonElement element in array.EnumerateArray())
-            {
-                OkfRegistryEntry entry = ReadEntry(element, source);
-                if (!seen.Add(entry.Id))
-                {
-                    throw new OkfConfigException(
-                        $"Registry '{source}': two entries share the id '{entry.Id}'. An id names one entry.");
-                }
-
-                parsed.Add(entry);
-            }
-
-            return new OkfRegistry(parsed);
-        }
+        using JsonDocument document = ParseDocument(json, source);
+        JsonElement root = RootObject(document, source);
+        return EntriesArray(root, source) is { } entries
+            ? ParseEntries(entries, source)
+            : Empty();
     }
 
     /// <summary>
@@ -234,26 +179,16 @@ public sealed class OkfRegistry
     public static (string Path, OkfRegistryKind Kind) Classify(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        string full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path));
+        string full = NormalizePath(path);
+        RequireDirectory(full);
 
-        if (File.Exists(full))
+        if (VaultRoot(full) is { } vault)
         {
-            throw new OkfDiscoveryException($"'{full}' is a file; okf registers vault and bundle directories.");
+            return (vault, OkfRegistryKind.Vault);
         }
 
-        if (!Directory.Exists(full))
-        {
-            throw new OkfDiscoveryException($"No such directory: '{full}'.");
-        }
-
-        if (Directory.Exists(System.IO.Path.Combine(full, OkfDiscovery.BundlesDirectoryName)))
-        {
-            return (full, OkfRegistryKind.Vault);
-        }
-
-        string vault = System.IO.Path.Combine(full, OkfDiscovery.VaultDirectoryName);
-        return Directory.Exists(System.IO.Path.Combine(vault, OkfDiscovery.BundlesDirectoryName))
-            ? (vault, OkfRegistryKind.Vault)
+        return ProjectVault(full) is { } projectVault
+            ? (projectVault, OkfRegistryKind.Vault)
             : (full, OkfRegistryKind.Bundle);
     }
 
@@ -263,7 +198,7 @@ public sealed class OkfRegistry
     public OkfRegistryEntry? ByPath(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        string full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path));
+        string full = NormalizePath(path);
         return _entries.FirstOrDefault(entry => string.Equals(entry.Path, full, PathComparison));
     }
 
@@ -314,9 +249,6 @@ public sealed class OkfRegistry
         ArgumentException.ThrowIfNullOrEmpty(pathOrId);
         ArgumentException.ThrowIfNullOrEmpty(baseDirectory);
 
-        // The id is tried first and matched exactly: an id is a name okf chose, so it can
-        // never be mistaken for a path a person typed, while a path that happens to spell
-        // an id would otherwise remove the wrong entry.
         OkfRegistryEntry? found = ById(pathOrId)
             ?? ByPath(System.IO.Path.Combine(baseDirectory, pathOrId))
             ?? ByPathOfVault(System.IO.Path.Combine(baseDirectory, pathOrId));
@@ -347,27 +279,10 @@ public sealed class OkfRegistry
     public string ToJson()
     {
         using MemoryStream buffer = new MemoryStream();
-        using (Utf8JsonWriter writer = new Utf8JsonWriter(
-            buffer,
-            new JsonWriterOptions
-            {
-                Indented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            }))
+        using (Utf8JsonWriter writer = CreateJsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteStartArray("entries");
-            foreach (OkfRegistryEntry entry in _entries)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("id", entry.Id);
-                writer.WriteString("path", entry.Path);
-                writer.WriteString("kind", entry.Kind.ToRegistryString());
-                writer.WriteString("registeredAt", entry.RegisteredAt);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
+            WriteEntries(writer);
             writer.WriteEndObject();
         }
 
@@ -407,10 +322,112 @@ public sealed class OkfRegistry
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
+    private static string ReadRegistryText(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (IOException ex)
+        {
+            throw new OkfConfigException($"Cannot read registry '{path}': {ex.Message}", ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new OkfConfigException($"Cannot read registry '{path}': {ex.Message}", ex);
+        }
+    }
+
+    private static JsonDocument ParseDocument(string json, string source)
+    {
+        try
+        {
+            // Strict: no comments, no trailing commas. `okf register` is the only writer,
+            // so there is no author whose comments a rewrite would destroy (AD-32).
+            return JsonDocument.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            throw new OkfConfigException($"Registry '{source}' is not valid JSON: {ex.Message}", ex);
+        }
+    }
+
+    private static JsonElement RootObject(JsonDocument document, string source)
+    {
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw new OkfConfigException($"Registry '{source}' must contain a JSON object at its root.");
+        }
+
+        return root;
+    }
+
+    private static JsonElement? EntriesArray(JsonElement root, string source)
+    {
+        if (!root.TryGetProperty("entries", out JsonElement array))
+        {
+            return null;
+        }
+
+        if (array.ValueKind != JsonValueKind.Array)
+        {
+            throw new OkfConfigException($"Registry '{source}': `entries` must be an array.");
+        }
+
+        return array;
+    }
+
+    private static OkfRegistry ParseEntries(JsonElement entries, string source)
+    {
+        ParsedEntries parsed = new ParsedEntries([], new HashSet<string>(StringComparer.Ordinal));
+        foreach (JsonElement element in entries.EnumerateArray())
+        {
+            AddUniqueEntry(parsed, element, source);
+        }
+
+        return new OkfRegistry(parsed.Entries);
+    }
+
+    private static void AddUniqueEntry(ParsedEntries parsed, JsonElement element, string source)
+    {
+        OkfRegistryEntry entry = ReadEntry(element, source);
+        if (!parsed.Seen.Add(entry.Id))
+        {
+            throw new OkfConfigException(
+                $"Registry '{source}': two entries share the id '{entry.Id}'. An id names one entry.");
+        }
+
+        parsed.Entries.Add(entry);
+    }
+
+    private static string NormalizePath(string path) =>
+        System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path));
+
+    private static void RequireDirectory(string path)
+    {
+        if (File.Exists(path))
+        {
+            throw new OkfDiscoveryException($"'{path}' is a file; okf registers vault and bundle directories.");
+        }
+
+        if (!Directory.Exists(path))
+        {
+            throw new OkfDiscoveryException($"No such directory: '{path}'.");
+        }
+    }
+
+    private static string? VaultRoot(string path) =>
+        Directory.Exists(System.IO.Path.Combine(path, OkfDiscovery.BundlesDirectoryName)) ? path : null;
+
+    private static string? ProjectVault(string path)
+    {
+        string vault = System.IO.Path.Combine(path, OkfDiscovery.VaultDirectoryName);
+        return VaultRoot(vault);
+    }
+
     private OkfRegistryEntry? ByPathOfVault(string path)
     {
-        // `okf unregister <project-root>` should remove the entry `okf register
-        // <project-root>` created, and that entry stores `<project-root>/okf`.
         string vault = System.IO.Path.Combine(path, OkfDiscovery.VaultDirectoryName);
         return Directory.Exists(vault) ? ByPath(vault) : null;
     }
@@ -432,30 +449,42 @@ public sealed class OkfRegistry
     /// </remarks>
     private static string SlugFor(string path, OkfRegistryKind kind)
     {
+        string name = SlugName(path, kind);
+        StringBuilder slug = new StringBuilder();
+
+        foreach (char character in name)
+        {
+            AppendSlugCharacter(slug, character);
+        }
+
+        string trimmed = slug.ToString().Trim('-');
+        return trimmed.Length > 0 ? trimmed : "vault";
+    }
+
+    private static string SlugName(string path, OkfRegistryKind kind)
+    {
         string name = System.IO.Path.GetFileName(path);
         if (kind == OkfRegistryKind.Vault
             && string.Equals(name, OkfDiscovery.VaultDirectoryName, StringComparison.Ordinal)
             && System.IO.Path.GetDirectoryName(path) is { Length: > 0 } parent
             && System.IO.Path.GetFileName(parent) is { Length: > 0 } parentName)
         {
-            name = parentName;
+            return parentName;
         }
 
-        StringBuilder slug = new StringBuilder();
-        foreach (char character in name)
+        return name;
+    }
+
+    private static void AppendSlugCharacter(StringBuilder slug, char character)
+    {
+        if (char.IsAsciiLetterOrDigit(character))
         {
-            if (char.IsAsciiLetterOrDigit(character))
-            {
-                slug.Append(char.ToLowerInvariant(character));
-            }
-            else if (slug.Length > 0 && slug[^1] != '-')
-            {
-                slug.Append('-');
-            }
+            slug.Append(char.ToLowerInvariant(character));
         }
-
-        string trimmed = slug.ToString().Trim('-');
-        return trimmed.Length > 0 ? trimmed : "vault";
+        else if (slug.Length > 0 && slug[^1] != '-')
+        {
+            slug.Append('-');
+        }
     }
 
     private string UniqueId(string slug)
@@ -465,9 +494,6 @@ public sealed class OkfRegistry
             return slug;
         }
 
-        // Bounded by the entry count rather than open-ended: n entries can occupy at most n
-        // suffixes, so the loop always finds a free one — and a bug that made it not is a
-        // failure rather than a process that spins.
         for (int suffix = 2; suffix <= _entries.Count + 2; suffix++)
         {
             string candidate = slug + "-" + suffix.ToString(CultureInfo.InvariantCulture);
@@ -483,20 +509,26 @@ public sealed class OkfRegistry
 
     private static OkfRegistryEntry ReadEntry(JsonElement element, string source)
     {
+        RequireEntryObject(element, source);
+
+        string id = RequiredString(element, "id", source);
+        string path = RequireAbsolutePath(id, RequiredString(element, "path", source), source);
+        OkfRegistryKind kind = ReadKind(id, element, source);
+        string registeredAt = RequiredString(element, "registeredAt", source);
+
+        return new OkfRegistryEntry(id, path, kind, registeredAt);
+    }
+
+    private static void RequireEntryObject(JsonElement element, string source)
+    {
         if (element.ValueKind != JsonValueKind.Object)
         {
             throw new OkfConfigException($"Registry '{source}': every entry must be an object.");
         }
+    }
 
-        string id = RequiredString(element, "id", source);
-        string path = RequiredString(element, "path", source);
-        string kindText = RequiredString(element, "kind", source);
-        if (!OkfRegistryKindExtensions.TryParse(kindText, out OkfRegistryKind kind))
-        {
-            throw new OkfConfigException(
-                $"Registry '{source}': entry '{id}' has kind '{kindText}'; expected \"vault\" or \"bundle\".");
-        }
-
+    private static string RequireAbsolutePath(string id, string path, string source)
+    {
         if (!System.IO.Path.IsPathRooted(path))
         {
             throw new OkfConfigException(
@@ -504,7 +536,19 @@ public sealed class OkfRegistry
                 "Entries are stored by absolute path so a registry means the same thing from any directory.");
         }
 
-        return new OkfRegistryEntry(id, path, kind, RequiredString(element, "registeredAt", source));
+        return path;
+    }
+
+    private static OkfRegistryKind ReadKind(string id, JsonElement element, string source)
+    {
+        string kindText = RequiredString(element, "kind", source);
+        if (OkfRegistryKindExtensions.TryParse(kindText, out OkfRegistryKind kind))
+        {
+            return kind;
+        }
+
+        throw new OkfConfigException(
+            $"Registry '{source}': entry '{id}' has kind '{kindText}'; expected \"vault\" or \"bundle\".");
     }
 
     private static string RequiredString(JsonElement element, string name, string source)
@@ -518,4 +562,36 @@ public sealed class OkfRegistry
             ? text
             : throw new OkfConfigException($"Registry '{source}': `{name}` must not be empty.");
     }
+
+    private static Utf8JsonWriter CreateJsonWriter(MemoryStream buffer) =>
+        new(
+            buffer,
+            new JsonWriterOptions
+            {
+                Indented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+
+    private void WriteEntries(Utf8JsonWriter writer)
+    {
+        writer.WriteStartArray("entries");
+        foreach (OkfRegistryEntry entry in _entries)
+        {
+            WriteEntry(writer, entry);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteEntry(Utf8JsonWriter writer, OkfRegistryEntry entry)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("id", entry.Id);
+        writer.WriteString("path", entry.Path);
+        writer.WriteString("kind", entry.Kind.ToRegistryString());
+        writer.WriteString("registeredAt", entry.RegisteredAt);
+        writer.WriteEndObject();
+    }
+
+    private sealed record ParsedEntries(List<OkfRegistryEntry> Entries, HashSet<string> Seen);
 }

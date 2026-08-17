@@ -109,112 +109,121 @@ public static class OkfScope
 
     private static OkfScopeResolution Registered(OkfEnvironment environment, OkfRegistry registry)
     {
-        List<string> notes = new List<string>();
-        List<OkfBundle> bundles = FromRegistry(environment, registry, notes, new Dictionary<string, OkfBundle>(StringComparer.Ordinal));
-
-        if (bundles.Count == 0)
+        RegistryResolution registryResolution = EmptyRegistryResolution(environment);
+        AddRegistryBundles(registry, registryResolution.Accumulator, environment);
+        if (registryResolution.Accumulator.Bundles.Count == 0)
         {
-            throw new OkfDiscoveryException(
-                registry.Entries.Count == 0
-                    ? $"The registry '{OkfRegistry.PathFor(environment)}' is empty. Add a vault with `okf register [path]`."
-                    : $"No registered vault or bundle resolved to any bundles. " +
-                      $"Run `okf registry list` to see what is registered, and `okf registry prune` to drop what is gone.");
+            throw NoRegisteredBundles(environment, registry);
         }
 
         return new OkfScopeResolution(
             new OkfWorkingSet(
-                bundles,
-                VaultOf(bundles),
-                Sentence("registered", bundles, OkfRegistry.PathFor(environment))),
-            notes);
+                registryResolution.Accumulator.Bundles,
+                VaultOf(registryResolution.Accumulator.Bundles),
+                Sentence("registered", registryResolution.Accumulator.Bundles, registryResolution.RegistryPath)),
+            registryResolution.Accumulator.Notes);
     }
 
     private static OkfScopeResolution All(OkfEnvironment environment, OkfRegistry registry)
     {
-        List<string> notes = new List<string>();
-        Dictionary<string, OkfBundle> seen = new Dictionary<string, OkfBundle>(StringComparer.Ordinal);
-        List<OkfBundle> bundles = new List<OkfBundle>();
-        string? projectVault = null;
-        string? projectResolution = null;
+        RegistryResolution registryResolution = EmptyRegistryResolution(environment);
+        ProjectScope project = TryAddProjectScope(environment, registryResolution.Accumulator);
+        AddRegistryBundles(registry, registryResolution.Accumulator, environment);
+        if (registryResolution.Accumulator.Bundles.Count == 0)
+        {
+            throw NoAllScopeBundles(environment);
+        }
 
+        return new OkfScopeResolution(
+            new OkfWorkingSet(
+                registryResolution.Accumulator.Bundles,
+                project.VaultRoot ?? VaultOf(registryResolution.Accumulator.Bundles),
+                AllResolution(project.Resolution, registryResolution.Accumulator.Bundles, registryResolution.RegistryPath)),
+            registryResolution.Accumulator.Notes);
+    }
+
+    private static RegistryResolution EmptyRegistryResolution(OkfEnvironment environment) =>
+        new(
+            OkfRegistry.PathFor(environment),
+            new BundleAccumulator([], [], new Dictionary<string, OkfBundle>(StringComparer.Ordinal)));
+
+    private static OkfDiscoveryException NoRegisteredBundles(OkfEnvironment environment, OkfRegistry registry) =>
+        new(
+            registry.Entries.Count == 0
+                ? $"The registry '{OkfRegistry.PathFor(environment)}' is empty. Add a vault with `okf register [path]`."
+                : "No registered vault or bundle resolved to any bundles. "
+                  + "Run `okf registry list` to see what is registered, and `okf registry prune` to drop what is gone.");
+
+    private static ProjectScope TryAddProjectScope(OkfEnvironment environment, BundleAccumulator accumulator)
+    {
         try
         {
             OkfWorkingSet project = OkfDiscovery.Resolve(null, environment);
-            projectVault = project.VaultRoot;
-            projectResolution = project.Resolution;
-            foreach (OkfBundle bundle in project.Bundles)
-            {
-                Add(bundles, seen, bundle);
-            }
+            AddBundles(project.Bundles, accumulator);
+            return new ProjectScope(project.VaultRoot, project.Resolution);
         }
         catch (OkfDiscoveryException exception)
         {
             // `--scope all` with no project vault is the personal-plus-registered case, not
             // a failure: the registry is the rest of the scope and it may well be enough.
-            notes.Add($"no project vault: {exception.Message}");
+            accumulator.Notes.Add($"no project vault: {exception.Message}");
+            return new ProjectScope(null, null);
         }
+    }
 
-        bundles.AddRange(FromRegistry(environment, registry, notes, seen));
+    private static OkfDiscoveryException NoAllScopeBundles(OkfEnvironment environment) =>
+        new(
+            "`--scope all` resolved no bundles: no project vault, and nothing usable in the registry "
+            + $"('{OkfRegistry.PathFor(environment)}'). Register one with `okf register [path]`.");
 
-        if (bundles.Count == 0)
-        {
-            throw new OkfDiscoveryException(
-                "`--scope all` resolved no bundles: no project vault, and nothing usable in the registry " +
-                $"('{OkfRegistry.PathFor(environment)}'). Register one with `okf register [path]`.");
-        }
-
-        string resolution = projectResolution is null
-            ? Sentence("all", bundles, OkfRegistry.PathFor(environment))
+    private static string AllResolution(string? projectResolution, IReadOnlyList<OkfBundle> bundles, string registryPath) =>
+        projectResolution is null
+            ? Sentence("all", bundles, registryPath)
             : $"{projectResolution}, plus the registry (--scope all)";
 
-        return new OkfScopeResolution(
-            new OkfWorkingSet(bundles, projectVault ?? VaultOf(bundles), resolution),
-            notes);
-    }
-
-    private static List<OkfBundle> FromRegistry(
-        OkfEnvironment environment,
-        OkfRegistry registry,
-        List<string> notes,
-        Dictionary<string, OkfBundle> seen)
+    private static void AddRegistryBundles(OkfRegistry registry, BundleAccumulator accumulator, OkfEnvironment environment)
     {
-        List<OkfBundle> bundles = new List<OkfBundle>();
         foreach (OkfRegistryEntry entry in registry.Entries)
         {
-            if (!entry.Exists)
-            {
-                notes.Add($"registered {entry.Kind.ToRegistryString()} '{entry.Id}' is missing: '{entry.Path}'");
-                continue;
-            }
-
-            OkfWorkingSet resolved;
-            try
-            {
-                resolved = OkfDiscovery.Resolve(entry.Path, environment);
-            }
-            catch (OkfDiscoveryException exception)
-            {
-                notes.Add($"registered {entry.Kind.ToRegistryString()} '{entry.Id}' contributed nothing: {exception.Message}");
-                continue;
-            }
-
-            foreach (OkfBundle bundle in resolved.Bundles)
-            {
-                Add(bundles, seen, bundle);
-            }
+            AddRegistryEntry(entry, accumulator, environment);
         }
-
-        return bundles;
     }
 
-    private static void Add(List<OkfBundle> bundles, Dictionary<string, OkfBundle> seen, OkfBundle bundle)
+    private static void AddRegistryEntry(OkfRegistryEntry entry, BundleAccumulator accumulator, OkfEnvironment environment)
+    {
+        if (!entry.Exists)
+        {
+            accumulator.Notes.Add($"registered {entry.Kind.ToRegistryString()} '{entry.Id}' is missing: '{entry.Path}'");
+            return;
+        }
+
+        try
+        {
+            AddBundles(OkfDiscovery.Resolve(entry.Path, environment).Bundles, accumulator);
+        }
+        catch (OkfDiscoveryException exception)
+        {
+            accumulator.Notes.Add(
+                $"registered {entry.Kind.ToRegistryString()} '{entry.Id}' contributed nothing: {exception.Message}");
+        }
+    }
+
+    private static void AddBundles(IEnumerable<OkfBundle> bundles, BundleAccumulator accumulator)
+    {
+        foreach (OkfBundle bundle in bundles)
+        {
+            AddBundle(bundle, accumulator);
+        }
+    }
+
+    private static void AddBundle(OkfBundle bundle, BundleAccumulator accumulator)
     {
         // De-duplicated by the path the filesystem ends at, not the path that was typed: a
         // registered vault that is a symlink to the project's own is one bundle, and
         // counting it twice would double every collection statistic AD-26 computes.
-        if (seen.TryAdd(RealPath(bundle.Root), bundle))
+        if (accumulator.Seen.TryAdd(RealPath(bundle.Root), bundle))
         {
-            bundles.Add(bundle);
+            accumulator.Bundles.Add(bundle);
         }
     }
 
@@ -229,20 +238,14 @@ public static class OkfScope
     {
         try
         {
-            if (Directory.ResolveLinkTarget(path, returnFinalTarget: true) is { } target)
+            if (ResolvedLinkTarget(path) is { } target)
             {
-                return RealPath(Path.TrimEndingDirectorySeparator(target.FullName));
+                return RealPath(target);
             }
 
-            if (Path.GetDirectoryName(path) is not { Length: > 0 } parent)
-            {
-                return path;
-            }
-
-            string real = RealPath(parent);
-            return string.Equals(real, parent, StringComparison.Ordinal)
-                ? path
-                : Path.Combine(real, Path.GetFileName(path));
+            return Path.GetDirectoryName(path) is { Length: > 0 } parent
+                ? RecombineWithResolvedParent(path, parent)
+                : path;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -252,13 +255,26 @@ public static class OkfScope
         }
     }
 
+    private static string? ResolvedLinkTarget(string path) =>
+        Directory.ResolveLinkTarget(path, returnFinalTarget: true) is { } target
+            ? Path.TrimEndingDirectorySeparator(target.FullName)
+            : null;
+
+    private static string RecombineWithResolvedParent(string path, string parent)
+    {
+        string real = RealPath(parent);
+        return string.Equals(real, parent, StringComparison.Ordinal)
+            ? path
+            : Path.Combine(real, Path.GetFileName(path));
+    }
+
     /// <summary>
     /// The vault a working set can name — set only when every bundle in scope came out of
     /// one vault's <c>bundles/</c>. A multi-root scope has no single project config to
     /// point at, and guessing one would apply a team's committed contract to somebody
     /// else's vault (AD-31).
     /// </summary>
-    private static string? VaultOf(List<OkfBundle> bundles)
+    private static string? VaultOf(IReadOnlyList<OkfBundle> bundles)
     {
         List<string> vaults = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).ToList();
         return vaults.Count == 1 ? vaults[0] : null;
@@ -272,10 +288,19 @@ public static class OkfScope
             ? vault
             : bundle.Root;
 
-    private static string Sentence(string scope, List<OkfBundle> bundles, string registryPath)
+    private static string Sentence(string scope, IReadOnlyList<OkfBundle> bundles, string registryPath)
     {
         int roots = bundles.Select(VaultContaining).Distinct(StringComparer.Ordinal).Count();
         return $"--scope {scope}: {bundles.Count} {(bundles.Count == 1 ? "bundle" : "bundles")} " +
             $"from {roots} registered {(roots == 1 ? "root" : "roots")} in '{registryPath}'";
     }
+
+    private sealed record RegistryResolution(string RegistryPath, BundleAccumulator Accumulator);
+
+    private sealed record ProjectScope(string? VaultRoot, string? Resolution);
+
+    private sealed record BundleAccumulator(
+        List<OkfBundle> Bundles,
+        List<string> Notes,
+        Dictionary<string, OkfBundle> Seen);
 }

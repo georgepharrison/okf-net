@@ -108,9 +108,42 @@ public static class OkfDiscovery
 
     private static OkfWorkingSet FromExplicitPath(string path, OkfEnvironment environment)
     {
-        string full = Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(Path.Combine(environment.CurrentDirectory, path)));
+        string full = FullPath(path, environment.CurrentDirectory);
+        RequireDirectory(full);
 
+        if (IsVaultRoot(full))
+        {
+            return FromVault(full, $"vault '{full}' (explicit path)");
+        }
+
+        if (TryProjectVault(full) is { } vault)
+        {
+            return FromVault(vault, $"vault '{vault}' (explicit project path '{full}')");
+        }
+
+        return FromBundleRoot(full);
+    }
+
+    private static OkfWorkingSet Discover(OkfEnvironment environment)
+    {
+        if (WalkedUpVault(environment.CurrentDirectory) is { } projectVault)
+        {
+            return FromVault(projectVault, WalkedUpResolution(projectVault, environment.CurrentDirectory));
+        }
+
+        if (PersonalVault(environment) is { } personalVault)
+        {
+            return FromVault(personalVault, $"personal vault '{personalVault}'");
+        }
+
+        throw NoDiscoveredVault(environment);
+    }
+
+    private static string FullPath(string path, string currentDirectory) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(currentDirectory, path)));
+
+    private static void RequireDirectory(string full)
+    {
         if (File.Exists(full))
         {
             throw new OkfDiscoveryException($"'{full}' is a file; okf operates on bundle directories.");
@@ -120,59 +153,66 @@ public static class OkfDiscovery
         {
             throw new OkfDiscoveryException($"No such directory: '{full}'.");
         }
-
-        if (Directory.Exists(Path.Combine(full, BundlesDirectoryName)))
-        {
-            return FromVault(full, $"vault '{full}' (explicit path)");
-        }
-
-        if (Directory.Exists(Path.Combine(full, VaultDirectoryName, BundlesDirectoryName)))
-        {
-            string vault = Path.Combine(full, VaultDirectoryName);
-            return FromVault(vault, $"vault '{vault}' (explicit project path '{full}')");
-        }
-
-        // Any other directory is a bundle root, foreign or not. When it happens to sit in
-        // a vault's `bundles/`, the vault is recorded so its project config still applies.
-        string? owningVault = OwningVault(full);
-        return new OkfWorkingSet(
-            [new OkfBundle(full)],
-            owningVault,
-            $"bundle '{full}' (explicit path)");
     }
 
-    private static OkfWorkingSet Discover(OkfEnvironment environment)
+    private static bool IsVaultRoot(string path) =>
+        Directory.Exists(Path.Combine(path, BundlesDirectoryName));
+
+    private static string? TryProjectVault(string path)
     {
-        for (DirectoryInfo? directory = new DirectoryInfo(environment.CurrentDirectory);
+        string vault = Path.Combine(path, VaultDirectoryName);
+        return IsVaultRoot(vault) ? vault : null;
+    }
+
+    private static OkfWorkingSet FromBundleRoot(string full) =>
+        new(
+            [new OkfBundle(full)],
+            OwningVault(full),
+            $"bundle '{full}' (explicit path)");
+
+    private static string? WalkedUpVault(string currentDirectory)
+    {
+        for (DirectoryInfo? directory = new DirectoryInfo(currentDirectory);
              directory is not null;
              directory = directory.Parent)
         {
-            // A working directory inside the vault itself resolves to that vault, so
-            // `okf lint` behaves the same run from the project root or from `okf/bundles/`.
-            if (string.Equals(directory.Name, VaultDirectoryName, StringComparison.Ordinal)
-                && Directory.Exists(Path.Combine(directory.FullName, BundlesDirectoryName)))
+            if (IsVaultDirectory(directory))
             {
-                return FromVault(
-                    directory.FullName,
-                    $"vault '{directory.FullName}' (found by walking up from '{environment.CurrentDirectory}')");
+                return directory.FullName;
             }
 
-            string candidate = Path.Combine(directory.FullName, VaultDirectoryName);
-            if (Directory.Exists(Path.Combine(candidate, BundlesDirectoryName)))
+            if (ChildVault(directory.FullName) is { } candidate)
             {
-                return FromVault(
-                    candidate,
-                    $"vault '{candidate}' (found by walking up from '{environment.CurrentDirectory}')");
+                return candidate;
             }
         }
 
+        return null;
+    }
+
+    private static bool IsVaultDirectory(DirectoryInfo directory) =>
+        string.Equals(directory.Name, VaultDirectoryName, StringComparison.Ordinal)
+        && IsVaultRoot(directory.FullName);
+
+    private static string? ChildVault(string directory)
+    {
+        string candidate = Path.Combine(directory, VaultDirectoryName);
+        return IsVaultRoot(candidate) ? candidate : null;
+    }
+
+    private static string WalkedUpResolution(string vault, string currentDirectory) =>
+        $"vault '{vault}' (found by walking up from '{currentDirectory}')";
+
+    private static string? PersonalVault(OkfEnvironment environment)
+    {
         string personal = environment.PersonalVault;
-        if (Directory.Exists(Path.Combine(personal, BundlesDirectoryName)))
-        {
-            return FromVault(personal, $"personal vault '{personal}'");
-        }
+        return IsVaultRoot(personal) ? personal : null;
+    }
 
-        throw new OkfDiscoveryException(
+    private static OkfDiscoveryException NoDiscoveredVault(OkfEnvironment environment)
+    {
+        string personal = environment.PersonalVault;
+        return new OkfDiscoveryException(
             $"No project vault found by walking up from '{environment.CurrentDirectory}' " +
             $"(looking for a '{VaultDirectoryName}/{BundlesDirectoryName}/' directory), " +
             $"and the personal vault '{personal}' has no '{BundlesDirectoryName}/' directory. " +
@@ -182,8 +222,6 @@ public static class OkfDiscovery
     private static OkfWorkingSet FromVault(string vault, string resolution)
     {
         string bundlesDirectory = Path.Combine(vault, BundlesDirectoryName);
-        // The same list the walk inside a bundle uses, for the same reason: a leading dot
-        // hides nothing, and only named tool state is passed over.
         List<OkfBundle> bundles = Directory.EnumerateDirectories(bundlesDirectory)
             .Where(directory => !OkfBundle.IgnoredMetadataNames.Contains(Path.GetFileName(directory)))
             .OrderBy(directory => directory, StringComparer.Ordinal)
