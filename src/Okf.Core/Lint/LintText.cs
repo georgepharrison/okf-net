@@ -88,13 +88,13 @@ internal static partial class LintText
         resolved = null;
 
         string path = WithoutFragmentOrQuery(target.Trim());
-        if (!ReadsAsAPath(path) || !TryUnescape(path, out string? unescaped))
+        if (!ReadsAsAPath(path) || Unescaped(path) is not { } unescaped)
         {
             return LinkTarget.NotAPath;
         }
 
         if (unescaped.IndexOfAny(Path.GetInvalidPathChars()) >= 0
-            || !TryCombine(unescaped, bundleRoot, documentDirectory, out string? combined))
+            || Combined(unescaped, bundleRoot, documentDirectory) is not { } combined)
         {
             return LinkTarget.NotAPath;
         }
@@ -121,42 +121,36 @@ internal static partial class LintText
         && !SchemeRegex().IsMatch(path)
         && !path.StartsWith("//", StringComparison.Ordinal);
 
-    private static bool TryUnescape(string path, [NotNullWhen(true)] out string? unescaped)
+    /// <summary>The percent-decoded target, or <see langword="null" /> when it will not decode.</summary>
+    private static string? Unescaped(string path)
     {
         try
         {
-            unescaped = Uri.UnescapeDataString(path);
-            return true;
+            return Uri.UnescapeDataString(path);
         }
         catch (UriFormatException)
         {
-            unescaped = null;
-            return false;
+            return null;
         }
     }
 
     /// <summary>
-    /// Resolves a <c>/</c>-rooted target against the bundle root and any other against the
-    /// linking document's directory (§6.2).
+    /// A <c>/</c>-rooted target resolved against the bundle root and any other against the
+    /// linking document's directory (§6.2), or <see langword="null" /> when it will not
+    /// resolve to a path at all.
     /// </summary>
-    private static bool TryCombine(
-        string path,
-        string bundleRoot,
-        string documentDirectory,
-        [NotNullWhen(true)] out string? combined)
+    private static string? Combined(string path, string bundleRoot, string documentDirectory)
     {
         string native = path.Replace('/', Path.DirectorySeparatorChar);
         try
         {
-            combined = path.StartsWith('/')
+            return path.StartsWith('/')
                 ? Path.GetFullPath(Path.Combine(bundleRoot, native.TrimStart(Path.DirectorySeparatorChar)))
                 : Path.GetFullPath(Path.Combine(documentDirectory, native));
-            return true;
         }
         catch (ArgumentException)
         {
-            combined = null;
-            return false;
+            return null;
         }
     }
 

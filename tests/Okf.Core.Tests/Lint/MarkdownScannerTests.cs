@@ -157,6 +157,29 @@ public class MarkdownScannerTests
     public void AnEmptyFencedBlockHasNoContent() =>
         Assert.False(MarkdownScanner.Scan("```\n```\n", 1).HasContent);
 
+    /// <summary>
+    /// CommonMark closes a fenced block only on its own marker, so a <c>~~~</c> line inside
+    /// a <c>```</c> block is content and the block stays open. Treating it as a close would
+    /// let everything after it be scanned — which is how a link written inside a code sample
+    /// becomes a broken-link diagnostic on somebody else's bundle.
+    /// </summary>
+    [Fact]
+    public void AForeignFenceMarkerDoesNotCloseTheBlock()
+    {
+        var scan = MarkdownScanner.Scan(
+            """
+            ```sql
+            ~~~
+            -- [not a link](/fake.md)
+            ```
+
+            After [real](/real.md).
+            """,
+            1);
+
+        Assert.Equal(["/real.md"], scan.Links.Select(link => link.Target));
+    }
+
     /// <summary>`[text]()` names no destination, so there is nothing to check.</summary>
     [Fact]
     public void AnEmptyLinkDestinationIsNotALink() =>

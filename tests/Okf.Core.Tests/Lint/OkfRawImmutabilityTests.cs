@@ -44,6 +44,14 @@ public class OkfRawImmutabilityTests
         // The capture id too: a packet's files are named after it, and the entry is what
         // a reader has to go and look at.
         Assert.Contains("capture `2026-06-01-thing`", diagnostic.Message, StringComparison.Ordinal);
+
+        // And the instruction, which is the half that decides what the reader does next:
+        // this rule's whole point is that rewriting the manifest to match is the wrong fix.
+        Assert.Contains("The artifact changed after ingestion", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "resolve it by hand, never by rewriting the manifest.",
+            diagnostic.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -73,6 +81,10 @@ public class OkfRawImmutabilityTests
 
         Assert.Equal(OkfRules.RawItemMutated, diagnostic.RuleId);
         Assert.Contains("no longer in raw/", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "restore it rather than editing the manifest.",
+            diagnostic.Message,
+            StringComparison.Ordinal);
         Assert.Contains(sha, line, StringComparison.Ordinal);
     }
 

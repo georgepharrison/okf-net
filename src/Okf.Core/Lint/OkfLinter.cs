@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
@@ -166,7 +165,7 @@ public sealed class OkfLinter
         }
         else
         {
-            CheckConceptFile(walk, file, layout);
+            LintConceptFile(walk, file, layout);
         }
     }
 
@@ -273,7 +272,7 @@ public sealed class OkfLinter
             return;
         }
 
-        if (TryHashOnDisk(absolute, out string? actual)
+        if (HashOnDisk(absolute) is { } actual
             && !string.Equals(actual, ingested.File.Sha256, StringComparison.OrdinalIgnoreCase))
         {
             diagnostics.Add(ChangedSinceIngestDiagnostic(ingested, actual));
@@ -281,25 +280,23 @@ public sealed class OkfLinter
     }
 
     /// <summary>
-    /// Hashes an artifact, reporting failure rather than throwing: an unreadable artifact
-    /// is not a changed one, and lint never fails a run on what it could not open.
+    /// The artifact's hash, or <see langword="null" /> when it could not be read: an
+    /// unreadable artifact is not a changed one, and lint never fails a run on what it
+    /// could not open.
     /// </summary>
-    private static bool TryHashOnDisk(string absolute, [NotNullWhen(true)] out string? sha256)
+    private static string? HashOnDisk(string absolute)
     {
         try
         {
-            sha256 = OkfCaptureManifest.Sha256Of(absolute);
-            return true;
+            return OkfCaptureManifest.Sha256Of(absolute);
         }
         catch (IOException)
         {
-            sha256 = null;
-            return false;
+            return null;
         }
         catch (UnauthorizedAccessException)
         {
-            sha256 = null;
-            return false;
+            return null;
         }
     }
 
@@ -581,7 +578,7 @@ public sealed class OkfLinter
         path,
         heading.Line);
 
-    private void CheckConceptFile(BundleWalk walk, string path, FileLayout layout)
+    private void LintConceptFile(BundleWalk walk, string path, FileLayout layout)
     {
         OkfDocument? document = TryParseConcept(walk, path, layout);
         if (document is null)
@@ -597,9 +594,13 @@ public sealed class OkfLinter
         }
 
         CheckRequiredKeys(walk, path, layout, document);
-        MarkdownScan scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
-        LintedConcept concept = new LintedConcept(path, layout, document.Frontmatter, scan);
 
+        MarkdownScan scan = MarkdownScanner.Scan(document.Body, layout.BodyFirstLine);
+        CheckConcept(walk, new LintedConcept(path, layout, document.Frontmatter, scan));
+    }
+
+    private void CheckConcept(BundleWalk walk, LintedConcept concept)
+    {
         CheckHygiene(walk, concept);
         CheckProvenance(walk, concept);
         CheckTrust(walk, concept);
