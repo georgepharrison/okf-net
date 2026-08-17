@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Okf.Cli.Tests;
@@ -248,12 +249,21 @@ public class ReportRenderingTests
     /// <c>generated.at</c> stamp ahead of today is a clock problem, and reporting it as
     /// "-3 days ago" would hide that.
     /// </summary>
+    /// <remarks>
+    /// The stamp counts forward from the same clock <c>okf inbox</c> compares against —
+    /// the LOCAL date — because the age is the difference between today and the date
+    /// written in the stamp, with no conversion between them. Counting forward from
+    /// <c>UtcNow</c> instead would make this test read four days ahead, and fail, for
+    /// every hour of the day in which a machine's local date lags UTC's.
+    /// </remarks>
     [Fact]
     public void InboxRendersAFutureStampAsDaysAhead()
     {
         using var tree = new TempTree();
         var bundle = tree.CreateDirectory(Path.Combine("vault", "bundles", "b"));
-        var ahead = DateTimeOffset.UtcNow.AddDays(3).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", null);
+        var day = DateOnly.FromDateTime(DateTime.Now).AddDays(3)
+            .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var ahead = $"{day}T12:00:00Z";
         tree.Write(
             Path.Combine("vault", "bundles", "b", "concept.md"),
             $"---\ntype: Concept\ntitle: Ahead\ngenerated:\n  by: tests\n  at: {ahead}\n---\n\nBody.\n");
