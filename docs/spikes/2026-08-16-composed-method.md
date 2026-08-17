@@ -639,20 +639,33 @@ branches.
 | `Vault/OkfScope.cs` | 56 → 62 | 5 → 7 | 90.32% → 84.93% |
 | **Area (scoped run)** | **1,909 → 2,134** | **286 → 377** | **84.86% → 82.64%** |
 
-The survivor-set review found four contracts worth adding tests for: an external
-site link keeps `target="_blank"`; a blocked destination stays visibly `broken`;
-a registry required field with the wrong JSON type is rejected; and mistyped
-optional distribution arrays are treated as absent. Each test was shown to fail
-against the exact source mutation before the source was restored. The remaining
-newly visible set is dominated by emitter string mutations, private JSON-walk
-mechanics, platform-only environment branches and equivalent initializer/default
-mutants rather than a changed public contract.
+The initial survivor-set review found four contracts worth adding tests for: an
+external site link keeps `target="_blank"`; a blocked destination stays visibly
+`broken`; a registry required field with the wrong JSON type is rejected; and
+mistyped optional distribution arrays are treated as absent. Each test was shown
+to fail against the exact source mutation before the source was restored.
+
+The required adversarial review compared locations, not just percentages, and
+found six more real contracts among survivors that were absent from the baseline
+set: capture close validates its actor; capture-manifest `captures` must be an
+array while a mistyped optional `files` collection is absent; an upgrade
+manifest likewise treats a mistyped `assets` map and optional `size` as absent;
+and the HTTP redirect loop makes the final allowed request but remains bounded.
+The tests were shown red against seven source mutations, including both redirect
+loop mutations. In the reviewer's scoped rerun all seven locations were killed:
+**2,150 killed, 362 survived, 69 uncovered and 14 timeout** over a 2,595-mutant
+denominator, **83.39%**. The remaining newly visible set is dominated by emitter
+string mutations, private JSON-walk mechanics, platform-only environment branches
+and equivalent initializer/default mutants rather than a changed public contract.
 
 The run also demonstrates the noise warning from H1/H2 without inference:
 `OkfSkills.cs` and `OkfSiteModel.cs` were not touched, yet their scores moved from
 66.67% to 33.33% and 90.91% to 81.82% respectively. Percentages and even which
 mutant the coverage filter selects are not stable enough to overrule the survivor
-classification.
+classification. The adversarial review's independent `origin/dev` rerun makes the
+same point on the baseline itself: the denominator stayed 2,265 while the result
+moved from the table's 1,909 killed / 286 survived / 84.86% to 1,883 killed / 311
+survived / 83.75%, with no source change.
 
 ### What H3 deliberately left long
 
