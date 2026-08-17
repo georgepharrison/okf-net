@@ -192,23 +192,12 @@ public sealed class OkfBundle
     public bool TryResolve(string? relativePath, [NotNullWhen(true)] out string? fullPath)
     {
         fullPath = null;
-
-        if (relativePath is not null
-            && (Path.IsPathRooted(relativePath)
-                || relativePath.Contains('\\', StringComparison.Ordinal)
-                || relativePath.Contains('\0', StringComparison.Ordinal)))
+        if (IsInvalidRelativePath(relativePath))
         {
-            // An absolute path is never bundle-relative, even when it happens to point
-            // inside the bundle: accepting it would make the caller's path grammar depend
-            // on where the bundle sits on this machine. A NUL is refused before
-            // `Path.GetFullPath` sees it, because it throws on one rather than answering —
-            // and a containment check that throws is one a caller can turn into a crash.
             return false;
         }
 
-        string candidate = Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
-
+        string candidate = ResolveCandidate(relativePath);
         if (!IsInside(candidate) || !FollowsNoLinkOut(candidate))
         {
             return false;
@@ -217,6 +206,15 @@ public sealed class OkfBundle
         fullPath = candidate;
         return true;
     }
+
+    private static bool IsInvalidRelativePath(string? relativePath) =>
+        relativePath is not null
+        && (Path.IsPathRooted(relativePath)
+            || relativePath.Contains('\\', StringComparison.Ordinal)
+            || relativePath.Contains('\0', StringComparison.Ordinal));
+
+    private string ResolveCandidate(string? relativePath) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(Root, relativePath ?? string.Empty)));
 
     /// <inheritdoc />
     public override string ToString() => Root;
@@ -237,31 +235,39 @@ public sealed class OkfBundle
     private bool FollowsNoLinkOut(string candidate)
     {
         string current = Root;
-        foreach (string segment in Path.GetRelativePath(Root, candidate).Split(Path.DirectorySeparatorChar))
+        foreach (string segment in RelativeSegments(candidate))
         {
-            if (segment.Length == 0 || string.Equals(segment, ".", StringComparison.Ordinal))
+            if (!TryAdvanceSegment(segment, ref current))
             {
-                continue;
-            }
-
-            current = Path.Combine(current, segment);
-            switch (Link(current, out string? target))
-            {
-                case LinkKind.None:
-                    break;
-
-                // Walking continues from where the link actually lands, so a chain of links
-                // inside the bundle stays readable and the first one that leaves is refused.
-                case LinkKind.Followed when IsInside(target!):
-                    current = target!;
-                    break;
-
-                default:
-                    return false;
+                return false;
             }
         }
 
         return true;
+    }
+
+    private IEnumerable<string> RelativeSegments(string candidate) =>
+        Path.GetRelativePath(Root, candidate)
+            .Split(Path.DirectorySeparatorChar)
+            .Where(segment => segment.Length > 0 && !string.Equals(segment, ".", StringComparison.Ordinal));
+
+    private bool TryAdvanceSegment(string segment, ref string current)
+    {
+        current = Path.Combine(current, segment);
+        switch (Link(current, out string? target))
+        {
+            case LinkKind.None:
+                return true;
+
+            // Walking continues from where the link actually lands, so a chain of links
+            // inside the bundle stays readable and the first one that leaves is refused.
+            case LinkKind.Followed when IsInside(target!):
+                current = target!;
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>What a filesystem entry turned out to be when asked whether it is a symlink.</summary>
@@ -287,19 +293,13 @@ public sealed class OkfBundle
         target = null;
         try
         {
-            FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            FileSystemInfo entry = EntryAt(path);
             if (entry.LinkTarget is null)
             {
                 return LinkKind.None;
             }
 
-            if (entry.ResolveLinkTarget(returnFinalTarget: true) is not { } resolved)
-            {
-                return LinkKind.Unfollowable;
-            }
-
-            target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved.FullName));
-            return LinkKind.Followed;
+            return ResolveTarget(entry, out target);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -307,36 +307,63 @@ public sealed class OkfBundle
         }
     }
 
+    private static FileSystemInfo EntryAt(string path) =>
+        Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+
+    private static LinkKind ResolveTarget(FileSystemInfo entry, out string? target)
+    {
+        target = null;
+        if (entry.ResolveLinkTarget(returnFinalTarget: true) is not { } resolved)
+        {
+            return LinkKind.Unfollowable;
+        }
+
+        target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved.FullName));
+        return LinkKind.Followed;
+    }
+
     private void Collect(string directory, string pattern, List<string> files)
+    {
+        CollectFiles(directory, pattern, files);
+        CollectDirectories(directory, pattern, files);
+    }
+
+    private void CollectFiles(string directory, string pattern, List<string> files)
     {
         foreach (string file in Directory.EnumerateFiles(directory, pattern))
         {
-            if (IgnoredMetadataNames.Contains(Path.GetFileName(file)))
-            {
-                continue;
-            }
-
-            // A file symlink is the one way left for the walk to read a file the bundle does
-            // not contain: directory links are never descended into, but a link named
-            // `notes.md` pointing at `~/.ssh/id_rsa` would otherwise be linted, indexed and
-            // searched as bundle content.
-            if (Link(file, out string? target) is LinkKind.None || (target is not null && IsInside(target)))
+            if (ShouldCollectFile(file))
             {
                 files.Add(file);
             }
         }
+    }
 
+    private bool ShouldCollectFile(string file)
+    {
+        if (IgnoredMetadataNames.Contains(Path.GetFileName(file)))
+        {
+            return false;
+        }
+
+        // A file symlink is the one way left for the walk to read a file the bundle does
+        // not contain: directory links are never descended into, but a link named
+        // `notes.md` pointing at `~/.ssh/id_rsa` would otherwise be linted, indexed and
+        // searched as bundle content.
+        return Link(file, out string? target) is LinkKind.None || (target is not null && IsInside(target));
+    }
+
+    private void CollectDirectories(string directory, string pattern, List<string> files)
+    {
         foreach (DirectoryInfo child in new DirectoryInfo(directory).EnumerateDirectories())
         {
-            // A directory symlink is never descended into. Pointing one at an ancestor
-            // makes the walk recur until the OS refuses the path — every level of which
-            // re-lints the same files under a longer name — and pointing one outside the
-            // bundle would lint files the bundle does not contain. `LinkTarget` is
-            // non-null exactly for symlinks and other reparse points.
-            if (!IgnoredMetadataNames.Contains(child.Name) && child.LinkTarget is null)
+            if (ShouldDescendInto(child))
             {
                 Collect(child.FullName, pattern, files);
             }
         }
     }
+
+    private static bool ShouldDescendInto(DirectoryInfo child) =>
+        !IgnoredMetadataNames.Contains(child.Name) && child.LinkTarget is null;
 }

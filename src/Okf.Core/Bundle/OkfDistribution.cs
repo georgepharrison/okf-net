@@ -246,71 +246,215 @@ public sealed class OkfDistributionManifest
 
         using (document)
         {
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || StrictJson.String(root, "generatedAt") is not { Length: > 0 } generatedAt
-                || StrictJson.String(root, "generator") is not { Length: > 0 } generator)
-            {
-                return null;
-            }
-
-            List<OkfDistributionFile> files = new List<OkfDistributionFile>();
-            if (root.TryGetProperty("files", out JsonElement recorded) && recorded.ValueKind == JsonValueKind.Array)
-            {
-                foreach (JsonElement file in recorded.EnumerateArray())
-                {
-                    if (file.ValueKind == JsonValueKind.Object
-                        && StrictJson.String(file, "path") is { Length: > 0 } path
-                        && StrictJson.String(file, "sha256") is { Length: > 0 } sha256)
-                    {
-                        files.Add(new OkfDistributionFile(path, sha256));
-                    }
-                }
-            }
-
-            List<OkfExternalLink> links = new List<OkfExternalLink>();
-            if (root.TryGetProperty("externalLinks", out JsonElement external) && external.ValueKind == JsonValueKind.Array)
-            {
-                foreach (JsonElement link in external.EnumerateArray())
-                {
-                    if (link.ValueKind == JsonValueKind.Object
-                        && StrictJson.String(link, "from") is { Length: > 0 } from
-                        && StrictJson.String(link, "to") is { } to)
-                    {
-                        links.Add(new OkfExternalLink(from, to, StrictJson.String(link, "bundle")));
-                    }
-                }
-            }
-
-            List<string> bundles = new List<string>();
-            if (root.TryGetProperty("bundles", out JsonElement named) && named.ValueKind == JsonValueKind.Array)
-            {
-                foreach (JsonElement bundle in named.EnumerateArray())
-                {
-                    if (bundle.ValueKind == JsonValueKind.String && bundle.GetString() is { Length: > 0 } name)
-                    {
-                        bundles.Add(name);
-                    }
-                }
-            }
-
-            return new OkfDistributionManifest(
-                generator,
-                StrictJson.String(root, "sourceVault"),
-                generatedAt,
-                bundles,
-                links,
-                files,
-                root.TryGetProperty("manifestVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number
-                    ? version.GetInt32()
-                    : CurrentVersion,
-                StrictJson.String(root, "okfVersion") ?? SpecVersion);
+            return ParseDocument(document.RootElement);
         }
     }
 
+    private static OkfDistributionManifest? ParseDocument(JsonElement root)
+    {
+        if (ReadHeader(root) is not { } header)
+        {
+            return null;
+        }
+
+        return new OkfDistributionManifest(
+            header.Generator,
+            StrictJson.String(root, "sourceVault"),
+            header.GeneratedAt,
+            ReadBundles(root),
+            ReadExternalLinks(root),
+            ReadFiles(root),
+            ReadManifestVersion(root),
+            ReadOkfVersion(root));
+    }
+
+    private static ManifestHeader? ReadHeader(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || StrictJson.String(root, "generatedAt") is not { Length: > 0 } generatedAt
+            || StrictJson.String(root, "generator") is not { Length: > 0 } generator)
+        {
+            return null;
+        }
+
+        return new ManifestHeader(generator, generatedAt);
+    }
+
+    private static List<OkfDistributionFile> ReadFiles(JsonElement root)
+    {
+        List<OkfDistributionFile> files = new List<OkfDistributionFile>();
+        if (!TryReadArray(root, "files", out JsonElement recorded))
+        {
+            return files;
+        }
+
+        foreach (JsonElement file in recorded.EnumerateArray())
+        {
+            if (ReadFile(file) is { } recordedFile)
+            {
+                files.Add(recordedFile);
+            }
+        }
+
+        return files;
+    }
+
+    private static OkfDistributionFile? ReadFile(JsonElement file)
+    {
+        if (file.ValueKind != JsonValueKind.Object
+            || StrictJson.String(file, "path") is not { Length: > 0 } path
+            || StrictJson.String(file, "sha256") is not { Length: > 0 } sha256)
+        {
+            return null;
+        }
+
+        return new OkfDistributionFile(path, sha256);
+    }
+
+    private static List<OkfExternalLink> ReadExternalLinks(JsonElement root)
+    {
+        List<OkfExternalLink> links = new List<OkfExternalLink>();
+        if (!TryReadArray(root, "externalLinks", out JsonElement external))
+        {
+            return links;
+        }
+
+        foreach (JsonElement link in external.EnumerateArray())
+        {
+            if (ReadExternalLink(link) is { } externalLink)
+            {
+                links.Add(externalLink);
+            }
+        }
+
+        return links;
+    }
+
+    private static OkfExternalLink? ReadExternalLink(JsonElement link)
+    {
+        if (link.ValueKind != JsonValueKind.Object
+            || StrictJson.String(link, "from") is not { Length: > 0 } from
+            || StrictJson.String(link, "to") is not { } to)
+        {
+            return null;
+        }
+
+        return new OkfExternalLink(from, to, StrictJson.String(link, "bundle"));
+    }
+
+    private static List<string> ReadBundles(JsonElement root)
+    {
+        List<string> bundles = new List<string>();
+        if (!TryReadArray(root, "bundles", out JsonElement named))
+        {
+            return bundles;
+        }
+
+        foreach (JsonElement bundle in named.EnumerateArray())
+        {
+            if (ReadBundleName(bundle) is { } name)
+            {
+                bundles.Add(name);
+            }
+        }
+
+        return bundles;
+    }
+
+    private static string? ReadBundleName(JsonElement bundle) =>
+        bundle.ValueKind == JsonValueKind.String && bundle.GetString() is { Length: > 0 } name ? name : null;
+
+    private static bool TryReadArray(JsonElement root, string propertyName, out JsonElement array)
+    {
+        array = default;
+        return root.TryGetProperty(propertyName, out array) && array.ValueKind == JsonValueKind.Array;
+    }
+
+    private static int ReadManifestVersion(JsonElement root) =>
+        root.TryGetProperty("manifestVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number
+            ? version.GetInt32()
+            : CurrentVersion;
+
+    private static string ReadOkfVersion(JsonElement root) => StrictJson.String(root, "okfVersion") ?? SpecVersion;
+
     /// <summary>Renders the manifest as the JSON the distribution carries.</summary>
     /// <returns>The JSON text, newline-terminated.</returns>
-    public string ToJson()
+    public string ToJson() => RenderJson(WriteManifest);
+
+    private void WriteManifest(Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+        WriteHeader(writer);
+        WriteSourceVault(writer);
+        writer.WriteString("generatedAt", GeneratedAt);
+        WriteNamedItems(writer, "bundles", Bundles, static (json, bundle) => json.WriteStringValue(bundle));
+        WriteNamedItems(writer, "externalLinks", ExternalLinks, WriteExternalLink);
+        WriteNamedItems(writer, "files", Files, WriteFile);
+        writer.WriteEndObject();
+    }
+
+    private void WriteHeader(Utf8JsonWriter writer)
+    {
+        writer.WriteNumber("manifestVersion", ManifestVersion);
+        writer.WriteString("okfVersion", OkfVersion);
+        writer.WriteString("generator", Generator);
+    }
+
+    private void WriteSourceVault(Utf8JsonWriter writer)
+    {
+        if (SourceVault is null)
+        {
+            writer.WriteNull("sourceVault");
+            return;
+        }
+
+        writer.WriteString("sourceVault", SourceVault);
+    }
+
+    private static void WriteExternalLink(Utf8JsonWriter writer, OkfExternalLink link)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("from", link.From);
+        writer.WriteString("to", link.To);
+        WriteNullableString(writer, "bundle", link.Bundle);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteFile(Utf8JsonWriter writer, OkfDistributionFile file)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("path", file.Path);
+        writer.WriteString("sha256", file.Sha256);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteNullableString(Utf8JsonWriter writer, string propertyName, string? value)
+    {
+        if (value is null)
+        {
+            writer.WriteNull(propertyName);
+            return;
+        }
+
+        writer.WriteString(propertyName, value);
+    }
+
+    private static void WriteNamedItems<T>(
+        Utf8JsonWriter writer,
+        string propertyName,
+        IEnumerable<T> items,
+        Action<Utf8JsonWriter, T> writeItem)
+    {
+        writer.WriteStartArray(propertyName);
+        foreach (T item in items)
+        {
+            writeItem(writer, item);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static string RenderJson(Action<Utf8JsonWriter> write)
     {
         using MemoryStream buffer = new MemoryStream();
         JsonWriterOptions options = new JsonWriterOptions
@@ -321,62 +465,11 @@ public sealed class OkfDistributionManifest
 
         using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer, options))
         {
-            writer.WriteStartObject();
-            writer.WriteNumber("manifestVersion", ManifestVersion);
-            writer.WriteString("okfVersion", OkfVersion);
-            writer.WriteString("generator", Generator);
-            if (SourceVault is null)
-            {
-                writer.WriteNull("sourceVault");
-            }
-            else
-            {
-                writer.WriteString("sourceVault", SourceVault);
-            }
-
-            writer.WriteString("generatedAt", GeneratedAt);
-
-            writer.WriteStartArray("bundles");
-            foreach (string bundle in Bundles)
-            {
-                writer.WriteStringValue(bundle);
-            }
-
-            writer.WriteEndArray();
-
-            writer.WriteStartArray("externalLinks");
-            foreach (OkfExternalLink link in ExternalLinks)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("from", link.From);
-                writer.WriteString("to", link.To);
-                if (link.Bundle is null)
-                {
-                    writer.WriteNull("bundle");
-                }
-                else
-                {
-                    writer.WriteString("bundle", link.Bundle);
-                }
-
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-
-            writer.WriteStartArray("files");
-            foreach (OkfDistributionFile file in Files)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("path", file.Path);
-                writer.WriteString("sha256", file.Sha256);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
+            write(writer);
         }
 
         return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
     }
+
+    private sealed record ManifestHeader(string Generator, string GeneratedAt);
 }
