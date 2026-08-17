@@ -200,19 +200,31 @@ internal sealed class BundleArguments
     private List<string> VerifyConflicts()
     {
         List<string> conflicting = new List<string>();
-        AddConflict(conflicting, Output is not null, "--out");
-        AddConflict(conflicting, Format is not null, "--format");
-        AddConflict(conflicting, _bundles.Count > 0, "--bundle");
-        AddConflict(conflicting, Lint, "--lint");
-        AddConflict(conflicting, Path is not null, $"a path ('{Path}')");
-        return conflicting;
-    }
-
-    private static void AddConflict(List<string> conflicting, bool present, string option)
-    {
-        if (present)
+        if (Output is not null)
         {
-            conflicting.Add(option);
+            conflicting.Add("--out");
         }
+
+        if (Format is not null)
+        {
+            conflicting.Add("--format");
+        }
+
+        if (_bundles.Count > 0)
+        {
+            conflicting.Add("--bundle");
+        }
+
+        if (Lint)
+        {
+            conflicting.Add("--lint");
+        }
+
+        if (Path is not null)
+        {
+            conflicting.Add($"a path ('{Path}')");
+        }
+
+        return conflicting;
     }
 }

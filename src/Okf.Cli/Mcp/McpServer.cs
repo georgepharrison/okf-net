@@ -166,7 +166,7 @@ internal sealed class McpServer
     {
         try
         {
-            Respond(request.Root, request.IsRequest, request.Identifier);
+            Respond(request);
         }
         catch (McpProtocolException exception)
         {
@@ -197,21 +197,21 @@ internal sealed class McpServer
     /// rather than in <see cref="Handle" />, which owns the one place a failure is turned
     /// back into a response.
     /// </summary>
-    private void Respond(JsonElement root, bool isRequest, JsonElement? identifier)
+    private void Respond(IncomingRequest request)
     {
-        if (!HasJsonRpcVersion(root))
+        if (!HasJsonRpcVersion(request.Root))
         {
-            RefuseIfRequest(isRequest, identifier, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
+            RefuseIfRequest(request, $"Every message must carry \"jsonrpc\": \"{JsonRpcVersion}\".");
             return;
         }
 
-        if (!root.TryGetProperty("method", out JsonElement method) || method.ValueKind != JsonValueKind.String)
+        if (!request.Root.TryGetProperty("method", out JsonElement method) || method.ValueKind != JsonValueKind.String)
         {
-            RefuseIfRequest(isRequest, identifier, "A JSON-RPC message must carry a string \"method\".");
+            RefuseIfRequest(request, "A JSON-RPC message must carry a string \"method\".");
             return;
         }
 
-        if (!isRequest)
+        if (!request.IsRequest)
         {
             // Nothing okf-net exposes changes on a notification: it has no subscriptions
             // and no write tools (MCP-4). `notifications/initialized` and the rest are
@@ -219,8 +219,10 @@ internal sealed class McpServer
             return;
         }
 
-        JsonElement? parameters = root.TryGetProperty("params", out JsonElement value) ? value : (JsonElement?)null;
-        Dispatch(method.GetString()!, parameters, identifier);
+        JsonElement? parameters = request.Root.TryGetProperty("params", out JsonElement value)
+            ? value
+            : (JsonElement?)null;
+        Dispatch(method.GetString()!, parameters, request.Identifier);
     }
 
     private static bool HasJsonRpcVersion(JsonElement root) =>
@@ -228,11 +230,11 @@ internal sealed class McpServer
         && version.ValueKind == JsonValueKind.String
         && string.Equals(version.GetString(), JsonRpcVersion, StringComparison.Ordinal);
 
-    private void RefuseIfRequest(bool isRequest, JsonElement? identifier, string message)
+    private void RefuseIfRequest(IncomingRequest request, string message)
     {
-        if (isRequest)
+        if (request.IsRequest)
         {
-            WriteError(identifier, InvalidRequest, message);
+            WriteError(request.Identifier, InvalidRequest, message);
         }
     }
 

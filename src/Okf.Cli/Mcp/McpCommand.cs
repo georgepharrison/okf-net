@@ -137,7 +137,7 @@ internal static class McpCommand
         // AD-30: the scope is fixed here, at launch, and no tool argument can widen it. A
         // client that wants a different scope launches a different server.
         McpToolset tools = new McpToolset(environment, parsed.Path, settings.Scope);
-        return Ready(tools, settings, parsed.Verbose, error) ? tools : null;
+        return Ready(tools, settings, parsed, error) ? tools : null;
     }
 
     private static ScopeSettings? ResolvedScope(
@@ -173,12 +173,16 @@ internal static class McpCommand
     /// cannot say which bundles it serves is a startup failure (exit 2, PRD §3's CLI
     /// surface table), not a run of tools that all fail the same way.
     /// </summary>
-    private static bool Ready(McpToolset tools, ScopeSettings settings, bool verbose, TextWriter error)
+    private static bool Ready(
+        McpToolset tools,
+        ScopeSettings settings,
+        ParsedArguments arguments,
+        TextWriter error)
     {
         try
         {
             OkfWorkingSet workingSet = tools.Resolve();
-            if (verbose)
+            if (arguments.Verbose)
             {
                 VerboseReport.Scope(error, settings);
                 VerboseReport.WorkingSet(error, workingSet, tools.Notes);

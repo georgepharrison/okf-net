@@ -69,7 +69,9 @@ internal static class IndexCommand
         OkfWorkingSet workingSet = OkfDiscovery.Resolve(arguments.Path, environment);
 
         WriteVerbose(arguments, workingSet, error);
-        List<OkfIndexPlan> plans = Plan(workingSet, arguments.Check);
+        List<OkfIndexPlan> plans = arguments.Check
+            ? PlanWithoutWriting(workingSet)
+            : PlanAndApply(workingSet);
         List<OkfIndex> indexes = plans.SelectMany(plan => plan.Indexes).ToList();
         WriteReport(new IndexReport(arguments, plans, indexes, environment.CurrentDirectory), output);
 
@@ -93,15 +95,15 @@ internal static class IndexCommand
             : "okf: writing generated index.md files");
     }
 
-    private static List<OkfIndexPlan> Plan(OkfWorkingSet workingSet, bool checkOnly)
+    private static List<OkfIndexPlan> PlanWithoutWriting(OkfWorkingSet workingSet) =>
+        workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
+
+    private static List<OkfIndexPlan> PlanAndApply(OkfWorkingSet workingSet)
     {
-        List<OkfIndexPlan> plans = workingSet.Bundles.Select(bundle => OkfIndexGenerator.Plan(bundle)).ToList();
-        if (!checkOnly)
+        List<OkfIndexPlan> plans = PlanWithoutWriting(workingSet);
+        foreach (OkfIndexPlan plan in plans)
         {
-            foreach (OkfIndexPlan plan in plans)
-            {
-                OkfIndexGenerator.Apply(plan);
-            }
+            OkfIndexGenerator.Apply(plan);
         }
 
         return plans;

@@ -18,6 +18,8 @@ internal enum RegistryAction
 /// </summary>
 internal sealed class RegistryArguments
 {
+    private bool _actionSeen;
+
     private RegistryArguments()
     {
     }
@@ -53,7 +55,6 @@ internal sealed class RegistryArguments
     public static RegistryArguments Parse(string[] args, string verb, bool subcommands)
     {
         RegistryArguments parsed = new RegistryArguments();
-        bool actionSeen = false;
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -77,7 +78,15 @@ internal sealed class RegistryArguments
                     break;
 
                 default:
-                    parsed.TakeOperand(argument, verb, subcommands, ref actionSeen);
+                    if (subcommands)
+                    {
+                        parsed.TakeAction(argument, verb);
+                    }
+                    else
+                    {
+                        parsed.TakeTarget(argument, verb);
+                    }
+
                     break;
             }
         }
@@ -90,28 +99,37 @@ internal sealed class RegistryArguments
             ? argument["--format=".Length..]
             : CliArguments.Next(args, ref index, "--format");
 
-    private void TakeOperand(string argument, string verb, bool subcommands, ref bool actionSeen)
+    private void TakeAction(string argument, string verb)
+    {
+        RejectUnknownOption(argument);
+        if (_actionSeen)
+        {
+            throw new OkfConfigException(
+                $"`okf {verb}` takes at most one argument; got '{argument}' and '{argument}'.");
+        }
+
+        Action = ParseAction(argument);
+        _actionSeen = true;
+    }
+
+    private void TakeTarget(string argument, string verb)
+    {
+        RejectUnknownOption(argument);
+        if (Target is not null)
+        {
+            throw new OkfConfigException(
+                $"`okf {verb}` takes at most one argument; got '{Target}' and '{argument}'.");
+        }
+
+        Target = argument;
+    }
+
+    private static void RejectUnknownOption(string argument)
     {
         if (argument.StartsWith('-') && argument.Length > 1)
         {
             throw new OkfConfigException($"Unknown option '{argument}'.");
         }
-
-        if (subcommands && !actionSeen)
-        {
-            Action = ParseAction(argument);
-            actionSeen = true;
-            return;
-        }
-
-        if (Target is null && !subcommands)
-        {
-            Target = argument;
-            return;
-        }
-
-        throw new OkfConfigException(
-            $"`okf {verb}` takes at most one argument; got '{Target ?? argument}' and '{argument}'.");
     }
 
     private static RegistryAction ParseAction(string argument) => argument switch
