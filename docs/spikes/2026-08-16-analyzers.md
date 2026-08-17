@@ -204,22 +204,36 @@ the repo are still filtered and never tripped CA1031.
 No new rule appeared once these landed — `dotnet build Okf.sln` went straight to
 0 errors after the above.
 
-## Two flags for Ringo
+## Two flags for Ringo — resolved 2026-08-16
 
-Neither is this change's to decide, and both are recorded here so the config does
-not quietly become the ruling.
+Both landed on `31-style-enforced`, the second half of #31, same day.
 
-**Private field naming.** `.editorconfig` says camelCase with no underscore,
-because that is what all 44 private fields in the repo are today. Ringo's ruling
-of 2026-08-15 was `_camelCase`, "non-negotiable"; the orchestrator's 2026-08-16
-comment on #31 holds it at camelCase until he says otherwise. One line in
-`.editorconfig` and one fixer run is the whole change when he calls it.
+**Private field naming.** `_camelCase`, severity `error`. All 51 private
+instance fields in the repo were renamed by a scripted Roslyn `Renamer` (the
+`IDE1006` code fix does not support Fix-All in Solution, so `dotnet format`
+alone could not do it — see `docs/decisions.md`'s #31 entry). No `this.`-qualified
+member reference survives in `src/` or `tests/` (342 occurrences down to 6, all six
+the English word in a comment or fixture string): `dotnet_style_qualification_for_field`
+was promoted to `error` alongside the naming rule, since the prefix makes the
+qualifier dead weight. Private `static` fields (readonly or not) got their own,
+more specific naming rule and stayed `PascalCase` — the ruling text never
+named statics, so they default to what all 37 already were, which is now an
+enforced default rather than a coincidence.
 
-**`var`.** Set to `true:suggestion` — the preference matches the ~3700 `var`
-sites in the tree, so IDE0007/IDE0008 stay quiet. Ringo's ruling is the opposite:
-explicit types plus target-typed `new`, `var` only for anonymous types. That is a
-tree-wide rewrite and the second half of #31, not this change. Flipping the three
-`csharp_style_var_*` lines to `false:warning` is what starts it.
+**`var`.** `false:error` in `src/`, IDE0008 (`csharp_style_var_for_built_in_types`,
+`_when_type_is_apparent`, `_elsewhere`). 1,219 sites converted by `dotnet format
+Okf.sln --severity error`, two passes (`--severity error` fixes converge, they
+do not resolve in one pass). The fixer is exact on plain locals but not on tuple
+deconstructions, where it annotates every reference-type element `T?` whatever the
+producing method declares: `OkfUpgradeVersion.cs`'s `(string? core, string _)` should
+read `(string core, string? _)` — `Split`'s `Core` is non-nullable and its `Prerelease`
+is nullable, and swapping them was the one case the compiler caught (`CS8600`). Widening
+is otherwise legal and silent, so every element the fixer declared was checked against
+its source's declared type by hand: 55 narrowed across 45 sites — assignment
+deconstructions, `foreach` tuple deconstructions, and `foreach` element declarations over
+non-nullable sequences. A wrong narrowing is `CS8600`, so the 0-warning build proves them.
+`[tests/**/*.cs]` reverts the three keys to `true:silent`:
+the ruling names a rewrite, not a scope, and never mentions tests.
 
 ## Update, later the same day (#59)
 

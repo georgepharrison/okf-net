@@ -3790,3 +3790,126 @@ HEAD, after all five.
 `OkfAgentPointer`, `OkfScope`, and the five corresponding CLI verbs, landed in earlier work
 items (#43–#49 per `NEXT-SESSION.md`'s plan) before this session started. All are sliced
 into their folders below; nothing was left flat.
+
+### Proposed decisions: C# idiom enforced by configuration (work item #31, 2026-08-16)
+
+The second half of #31. `docs/spikes/2026-08-16-analyzers.md` (2026-08-16, step A1) held
+two rulings rather than make them, because both are tree-wide rewrites and not that
+session's change. This session's brief pointed at `docs/decisions.md` for Ringo's
+2026-08-15 rulings; a grep of this file turns up nothing under that date for either — the
+rulings are recorded only in the spike's "Two flags for Ringo" section, quoted here so the
+record has them in one place too:
+
+> Ringo's ruling of 2026-08-15 was `_camelCase`, "non-negotiable"
+>
+> Ringo's ruling is the opposite: explicit types plus target-typed `new`, `var` only for
+> anonymous types
+
+Neither ruling mentions test code or `static` fields, so both boundaries below are this
+session's read of that silence, not Ringo's words:
+
+- **Private instance fields → `_camelCase`, `error`.** `dotnet_naming_rule.private_fields_are_camel_case`
+  now styles to `camel_case_underscore` (a new style — the existing `camel_case` style is
+  shared with `locals_and_parameters` and must not gain the prefix) at severity `error`.
+  `dotnet_style_qualification_for_field` is promoted from `suggestion` to `error` alongside
+  it: `this.` existed only to disambiguate a field from a same-spelled constructor
+  parameter, which the underscore now does, so a surviving `this.field` is dead
+  qualification and IDE0003 removes it.
+- **Private `static` fields stay `PascalCase`, default.** The ruling text names "private
+  fields" and never carves out `static`. Rather than read that as "flip everything,"
+  `dotnet_naming_symbols.private_static_fields` (kind `field`, accessibility `private`,
+  `required_modifiers = static`) is a narrower, more specific group than `private_fields`
+  and is matched first, styled `pascal_case`. This is a default because the ruling is
+  silent, not a decision: it costs nothing, because it is what all 37 `private static
+  readonly` fields in the repo already were — 24 in `src/` and 13 in `tests/`, and the
+  rule is scoped `[*.cs]`, so both trees are what it had to agree with.
+- **Constants are unchanged.** `constant_fields` (kind `field`, `required_modifiers =
+  const`) was already narrower than `private_fields` and still wins by the same
+  specificity rule; PascalCase, untouched.
+- **`var` → explicit types, `error`, in `src/` only.** `csharp_style_var_for_built_in_types`,
+  `_when_type_is_apparent`, `_elsewhere` flip to `false:error` (IDE0008) at the `[*.cs]`
+  scope, which reaches both `src/` and `tests/`. A new `[tests/**/*.cs]` block (added
+  alongside the existing analyzer-downgrade block of the same selector) reverts the three
+  keys to `true:silent`: the ruling names a rewrite, not a scope, and test bodies read
+  fine with `var sut = new OkfBundle(...)` — the type is already on the line. Silent, not
+  `none`, so the IDE still offers `var` as a preference rather than staying quiet about it
+  either way.
+
+**Mechanical application, zero hand-edits of logic.** `dotnet format Okf.sln --severity
+error` converted 1,219 `var` sites in `src/` to explicit types (two passes — the first
+pass's fixes uncover further sites a single pass does not reach) and zero in `tests/`,
+confirmed by a line-paired diff (`git diff origin/dev -- src` / `-- tests`, matching
+removed lines containing `\bvar\b` against their replacement).
+
+**Where the fixer is not faithful: tuple deconstructions.** On plain locals the fixer
+writes the exact inferred type, nullability included — `Path.GetDirectoryName` yields
+`string?`, `FirstOrDefault` yields `T?`, and all 69 nullable-annotated locals it
+introduced in `src/` check out against their initializer. On a *tuple deconstruction* it
+does not: it annotates every reference-type element `T?` whatever the producing method
+declares. Exactly one instance tripped the compiler — `OkfUpgradeVersion.cs`'s
+`(string? core, string _) = Split(version)`, where `Split` returns
+`(string Core, string? Prerelease)`, so the two annotations were swapped and `CS8600`
+fired. The rest are silent, because widening a local from `string` to `string?` is legal
+and the compiler's flow analysis still knows the value is not null. Silent is not
+harmless: `var` always meant the exact type, so an explicit type that is wider is the one
+place this rewrite could drift from what it replaced.
+
+Every element the fixer declared is therefore checked against its source's declared type
+and narrowed where it was widened — 55 elements across 45 sites in 26 files, in three
+shapes:
+
+- **Assignment deconstructions** (22 elements): 12 of them the
+  `(string Name, string? Value) = CliArguments.Split(...)` site repeated once per
+  `*Arguments.cs`, plus `Views`, `Classify`, `Register`, `ReadManifest`, `Match`,
+  `ResolveWithSource` and `Split`.
+- **`foreach` tuple deconstructions** (14 elements over 7 loops): `Contents` in
+  `OkfBundler.cs` ×3, `ValueGroups` in `CompletionCommand.cs` ×3, `CapturedItem.Files`
+  in `OkfCaptureWriter.cs`.
+- **`foreach` element declarations** (16): `foreach (T? x in seq)` where `seq` is an
+  `IEnumerable<T>`, mostly a `.Where(...)` over a non-nullable collection.
+
+Three sites were already right and are untouched, because their sources really are
+nullable: `Describe`, `LatestVerification`, and the `foreach (OkfConfig? config in new[]
+{ global, project })` pair in `LintCommand.cs` and `OkfVerifyIdentity.cs`. The narrowing
+is self-checking: writing `T` where the source is `T?` is `CS8600`, which
+`TreatWarningsAsErrors` turns into a build failure, so a 0-warning build is proof every
+one of the 55 is right. And they are annotations only — nullable reference types are
+erased at runtime, which the byte-identical CLI outputs below confirm.
+
+The naming rename could not go through `dotnet format` at all: `NamingStyleCodeFixProvider`
+(the `IDE1006` code fix) does not support Fix-All in Solution or in Project, confirmed by
+running `dotnet format` at both scopes and by scoping to a single `--include` file — same
+message every time. Per the brief's fallback, a small Roslyn console tool (`MSBuildWorkspace`
+and `Renamer.RenameSymbolAsync`, not checked into the repo) opened `Okf.sln`, found every
+private, non-const, non-static field symbol whose name did not already start with `_`, and
+renamed it — one symbol per pass, re-resolving the symbol against the current solution each
+time because a `Solution` from a prior rename is stale for the next. This is safer than a
+regex rename: it is the same semantic rename Visual Studio's own "Rename" performs, so a
+field and an unrelated identifier that merely share text (e.g. a constructor parameter
+named the same as its field, which this codebase's `this.`-qualification convention
+depended on) cannot collide. It renamed 51 fields across `src/` and `tests/`; the follow-up
+`dotnet format` pass (with `dotnet_style_qualification_for_field = error`) then stripped
+every now-redundant `this.` — 342 occurrences across `src/` and `tests/` down to 6, all
+six of which are the English word "this." at the end of a sentence in a comment or test
+fixture string, not code. Not one `this.`-qualified member reference survives in either
+tree.
+
+**What this is not.** `dotnet format --verify-no-changes --severity error` still reports
+four `IDE1006` findings in `tests/Okf.Core.Tests` (`FileLayoutTests.cs` ×2 line pairs,
+`OkfBundlerTests.cs` ×1) — local `const string Text = "..."`/`const string Vector = "..."`
+declarations naming a *local*, not a field, PascalCase. Confirmed present on `origin/dev`
+unmodified (a throwaway worktree at `ab0dc30` shows the identical 82 total `IDE1006` hits
+before this branch's changes, including these), and confirmed harmless to the actual gate:
+`dotnet build Okf.sln` is 0 warnings, 0 errors on both commits, because `dotnet build` and
+`dotnet format --verify-no-changes` disagree about whether these particular findings
+surface — a pre-existing divergence between the two tools, not something #31 introduced or
+was asked to fix. Left alone.
+
+**Verified, unchanged from before this commit:** `dotnet build Okf.sln` (0 warnings, 0
+errors, new naming/`var` rules are `error` so the build is the proof the tree conforms);
+`dotnet test Okf.sln` (647 `Okf.Cli.Tests` — 646 passed, 1 skipped; 1,117 `Okf.Core.Tests`,
+all passed — identical counts to `origin/dev`); `mise run lint`; `mise run cli -- lint
+okf/`; `mise run cli -- index --check okf/bundles/okf-net`; `mise run trim-check`; and
+`okf help` / `okf lint okf/` / `okf search --json okf` byte-identical to an `origin/dev`
+build. This is a formatting-only commit — identifier and keyword swaps, nothing that
+changes what the tree does — kept separate from any future logic change, per the issue.
