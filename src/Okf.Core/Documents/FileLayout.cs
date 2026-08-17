@@ -36,51 +36,18 @@ internal sealed class FileLayout
     /// <returns>The layout.</returns>
     public static FileLayout Of(string text)
     {
-        string[] lines = text.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            lines[i] = lines[i].TrimEnd('\r');
-        }
-
-        // A trailing newline terminates the last line rather than starting an empty one,
-        // matching how OkfDocument splits the same text.
-        if (lines.Length > 0 && lines[^1].Length == 0)
-        {
-            lines = lines[..^1];
-        }
-
-        if (lines.Length == 0 || lines[0].Trim() != OkfDocument.FrontmatterDelimiter)
+        string[] lines = SplitLines(text);
+        if (lines.Length == 0 || !IsDelimiter(lines[0]))
         {
             return new FileLayout(text, lines, 0, text, 1);
         }
 
-        int end = -1;
-        for (int i = 1; i < lines.Length; i++)
-        {
-            if (lines[i].Trim() == OkfDocument.FrontmatterDelimiter)
-            {
-                end = i;
-                break;
-            }
-        }
+        int end = ClosingDelimiterIndex(lines);
 
-        if (end < 0)
-        {
-            // Unterminated: OkfDocument.Parse reports it; there is no body to line up.
-            return new FileLayout(text, lines, 0, string.Empty, 1);
-        }
-
-        string body = string.Join('\n', lines.Skip(end + 1));
-
-        // OkfDocument.Parse consumes a single newline after the closing fence, so the
-        // body's first line is the one after the blank separator when there is one.
-        bool consumesBlank = end + 1 < lines.Length && lines[end + 1].Length == 0;
-        if (consumesBlank)
-        {
-            body = body[1..];
-        }
-
-        return new FileLayout(text, lines, end, body, end + (consumesBlank ? 3 : 2));
+        // Unterminated: OkfDocument.Parse reports it; there is no body to line up.
+        return end < 0
+            ? new FileLayout(text, lines, 0, string.Empty, 1)
+            : WithFrontmatterEndingAt(text, lines, end);
     }
 
     /// <summary>
@@ -104,4 +71,45 @@ internal sealed class FileLayout
 
         return null;
     }
+
+    private static FileLayout WithFrontmatterEndingAt(string text, string[] lines, int end)
+    {
+        string body = string.Join('\n', lines.Skip(end + 1));
+
+        // OkfDocument.Parse consumes a single newline after the closing fence, so the
+        // body's first line is the one after the blank separator when there is one.
+        bool consumesBlank = end + 1 < lines.Length && lines[end + 1].Length == 0;
+
+        return consumesBlank
+            ? new FileLayout(text, lines, end, body[1..], end + 3)
+            : new FileLayout(text, lines, end, body, end + 2);
+    }
+
+    private static string[] SplitLines(string text)
+    {
+        string[] lines = text.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            lines[i] = lines[i].TrimEnd('\r');
+        }
+
+        // A trailing newline terminates the last line rather than starting an empty one,
+        // matching how OkfDocument splits the same text.
+        return lines.Length > 0 && lines[^1].Length == 0 ? lines[..^1] : lines;
+    }
+
+    private static int ClosingDelimiterIndex(string[] lines)
+    {
+        for (int i = 1; i < lines.Length; i++)
+        {
+            if (IsDelimiter(lines[i]))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsDelimiter(string line) => line.Trim() == OkfDocument.FrontmatterDelimiter;
 }
