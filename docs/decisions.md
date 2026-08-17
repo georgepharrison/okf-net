@@ -3913,3 +3913,39 @@ okf/`; `mise run cli -- index --check okf/bundles/okf-net`; `mise run trim-check
 `okf help` / `okf lint okf/` / `okf search --json okf` byte-identical to an `origin/dev`
 build. This is a formatting-only commit — identifier and keyword swaps, nothing that
 changes what the tree does — kept separate from any future logic change, per the issue.
+
+### Proposed decisions: SOLID, DI and third-party boundaries (work item #15, 2026-08-17)
+
+The audit and review walked every shipped C# file under `src/Okf.Core` and
+`src/Okf.Cli`, both project files, every shipped `PackageReference`, and every public
+declaration exposed by Core. Its starting rule was AD-6 and AD-9's existing
+architecture, not a pattern checklist: change only a boundary that presently leaks or one
+concept that presently has two
+implementations. The result is 15 KEEP, one CHANGE, and two DEFER rulings.
+
+| Ruling | Candidate | Audit evidence and decision |
+| --- | --- | --- |
+| KEEP | Dependency direction (AD-6) | `Okf.Core.csproj` has no `ProjectReference`; `Okf.Cli.csproj` has the sole shipped project edge, one-way to Core. Nothing in Core references a CLI namespace. |
+| KEEP | Core owns rules; CLI renders them | Spot-checking lint, index, search, inbox, site, bundle and MCP found the adapters calling `OkfLinter`, `OkfIndexGenerator`, `OkfSearchEngine`, `OkfInboxScanner`, `OkfSiteGenerator`, `OkfBundler` and `OkfConceptReader`. Severity resolution, BM25 ranking, trust derivation and staleness classification remain Core decisions; CLI selects formats, writes summaries and JSON, and maps outcomes to exit codes. |
+| KEEP | Core artifact text versus adapter output | Core renders format-defined artifacts: index markdown, scaffolds, distribution manifests and archives, and site HTML. Console summaries, usage text, exit codes and CLI/MCP JSON envelopes remain in `Okf.Cli`. Core's JSON writers describe artifacts, not an adapter response, so moving them would invert AD-6 rather than improve it. |
+| KEEP | YamlDotNet 18.1.0 boundary (AD-9, AD-10) | All YamlDotNet identifiers in shipped code occur in internal `Documents/YamlBridge.cs`. Its boundary methods accept and return `OkfValue`/`string`; no public type and no type visible to CLI exposes `YamlNode`, `YamlStream`, `IEmitter` or another vendor type. |
+| KEEP | Markdig 1.3.2 boundary (AD-9, AD-39) | All Markdig identifiers in shipped code occur in internal `Site/OkfSiteMarkdown.cs`. The file's boundary records and static type are internal, and its callable boundary is strings, `Func<string, OkfSiteLink>` and `OkfSiteBody`; `MarkdownDocument` and the rest of the AST remain private implementation details in that file. A bridge rename or wrapper would add a layer around a boundary already confined as required. |
+| KEEP | `System.Text.Json` | It is a BCL API, not a third-party boundary. The code uses `JsonDocument`, `Utf8JsonReader` and `Utf8JsonWriter` directly without reflective serialization. No `JsonBridge` is justified. |
+| KEEP | Future Spectre and sqlite-vec dependencies | Neither exists in either shipped project. If introduced later, each must pass the exact-version license and AOT gates and keep vendor-shaped types behind one internal file. The vector spike remains outside `Okf.sln`; this audit adds neither package. |
+| KEEP | Hand-rolled argument parsing and MCP | AD-9's readable switches and synchronous JSON-RPC loop remain in place. Adding System.CommandLine, the MCP SDK, a service host or their transitive framework graph would solve no leak found by the audit. |
+| KEEP | Three path-containment resolvers | `OkfBundle.TryResolve` refuses backslashes and follows links, the raw-manifest resolver refuses the root itself, and `LintText` URL-decodes and interprets leading `/` as bundle-relative. They share a shape but not a refusal set; one abstraction would preserve three wrappers while hiding the security differences. |
+| KEEP | `OkfValue.IsTruthy` | Already `internal` from work item #30, with no public rename invented. The stale sentence in #15's issue body is done. |
+| KEEP | Existing dependency seams; no container | `ReadText` delegates, injected `DateOnly today`/options, `OkfEnvironment`, `OkfVerifyIdentity`'s git delegate and `OkfUpgrade.Fetch` already isolate file reads, clocks, process environment and HTTP. Constructor/delegate injection is sufficient. A DI container is rejected: it adds registration machinery and binary weight, invites reflective discovery contrary to AD-9, and weakens AD-8's NativeAOT constraint without buying a missing seam. No service locator is introduced either. |
+| KEEP | SRP, ISP and DIP at the present granularity | The #14 composed-method pass already separated phases inside capability owners. There is one abstract Core model (`OkfValue`) and no interface hierarchy to widen; static functions, small option objects and explicit delegates fit the closed set of implementations. Inventing one-method interfaces for filesystem, clock or renderer operations would obscure the existing seams rather than invert a dependency. |
+| KEEP | Public API shape | No vendor type leaks through public Core members, and CLI sees only okf-net models. The frozen surface gets no new public type and no signature change. Any future boundary helper remains `internal`. |
+| KEEP | Capability folders and namespaces | Work item #59 already re-homed types by capability and IDE0130 enforces it. No type is in a clearly wrong capability, so #15 does not re-slice the tree or redo #14's method extraction. |
+| KEEP | GoF patterns | No tangle found needs a named pattern. Existing small strategies are ordinary delegates (`ReadText`, `Fetch`), and plans/results already separate decisions from effects. Adding factories, adapters or repositories merely to complete a catalogue would increase indirection. |
+| CHANGE | Index/search whitespace collapsing | `OkfIndexGenerator.Flatten` and `OkfSearchEngine.CollapseWhitespace` contain the same `char.IsWhiteSpace` loop with the same pending-space rule and produce the same trimmed, single-space form. Move that loop once into an internal Documents helper and keep each caller's distinct higher-level flattening rules in place. Existing index multiline-description and search snippet-flattening tests independently pin both observable outputs; CLI byte comparisons must confirm the motion. |
+| DEFER | Search versus inbox corpus walk | Both walk concepts and count parse failures, but search honours an injected reader while inbox reads disk. Choosing whether inbox gains that seam is one of contextual DRY's open Ringo rulings and can change observable testability/IO behaviour; #15 does not decide it. |
+| DEFER | `OkfSearchEngine.Concept` versus `OkfConcept` | The search record re-derives identity and frontmatter fields but also owns BM25 weighted terms and length. Unifying it is a search-corpus design, not boundary cleanup, and risks changing ranking or allocations. Keep it private until that refactor has its own evidence and decision. |
+
+The CHANGE is internal code motion only: no bytes, rule, public signature, dependency or
+AOT posture may change. The two DEFER rows are bounded decisions with explicit unresolved
+semantics, not missing cleanup. Everything else already satisfies the spine; the audit is
+therefore a ruling against a container and against pattern-driven churn as much as it is a
+request for one small unification.
