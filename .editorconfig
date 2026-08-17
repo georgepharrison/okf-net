@@ -225,7 +225,7 @@ dotnet_diagnostic.CA1815.severity = none  # public API frozen 2026-08-15; and Ok
 dotnet_diagnostic.CA1032.severity = none  # the exception ctor overloads this asks for are dead API: OkfUpgradeException and McpProtocolException are only ever thrown by okf-net, always with a message
 dotnet_diagnostic.CA1062.severity = none  # redundant under nullable reference types, which Directory.Build.props enables everywhere and TreatWarningsAsErrors already makes a build failure
 dotnet_diagnostic.CA1308.severity = none  # changes behaviour: OkfSeverity.TryParse switches on lowercase spec tokens and OkfUpgrade.Name builds the lowercase asset name `okf-linux-x64`; ToUpperInvariant would need every literal inverted and the asset name would be wrong until it was
-dotnet_diagnostic.IDE0130.severity = none  # namespace-per-folder is what vertical slicing decides, which is step G of the polish plan (#59), not a rename to do ahead of it
+dotnet_diagnostic.IDE0130.severity = error  # #59 (2026-08-16) did the vertical slicing this line was waiting on: src/Okf.Core and src/Okf.Cli are now one folder per capability with the namespace following the folder, so a namespace that drifts from its folder is a build error from here on
 
 #### Test code ####
 #
