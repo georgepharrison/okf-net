@@ -22,7 +22,7 @@ COMMIT = "a" * 40
 class FakeApi:
     def __init__(self, release: dict, releases: list[dict] | None = None, tag_sha: str = COMMIT):
         self.release = release
-        self.releases = releases or [release]
+        self.releases = releases if releases is not None else [release]
         self.tag_sha = tag_sha
         self.calls: list[tuple[str, str]] = []
         self.downloads: dict[str, bytes] = {}
@@ -32,6 +32,8 @@ class FakeApi:
         if path.endswith(f"/git/ref/tags/{TAG}"):
             return {"object": {"sha": self.tag_sha, "type": "commit"}}
         if path.endswith(f"/releases/tags/{TAG}"):
+            return self.release
+        if method == "GET" and path.endswith(f"/releases/{self.release.get('id')}"):
             return self.release
         if path.endswith("/releases?per_page=100&page=1"):
             return self.releases
@@ -148,8 +150,10 @@ class GitHubReleaseTests(unittest.TestCase):
             created_body = None
 
             def request(self, method: str, path: str, body=None):
-                if method == "GET":
+                if "/releases/tags/" in path:
                     raise publish_github_release.ApiError(404, "Not Found")
+                if "/releases?" in path:
+                    return []
                 self.created_body = body
                 return release
 
@@ -160,6 +164,27 @@ class GitHubReleaseTests(unittest.TestCase):
         self.assertIs(result, release)
         self.assertEqual(TAG, api.created_body["tag_name"])
         self.assertNotIn("target_commitish", api.created_body)
+
+    def test_reuses_a_listed_draft_when_the_tag_endpoint_returns_not_found(self):
+        release = release_for(TAG, {})
+
+        class DraftApi:
+            created = False
+
+            def request(self, method: str, path: str, body=None):
+                if "/releases/tags/" in path:
+                    raise publish_github_release.ApiError(404, "Not Found")
+                if "/releases?" in path:
+                    return [release]
+                self.created = True
+                raise AssertionError(f"unexpected API call {method} {path}")
+
+        api = DraftApi()
+
+        result = publish_github_release.release_for_tag(api, REPOSITORY, TAG)
+
+        self.assertIs(result, release)
+        self.assertFalse(api.created)
 
     def test_publish_waits_for_matching_tag_verifies_all_bytes_and_dispatches_pages(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -173,6 +198,7 @@ class GitHubReleaseTests(unittest.TestCase):
             publish_github_release.publish(api, REPOSITORY, TAG, COMMIT, paths, attempts=1, interval=0)
 
             self.assertFalse(release["draft"])
+            self.assertIn(("GET", f"/repos/{REPOSITORY}/releases/{release['id']}"), api.calls)
             self.assertIn(("POST", f"/repos/{REPOSITORY}/dispatches"), api.calls)
             self.assertEqual(
                 [name for name in publish_github_release.EXPECTED_ASSETS

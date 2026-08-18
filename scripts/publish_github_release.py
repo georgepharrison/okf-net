@@ -285,6 +285,24 @@ def is_public_download_url(url: str) -> bool:
     )
 
 
+def listed_release_for_tag(api: GitHubApi, repository: str, tag: str) -> dict[str, Any] | None:
+    """Find a draft by listing releases; GitHub's tag endpoint returns 404 for drafts."""
+    matches: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        batch = api.request(
+            "GET",
+            repository_path(repository, f"/releases?per_page=100&page={page}"),
+        )
+        matches.extend(release for release in batch if release.get("tag_name") == tag)
+        if len(batch) < 100:
+            break
+        page += 1
+    if len(matches) > 1:
+        raise RuntimeError(f"GitHub returned multiple releases for tag {tag}")
+    return matches[0] if matches else None
+
+
 def release_for_tag(api: GitHubApi, repository: str, tag: str) -> dict[str, Any]:
     path = repository_path(repository, f"/releases/tags/{quote(tag, safe='')}")
     try:
@@ -292,20 +310,24 @@ def release_for_tag(api: GitHubApi, repository: str, tag: str) -> dict[str, Any]
     except ApiError as error:
         if error.status != 404:
             raise
-        print(f"==> creating draft GitHub release for {tag}")
-        return api.request(
-            "POST",
-            repository_path(repository, "/releases"),
-            {
-                "tag_name": tag,
-                # The mirrored tag was already resolved to CI_COMMIT_SHA. Omitting
-                # target_commitish prevents this endpoint from attempting any ref write
-                # and keeps the PAT at Contents: write instead of Workflows: write.
-                "name": tag,
-                "draft": True,
-                "prerelease": is_release_candidate(tag),
-            },
-        )
+        release = listed_release_for_tag(api, repository, tag)
+        if release is not None:
+            print(f"==> reusing existing draft GitHub release for {tag}")
+        else:
+            print(f"==> creating draft GitHub release for {tag}")
+            release = api.request(
+                "POST",
+                repository_path(repository, "/releases"),
+                {
+                    "tag_name": tag,
+                    # The mirrored tag was already resolved to CI_COMMIT_SHA. Omitting
+                    # target_commitish prevents this endpoint from attempting any ref write
+                    # and keeps the PAT at Contents: write instead of Workflows: write.
+                    "name": tag,
+                    "draft": True,
+                    "prerelease": is_release_candidate(tag),
+                },
+            )
     if release.get("tag_name") != tag:
         raise RuntimeError(f"GitHub returned release for unexpected tag {release.get('tag_name')!r}")
     expected_prerelease = is_release_candidate(tag)
@@ -397,8 +419,12 @@ def publish(
     verify_release_assets(api, release, local)
     upload_missing_assets(api, release, local)
     # Fetch the release again so newly uploaded assets are verified through the same API
-    # path as reruns, not merely trusted because the upload returned 201.
-    release = api.request("GET", repository_path(repository, f"/releases/tags/{quote(tag, safe='')}"))
+    # path as reruns, not merely trusted because the upload returned 201. Drafts are
+    # addressable by ID, not by GitHub's release-by-tag endpoint.
+    release_id = release.get("id")
+    if not release_id:
+        raise RuntimeError("GitHub release has no id")
+    release = api.request("GET", repository_path(repository, f"/releases/{release_id}"))
     verify_release_assets(api, release, local)
     publish_release(api, repository, release)
     dispatch_pages(api, repository, tag)
