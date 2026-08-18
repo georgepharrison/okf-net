@@ -285,7 +285,7 @@ def is_public_download_url(url: str) -> bool:
     )
 
 
-def release_for_tag(api: GitHubApi, repository: str, tag: str, commit_sha: str) -> dict[str, Any]:
+def release_for_tag(api: GitHubApi, repository: str, tag: str) -> dict[str, Any]:
     path = repository_path(repository, f"/releases/tags/{quote(tag, safe='')}")
     try:
         release = api.request("GET", path)
@@ -298,7 +298,9 @@ def release_for_tag(api: GitHubApi, repository: str, tag: str, commit_sha: str) 
             repository_path(repository, "/releases"),
             {
                 "tag_name": tag,
-                "target_commitish": commit_sha,
+                # The mirrored tag was already resolved to CI_COMMIT_SHA. Omitting
+                # target_commitish prevents this endpoint from attempting any ref write
+                # and keeps the PAT at Contents: write instead of Workflows: write.
                 "name": tag,
                 "draft": True,
                 "prerelease": is_release_candidate(tag),
@@ -391,7 +393,7 @@ def publish(
     is_release_candidate(tag)
     local, _ = read_local_assets(assets, repository, tag)
     wait_for_mirrored_tag(api, repository, tag, commit_sha, attempts, interval)
-    release = release_for_tag(api, repository, tag, commit_sha)
+    release = release_for_tag(api, repository, tag)
     verify_release_assets(api, release, local)
     upload_missing_assets(api, release, local)
     # Fetch the release again so newly uploaded assets are verified through the same API

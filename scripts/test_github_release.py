@@ -141,6 +141,26 @@ class GitHubApiTests(unittest.TestCase):
 
 
 class GitHubReleaseTests(unittest.TestCase):
+    def test_creates_a_release_from_the_preverified_tag_without_requesting_a_ref_write(self):
+        release = release_for(TAG, {})
+
+        class MissingReleaseApi:
+            created_body = None
+
+            def request(self, method: str, path: str, body=None):
+                if method == "GET":
+                    raise publish_github_release.ApiError(404, "Not Found")
+                self.created_body = body
+                return release
+
+        api = MissingReleaseApi()
+
+        result = publish_github_release.release_for_tag(api, REPOSITORY, TAG)
+
+        self.assertIs(result, release)
+        self.assertEqual(TAG, api.created_body["tag_name"])
+        self.assertNotIn("target_commitish", api.created_body)
+
     def test_publish_waits_for_matching_tag_verifies_all_bytes_and_dispatches_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, data = make_release_tree(Path(directory))
