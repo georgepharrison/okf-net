@@ -526,3 +526,10 @@ Session.vim
 tmp/
 *.tmp
 *.bak
+
+# pi-lens / pi-roslyn local configuration. `pi-roslyn configure` rewrites the
+# LSP command to a machine-local interpreter wrapper, so the file is per-machine
+# state rather than shared project config: tracking it makes every worktree
+# dirty and invites a local path into a feature branch.
+.pi-lens.json
+.pi-lens.json.backup-*
