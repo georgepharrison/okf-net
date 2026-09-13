@@ -170,6 +170,43 @@ future session (human or agent) relearns them. Newest first within sections.
   the output instead of inferred from a suspiciously round assertion count.
   Any harness whose coverage depends on what is installed should say what it
   actually ran.
+- **A shell linter reading a generated zsh artifact reports two "errors" that are valid zsh,
+  and there is no fix — not a config one, not a code one.** Editing `tests/Okf.Cli.Tests/completions/okf.zsh` to
+  satisfy `shellcheck` is wrong twice over: the file is a golden byte-compared against
+  `okf completion zsh` output (`EachScriptMatchesItsGoldenFile`), so a hand-edit fails the test
+  it was meant to satisfy, and the constructs it objects to — `${(f)"$(...)"}` (zsh's
+  split-on-newline flag) and `$array[1]` (zsh's 1-indexed subscript) — are emitted by
+  `CompletionCommand.cs` and are correct in the language they run in. Real `zsh` executes both;
+  `bash` rejects the first as a bad substitution. `# shellcheck shell=zsh` does **not** clear
+  them (it still reports SC2296/SC1087 and adds SC1103), and shellcheck's own guidance for
+  SC2296 is "Shellcheck is not Zsh, and never will be." The repo's real gate on this file is
+  `zsh -n` plus sourcing under a live `compinit`, and both pass. When a linter's complaint
+  survives every legitimate fix, verify which language it is parsing before changing code —
+  and never "fix" a generated file to answer it.
+  One of the two has a real fix, and it belongs in the generator rather than the golden:
+  `$funcstack[1]` -> `${funcstack[1]}`. That is behaviour-identical in zsh, satisfies
+  shellcheck, and clears SC1087 from the golden on the next regeneration.
+
+  The other has no fix in any spelling. It is not a defect and it is not a warning to argue
+  with: the line was executed verbatim against a stub `okf` on PATH and returns exactly the
+  right answer — three elements, an entry containing a space kept whole. shellcheck is reporting
+  that the file is not bash, which is true and not actionable.
+  `names=(${(f)"$(...)"})` is shellcheck's bash parser objecting to a parameter expansion that
+  begins with `(` — the flag-operator syntax that is the reason zsh is zsh. All three spellings
+  that mean the same thing in zsh (`(${(f)"$(...)"})`, `("${(@f)$(...)}")`, `("${(f)$(...)}")`)
+  were tried against shellcheck and **all three still report SC2296**, while a real zsh runs all
+  three identically. The construct cannot be removed either: it is what splits `okf skills list
+  --names` on newlines, and dropping the flag operator would word-split skill names containing
+  whitespace instead. So SC2296 is not a defect in this file — it is shellcheck reporting that
+  the file is not bash, which it is correct about and useless for.
+  The whole option set was tested, not assumed: `-s` advertises only `sh, bash, dash, ksh,
+  busybox` — **zsh is not a shellcheck dialect**; `# shellcheck shell=zsh` is rejected as SC1103
+  ("This shell type is unknown") and leaves both errors standing; a file-level
+  `# shellcheck disable=SC2296,SC1087` clears them but makes the bash parser recover differently
+  and surface SC1072/SC1073 instead, because it cannot parse the file at all; and a repo-root
+  `.shellcheckrc` cannot help either, since it carries only ignorable directives and has no
+  per-file dialect syntax. That is why the finding is documented rather than suppressed: the
+  suppression would have to live in a byte-compared generated file.
 - Two vacuous-assertion cases shipped and were caught only by adversarial
   review (`Contains("0 errors")` matches `"10 errors"`; a test that couldn't
   distinguish a clean bundle from an empty directory). Hence the

@@ -4037,3 +4037,57 @@ NativeAOT/trim gates are unchanged.
 Issue #40 remains open. This is an interim public downstream arrangement, not a decision
 that GitHub has become the canonical home. A later canonical-home decision must settle
 remotes, issue tracking, and governance separately.
+
+### Proposed decisions: `okf candidates` (work items #71 and #75, 2026-09-13)
+
+`okf candidates [path]` enumerates the concepts whose verification history is **provably
+absent**. It is the first surface in the independent-verification chain (#71) and the first
+verb whose exit code reports the trustworthiness of an enumeration rather than the presence
+of findings.
+
+**The eligibility question is not the trust tier's question, and stays separate.** The tier
+(§5.3) asks *who* vouches for a concept; this asks whether anybody wrote themselves down at
+all. A concept whose only event carries a garbage timestamp has somebody standing behind it
+and is not a candidate; a concept whose tier reads `machine-confirmed` from an empty
+`verified` mapping is quarantined anyway. `OkfVerificationHistory.Verdict` is the one
+three-valued answer (absent / present / unreadable), and `OkfVerificationStamp` reads the
+same block for *what it says* — who, when, how many items could not be read — consulting the
+verdict for readability rather than re-deciding it. Two shape tests would be two answers to
+one question, and a row that printed an event the verdict refuses to count would contradict
+the quarantine list printed beside it. Issue #84 tracks the tier reconciliation; a concept
+whose verdict disagrees with its tier is behaving as designed, and it is safe because such a
+concept is named on the incomplete list either way.
+
+**Malformed verification metadata can never hide a concept.** The shared normalizer
+(`OkfDocument.NormalizeVerified`) reads `verified: "ahormati"` as zero events and
+`verified: {}` as one, and six consumers depend on those tolerances. A verifier built on that
+reading would both re-review a concept somebody tried to mark verified and **silently skip**
+one nobody ever vouched for. This ticket therefore reads the same bytes a second way,
+narrowly, and leaves the hinge alone — widening it is #84's call, not #75's.
+
+**Complete or it says so, and the two channels are the contract.** stdout carries the
+inventory and nothing else in both formats; quarantine notices go to stderr in both; exit 1
+means "that list is not the whole truth". A machine consumer never has to infer
+completeness from a field, because it is already reading `$?`. Deliberately absent from the
+JSON array: quarantined concepts. Mixing two kinds of record into one array would make every
+consumer branch on a discriminator to find the list it asked for.
+
+**An inventory, not a gate on volume.** Forty candidates is exit 0, and there is no
+`--fail-if-any` here even though `okf inbox` has one. The length of this list is the answer;
+only an unclassified concept moves the exit code. That is what lets a verification pipeline's
+scan step run without failing on a backlog.
+
+**The "why" sentence lives in Core, not in the renderer.** `OkfVerificationStamp.WhyCandidate`
+names the shape the file actually holds — no key, `null`, `[]` — because "unverified" alone
+does not tell the person fixing it which edit to make, and because AD-6 puts readings of a
+document in the library. Reading it through `FrontmatterValues.Scalar` would have collapsed
+all three into one sentence: that helper applies §11 truthiness, which reads a null scalar and
+an empty sequence as "no value". The distinction is the sentence's whole purpose.
+
+**A summary prefix of its own.** The line begins `Scanned`, not `Checked`, `Generated` or
+`Found`, which the shared harness already assigns to lint/index/search. Reusing one would
+make the harness attribute this verb's summary to another command.
+
+**Files whose frontmatter does not parse are counted, not yet quarantined.** #74 left that
+reason to #76, and #75 carries the count in the summary so a broken vault cannot look like a
+clean one. #76 converts them into quarantines; until then the disclosure is the count.

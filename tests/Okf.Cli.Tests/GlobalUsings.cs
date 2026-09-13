@@ -4,6 +4,7 @@
 // per-file using block. Okf.Core.* is included too since several Cli tests reach into
 // Core types directly (e.g. OkfScopeKind, OkfDocument fixtures).
 global using Okf.Cli.Bundle;
+global using Okf.Cli.Candidates;
 global using Okf.Cli.Capture;
 global using Okf.Cli.Completion;
 global using Okf.Cli.Generated;
@@ -18,6 +19,7 @@ global using Okf.Cli.Shared;
 global using Okf.Cli.Site;
 global using Okf.Cli.Skills;
 global using Okf.Cli.Tests.Bundle;
+global using Okf.Cli.Tests.Candidates;
 global using Okf.Cli.Tests.Capture;
 global using Okf.Cli.Tests.Completion;
 global using Okf.Cli.Tests.Generated;

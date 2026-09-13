@@ -241,7 +241,8 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
 `okf index`, `okf search` (work item #1), `okf inbox` and `okf verify` (work item #7),
 `okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2),
 `okf skills` (work item #41), `okf capture` and `okf generated` (work item #44),
-`okf register` / `okf unregister` / `okf registry` (work item #43), plus
+`okf register` / `okf unregister` / `okf registry` (work item #43), `okf candidates`
+(work item #75), plus
 `okf help` and `okf version`. §3's table is the full surface, row for row.
 
 - **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
@@ -390,6 +391,21 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
   - Each row shows concept ID, why it is unacknowledged (regenerated since verification /
     draft), trust tier, and stale flag.
   - Ordering is deterministic. `--json` is supported.
+- **CLI-18 — `okf candidates`. BUILT (work item #75).** Enumerate the concepts in the
+  resolved scope whose verification history is provably absent (CORE-16), across the same
+  scope CLI-1 resolves.
+  - It is an inventory, not a gate on volume: the presence of candidates is exit 0, so a
+    verification pipeline's scan step does not fail merely because there is work to do.
+  - It is complete or it says so: a concept whose `verified` block cannot be read is named
+    on stderr and the command exits 1, because an enumeration that quietly omits concepts
+    is worse than one that admits a gap.
+  - stdout carries the inventory and nothing else in both formats; quarantine notices go to
+    stderr in both. The summary line begins `Scanned` and counts concepts, bundles,
+    candidates and quarantines.
+  - Ordering is deterministic, and `--json` is the machine contract (#77).
+  - Distinct from CLI-12: the inbox is a superset in one direction (a verified-but-regenerated
+    concept is on the inbox and has history) and a strict subset in the other (a hand-written
+    concept with no `generated` stamp is deliberately never listed there).
 - **CLI-13 — `okf verify`.** Stamp human verification on one or more concepts.
   - Writes `verified: { by: human:<id>, at: <now> }` via CORE-14, where `<id>` is
     `verify.actor` from okf config, falling back to `git config --global user.email` when
@@ -520,6 +536,7 @@ Every row below is what `okf` dispatches today, and every verb `okf help` lists 
 | `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift), `--json`, `--format` | 0 written/no drift · 1 drift under `--check` · 2 usage |
 | `okf search <query> [path]` | Search resolved bundles | `--scope`, `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
 | `okf inbox [path]` | List unacknowledged concepts (regenerated-since-verified, `draft`, stale or source-drifted) | `--json`, `--format`, `--fail-if-any` | 0 (whatever it finds) · 1 non-empty inbox under `--fail-if-any` · 2 usage |
+| `okf candidates [path]` | List the concepts whose verification history is **provably absent** — an inventory for an independent verifier, not a triage list (#71, #75) | `--json`, `--format` | 0 the enumeration completed, whatever its length · 1 at least one concept's history could not be established (the inventory is incomplete) · 2 usage/environment |
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
 | `okf capture <add\|close>` | Record an item already sitting in `raw/` in the capture manifest, or close its ingestion | `--by <actor>` (required), `--url`, `--title`, `--source-last-modified`, `--form flat\|packet`, `--concept` (`close`), `--captured-at` / `--at`, `--json` | 0 written · 1 the record says no (already captured and ingested, entry already closed, named concept absent) · 2 the manifest does not read as one, the item is not capturable, no actor, or usage |
 | `okf generated stamp <concept>...` | Write the `generated: {by, at}` stamp a producer owes on every write | `--by <actor>` (required), `--at`, `--dry-run` | 0 stamped · 2 missing concept, frontmatter that does not parse, malformed actor, or usage |

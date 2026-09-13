@@ -40,6 +40,11 @@ consume.
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields
+  - `okf candidates` — the concepts nobody has ever verified: an exhaustive,
+    deterministic inventory of the concepts whose `verified` history is provably
+    absent, for pointing a second reviewer at them. It is complete or it says so
+    — a concept whose `verified` block cannot be read is named on stderr and the
+    run exits 1, so malformed metadata can never hide a concept from review
   - `okf capture` / `okf generated` — the bookkeeping a producer owes,
     written by code rather than by hand: `capture add` hashes an artifact
     dropped in `raw/` and records it, `capture close` marks it ingested, and
@@ -378,7 +383,7 @@ project` writes the identical pair.
   index, search, bundle, and site. It is explicitly non-packable; no NuGet API is
   distributed.
 - **Every CLI verb** — `okf init`, `lint`, `index`, `search`, `register`,
-  `unregister`, `registry`, `inbox`, `verify`, `capture`, `generated`, `bundle`,
+  `unregister`, `registry`, `inbox`, `candidates`, `verify`, `capture`, `generated`, `bundle`,
   `site`, `skills`, `completion`, `upgrade`, `mcp`, plus `help` and `version`.
 - **The MCP server** — `okf mcp`, three read-only tools (`okf_list`,
   `okf_search`, `okf_read`) over stdio.

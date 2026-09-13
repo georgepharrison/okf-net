@@ -89,6 +89,12 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
                 default { $candidates = @('--help', '-h', '--fail-if-any', '--format', '--json', '--verbose', '-v') }
             }
         }
+        'candidates' {
+            switch ($previous) {
+                '--format' { $candidates = @('json', 'text') }
+                default { $candidates = @('--help', '-h', '--format', '--json', '--verbose', '-v') }
+            }
+        }
         'verify' {
             switch ($previous) {
                 '--by' { $candidates = @() }
@@ -179,7 +185,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
                 default { $candidates = @('--verbose', '-v') }
             }
         }
-        default { $candidates = @('init', 'lint', 'index', 'search', 'register', 'unregister', 'registry', 'inbox', 'verify', 'capture', 'generated', 'bundle', 'site', 'skills', 'mcp', 'upgrade', 'completion', 'help', 'version') }
+        default { $candidates = @('init', 'lint', 'index', 'search', 'register', 'unregister', 'registry', 'inbox', 'candidates', 'verify', 'capture', 'generated', 'bundle', 'site', 'skills', 'mcp', 'upgrade', 'completion', 'help', 'version') }
     }
 
     $candidates |

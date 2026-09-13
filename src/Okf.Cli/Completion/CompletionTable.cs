@@ -219,6 +219,12 @@ internal static class CompletionTable
             ],
             CompletionValue.Path),
         new(
+            "candidates",
+            "List the concepts nobody has ever verified",
+            [],
+            [Help, HelpShort, Format, Json, Verbose, VerboseShort],
+            CompletionValue.Path),
+        new(
             "verify",
             "Stamp human verification on one or more concepts",
             [],

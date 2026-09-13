@@ -144,6 +144,9 @@ internal static class OkfVerificationHistory
     /// <summary>The author key inside one verification event (§5.2).</summary>
     public const string AuthorKey = "by";
 
+    /// <summary>The instant key inside one verification event (§5.2).</summary>
+    public const string TimestampKey = "at";
+
     /// <summary>Asks a concept whether it has any readable verification history.</summary>
     /// <param name="concept">The concept to read. Its frontmatter is the only thing consulted.</param>
     /// <returns>The verdict.</returns>
@@ -210,7 +213,13 @@ internal static class OkfVerificationHistory
     /// Whether a mapping is a structurally recognizable verification event: it carries a
     /// non-empty scalar author.
     /// </summary>
-    private static bool Recognizes(OkfMapping mapping) =>
+    /// <remarks>
+    /// Exposed inside the library because <see cref="OkfVerificationStamp" /> prints the events
+    /// this verdict has already decided are recognizable. Two shape tests would be two answers to
+    /// one question, and a renderer that printed an event the verdict refuses to count would
+    /// disagree with the quarantine list beside it.
+    /// </remarks>
+    internal static bool Recognizes(OkfMapping mapping) =>
         mapping.TryGetValue(AuthorKey, out OkfValue? author) && IsAuthor(author);
 
     /// <summary>

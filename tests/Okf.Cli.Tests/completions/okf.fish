@@ -13,6 +13,7 @@ complete -c okf -n '__fish_use_subcommand' -f -a 'register' -d 'Add a vault or b
 complete -c okf -n '__fish_use_subcommand' -f -a 'unregister' -d 'Remove a registry entry'
 complete -c okf -n '__fish_use_subcommand' -f -a 'registry' -d 'Report the registry or drop entries whose path is gone'
 complete -c okf -n '__fish_use_subcommand' -f -a 'inbox' -d 'List the concepts waiting on a person'
+complete -c okf -n '__fish_use_subcommand' -f -a 'candidates' -d 'List the concepts nobody has ever verified'
 complete -c okf -n '__fish_use_subcommand' -f -a 'verify' -d 'Stamp human verification on one or more concepts'
 complete -c okf -n '__fish_use_subcommand' -f -a 'capture' -d 'Record a raw/ capture or close its ingestion'
 complete -c okf -n '__fish_use_subcommand' -f -a 'generated' -d 'Write the generated stamp a producer owes'
@@ -100,6 +101,14 @@ complete -c okf -n '__fish_seen_subcommand_from inbox' -l format -x -a 'json tex
 complete -c okf -n '__fish_seen_subcommand_from inbox' -l json -d 'Emit the stable JSON form instead of text'
 complete -c okf -n '__fish_seen_subcommand_from inbox' -l verbose -d 'Report vault resolution and effective configuration'
 complete -c okf -n '__fish_seen_subcommand_from inbox' -s v -d 'Report vault resolution and effective configuration'
+
+# okf candidates
+complete -c okf -n '__fish_seen_subcommand_from candidates' -l help -d 'Show this help'
+complete -c okf -n '__fish_seen_subcommand_from candidates' -s h -d 'Show this help'
+complete -c okf -n '__fish_seen_subcommand_from candidates' -l format -x -a 'json text' -d 'Output format'
+complete -c okf -n '__fish_seen_subcommand_from candidates' -l json -d 'Emit the stable JSON form instead of text'
+complete -c okf -n '__fish_seen_subcommand_from candidates' -l verbose -d 'Report vault resolution and effective configuration'
+complete -c okf -n '__fish_seen_subcommand_from candidates' -s v -d 'Report vault resolution and effective configuration'
 
 # okf verify
 complete -c okf -n '__fish_seen_subcommand_from verify' -l help -d 'Show this help'
