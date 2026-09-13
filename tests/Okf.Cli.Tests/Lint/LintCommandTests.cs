@@ -47,7 +47,13 @@ public class LintCommandTests
 
         Assert.Empty(run.DiagnosticLines);
         Assert.Equal(
-            "Checked 5 files in 1 bundle (19 rules: 17 active, 2 hidden): 0 errors, 0 warnings, 0 infos.",
+            LintSummary.SummaryLine(
+                files: 5,
+                bundles: 1,
+                counts: LintSummary.LiveRules(),
+                errors: 0,
+                warnings: 0,
+                infos: 0),
             run.Summary);
         Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
     }
@@ -71,11 +77,17 @@ public class LintCommandTests
 
         // Friction #11: "0 errors" from a run with the gate switched off has to read
         // differently from "0 errors" with the gate on. The counts move with the
-        // configuration, in both directions.
-        Assert.Equal(19, OkfRules.All.Count);
-        Assert.Contains("(19 rules: 17 active, 2 hidden)", defaults.Summary, StringComparison.Ordinal);
-        Assert.Contains("(19 rules: 18 active, 1 hidden)", enabled.Summary, StringComparison.Ordinal);
-        Assert.Contains("(19 rules: 15 active, 4 hidden)", silenced.Summary, StringComparison.Ordinal);
+        // configuration, in both directions. Each is asserted as the whole line, so the
+        // sentence around the derived number stays pinned too (issue #73).
+        Assert.Equal(
+            LintSummary.SummaryLine(5, 1, LintSummary.LiveRules(), 0, 0, 0),
+            defaults.Summary);
+        Assert.Equal(
+            LintSummary.SummaryLine(5, 1, LintSummary.LiveRules("OKF0304=warning"), 0, 0, 0),
+            enabled.Summary);
+        Assert.Equal(
+            LintSummary.SummaryLine(5, 1, LintSummary.LiveRules("OKF0001=hidden", "OKF0002=hidden"), 0, 0, 0),
+            silenced.Summary);
     }
 
     [Fact]
@@ -237,6 +249,31 @@ public class LintCommandTests
             rule => Assert.Contains($"okf: severity {rule.Id} = ", run.Error, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The <c>--verbose</c> rule-count line on a plain text run, as well as the one under
+    /// <c>--json</c>: the counts are the answer to "was the gate even on", so they belong to
+    /// the verbose report whichever format the diagnostics took. Asserted as one whole
+    /// stderr line, not a substring, so nothing can be appended to it unnoticed.
+    /// </summary>
+    [Fact]
+    public void VerboseReportsTheRuleCountLineBuiltFromTheCatalog()
+    {
+        using var home = new TempTree();
+        var run = CliHarness.RunIn(
+            home.Root,
+            home.Root,
+            "lint",
+            Fixtures.Bundle("conformant"),
+            "--verbose",
+            "--severity",
+            "OKF0301=hidden");
+
+        Assert.Contains(
+            LintSummary.VerboseRuleCountLine("OKF0301=hidden"),
+            run.ErrorLines,
+            StringComparer.Ordinal);
+    }
+
     [Fact]
     public void JsonStaysABareArrayAndRunMetadataGoesToStderr()
     {
@@ -260,7 +297,10 @@ public class LintCommandTests
         Assert.Equal("OKF0302", Assert.Single(document.RootElement.EnumerateArray()).GetProperty("id").GetString());
 
         Assert.Contains("okf: checked 2 files in 1 bundle", run.Error, StringComparison.Ordinal);
-        Assert.Contains("okf: 19 rules: 16 active, 3 hidden", run.Error, StringComparison.Ordinal);
+        Assert.Contains(
+            LintSummary.VerboseRuleCountLine("OKF0301=hidden"),
+            run.ErrorLines,
+            StringComparer.Ordinal);
         Assert.Contains(
             "okf: diagnostics 0 errors, 0 warnings, 1 info, 1 at hidden severity",
             run.Error,

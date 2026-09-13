@@ -13,6 +13,10 @@ internal sealed record CliRun(int ExitCode, string Output, string Error)
     public string[] OutputLines =>
         Output.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0).ToArray();
 
+    /// <summary>The stderr lines — what <c>--verbose</c> reports — with the trailing blank removed.</summary>
+    public string[] ErrorLines =>
+        Error.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0).ToArray();
+
     /// <summary>The diagnostic lines only — stdout minus the summary line.</summary>
     public string[] DiagnosticLines => [.. OutputLines.Where(line => !IsSummary(line))];
 
