@@ -127,6 +127,8 @@ internal static class CliApplication
         ("registry",
             static (args, environment, output, error, _) => RegistryCommand.Registry(args, environment, output, error)),
         ("inbox", static (args, environment, output, error, _) => InboxCommand.Run(args, environment, output, error)),
+        ("candidates",
+            static (args, environment, output, error, _) => CandidatesCommand.Run(args, environment, output, error)),
         ("verify", static (args, environment, output, error, _) => VerifyCommand.Run(args, environment, output, error)),
         ("capture", static (args, environment, output, error, _) => CaptureCommand.Run(args, environment, output, error)),
         ("generated",
@@ -244,6 +246,7 @@ internal static class CliApplication
               okf unregister [path|id]    Remove a registry entry (idempotent)
               okf registry [list|prune]   Report the registry, or drop entries whose path is gone
               okf inbox [path]            List the concepts waiting on a person
+              okf candidates [path]       List the concepts nobody has ever verified
               okf verify <concept>...     Stamp human verification on one or more concepts
               okf capture <add|close>     Record a raw/ capture, or close its ingestion
               okf generated stamp <concept>...

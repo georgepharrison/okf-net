@@ -4,6 +4,7 @@
 // a specific file's own `using` list to see any cross-capability dependency it has (the
 // pattern AGENTS.md and docs/architecture.md's Consistency Conventions call for).
 global using Okf.Cli.Bundle;
+global using Okf.Cli.Candidates;
 global using Okf.Cli.Capture;
 global using Okf.Cli.Completion;
 global using Okf.Cli.Generated;

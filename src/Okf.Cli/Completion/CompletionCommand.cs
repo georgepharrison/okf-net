@@ -387,7 +387,7 @@ internal static class CompletionCommand
         Line(script, "");
         Line(script, "# Both entry points: sourced (`eval \"$(okf completion zsh)\"`) the function has to");
         Line(script, "# register itself, autoloaded from $fpath it is already the completer being called.");
-        Line(script, "if [ \"$funcstack[1]\" = \"_okf\" ]; then");
+        Line(script, "if [ \"${funcstack[1]}\" = \"_okf\" ]; then");
         Line(script, "    _okf \"$@\"");
         Line(script, "else");
         Line(script, "    compdef _okf okf");

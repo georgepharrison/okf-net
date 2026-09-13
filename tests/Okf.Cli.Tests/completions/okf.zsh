@@ -56,6 +56,7 @@ _okf() {
             'unregister:Remove a registry entry'
             'registry:Report the registry or drop entries whose path is gone'
             'inbox:List the concepts waiting on a person'
+            'candidates:List the concepts nobody has ever verified'
             'verify:Stamp human verification on one or more concepts'
             'capture:Record a raw/ capture or close its ingestion'
             'generated:Write the generated stamp a producer owes'
@@ -224,6 +225,24 @@ _okf() {
                     '--help:Show this help'
                     '-h:Show this help'
                     '--fail-if-any:Exit 1 when the inbox is not empty'
+                    '--format:Output format'
+                    '--json:Emit the stable JSON form instead of text'
+                    '--verbose:Report vault resolution and effective configuration'
+                    '-v:Report vault resolution and effective configuration'
+                )
+                _describe -t options 'option' options
+                return
+            fi
+            _files
+            ;;
+        (candidates)
+            case "$prev" in
+                (--format) compadd -- json text; return ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                options=(
+                    '--help:Show this help'
+                    '-h:Show this help'
                     '--format:Output format'
                     '--json:Emit the stable JSON form instead of text'
                     '--verbose:Report vault resolution and effective configuration'
@@ -447,7 +466,7 @@ _okf() {
 
 # Both entry points: sourced (`eval "$(okf completion zsh)"`) the function has to
 # register itself, autoloaded from $fpath it is already the completer being called.
-if [ "$funcstack[1]" = "_okf" ]; then
+if [ "${funcstack[1]}" = "_okf" ]; then
     _okf "$@"
 else
     compdef _okf okf

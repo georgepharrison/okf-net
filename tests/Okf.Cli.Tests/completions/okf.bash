@@ -63,7 +63,7 @@ _okf() {
     done
 
     if [ -z "$verb" ]; then
-        __okf_words "init lint index search register unregister registry inbox verify capture generated bundle site skills mcp upgrade completion help version --help -h --version" "$cur"
+        __okf_words "init lint index search register unregister registry inbox candidates verify capture generated bundle site skills mcp upgrade completion help version --help -h --version" "$cur"
         return
     fi
 
@@ -143,6 +143,15 @@ _okf() {
             esac
             case "$cur" in
                 -*) __okf_words "--help -h --fail-if-any --format --json --verbose -v" "$cur"; return ;;
+            esac
+            __okf_files "$cur"
+            ;;
+        candidates)
+            case "$prev" in
+                --format) __okf_words "json text" "$cur"; return ;;
+            esac
+            case "$cur" in
+                -*) __okf_words "--help -h --format --json --verbose -v" "$cur"; return ;;
             esac
             __okf_files "$cur"
             ;;
