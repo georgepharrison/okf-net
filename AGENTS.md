@@ -74,3 +74,17 @@ This project keeps its knowledge in `okf/`, an OKF vault.
 - **Capture**: when the session produced something durable the code cannot re-derive — reach for `okf-capture`.
 - **Maintain**: when `okf inbox` is non-empty — reach for `okf-custodian`.
 <!-- okf:end -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitLab Issues for this repo. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+This repo uses the default five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single-context domain documentation layout. See `docs/agents/domain.md`.
