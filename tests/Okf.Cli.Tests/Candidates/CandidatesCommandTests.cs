@@ -356,10 +356,8 @@ public class CandidatesCommandTests
         Assert.Equal(["okf-net", "trust"], row.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()));
         Assert.Equal("unverified", row.GetProperty("trustTier").GetString());
         Assert.True(row.GetProperty("stale").GetBoolean());
+        Assert.Equal("2020-01-01", row.GetProperty("staleAfter").GetString());
         Assert.Equal("draft", row.GetProperty("status").GetString());
-        Assert.Equal("no `verified` key — nobody has ever stood behind this content", row.GetProperty("reason").GetString());
-        Assert.Equal(0, row.GetProperty("verificationEvents").GetInt32());
-        Assert.Equal(0, row.GetProperty("unreadableVerificationEvents").GetInt32());
 
         // Indented, like every other JSON surface okf writes.
         Assert.Contains("\n  {", run.Output, StringComparison.Ordinal);
@@ -601,6 +599,177 @@ public class CandidatesCommandTests
         CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
 
         Assert.Equal(before, ReferenceBundles.Snapshot(bundle));
+    }
+
+    /// <summary>
+    /// The record's fields and their order, in full. #77 fixes this list: a consumer that parses
+    /// one of okf's three JSON writers parses all three, so the names and the order are the
+    /// contract, and a test that pins them is what stops a field moving in one writer only.
+    /// </summary>
+    [Fact]
+    public void TheRecordCarriesExactlyTheContractFieldsInOrder()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/topic/quiet.md", Concept("""
+            type: Reference
+            title: Quiet
+            description: A concept nobody has read.
+            tags: [okf-net, trust]
+            status: draft
+            stale_after: 2020-01-01
+            generated: { by: claude-fable/5, at: 2019-01-01T00:00:00Z }
+            """));
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+
+        using var document = JsonDocument.Parse(run.Output);
+        var row = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            [
+                "id",
+                "path",
+                "displayPath",
+                "absolutePath",
+                "bundle",
+                "bundleName",
+                "title",
+                "type",
+                "description",
+                "tags",
+                "trustTier",
+                "stale",
+                "status",
+                "generatedBy",
+                "generatedAt",
+                "staleAfter",
+            ],
+            row.EnumerateObject().Select(property => property.Name));
+
+        Assert.Equal("2020-01-01", row.GetProperty("staleAfter").GetString());
+        Assert.Equal("2019-01-01T00:00:00Z", row.GetProperty("generatedAt").GetString());
+    }
+
+    /// <summary>
+    /// Nothing in a record names how the tool decided: no rule id, no verdict vocabulary, no
+    /// quarantine language. The array is the same shape a future read-only tool will reuse, and a
+    /// field that leaks the mechanism into it is a field every consumer then has to ignore.
+    /// </summary>
+    [Fact]
+    public void TheRecordSaysWhereTheConceptIsAndNotHowTheToolDecided()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/quiet.md", Concept("type: Concept\ntitle: Quiet"));
+        tree.Write("vault/bundles/b/lying.md", Concept("type: Concept\ntitle: Lying\nverified: 42"));
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        using var document = JsonDocument.Parse(run.Output);
+        var row = Assert.Single(document.RootElement.EnumerateArray());
+        foreach (var name in (string[])
+                 ["OKF0", "rule", "verdict", "quarantine", "severity", "candidate", "unreadable"])
+        {
+            Assert.DoesNotContain(name, run.Output, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // And the shape is stable: every record carries each key once whatever the frontmatter
+        // holds, which is what lets a consumer read the array without branching.
+        Assert.Equal(
+            row.EnumerateObject().Select(property => property.Name).Distinct().Count(),
+            row.EnumerateObject().Count());
+    }
+
+    /// <summary>
+    /// <c>staleAfter</c> is part of the shared lifecycle block, so it is null rather than absent
+    /// when the concept names no date — the same rule as its neighbours (#77).
+    /// </summary>
+    [Fact]
+    public void StaleAfterIsNullRatherThanAbsentWhenNoDateIsWritten()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/bare.md", Concept("title: Bare"));
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+
+        using var document = JsonDocument.Parse(run.Output);
+        var row = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("staleAfter").ValueKind);
+    }
+
+    /// <summary>
+    /// Standard output is strictly the array: one JSON document, one trailing newline, and nothing
+    /// else — not the summary line the text report ends with, not a quarantine notice, not a
+    /// verbose note. A pipe into another tool must never have to strip prose off the contract.
+    /// </summary>
+    [Fact]
+    public void StandardOutputIsNothingButTheArrayWhileAQuarantineIsBeingReported()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/quiet.md", Concept("type: Concept\ntitle: Quiet"));
+        tree.Write("vault/bundles/b/lying.md", Concept("type: Concept\ntitle: Lying\nverified: 42"));
+
+        var quiet = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+        var loud = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json", "--verbose");
+
+        foreach (var run in (CliRun[])[quiet, loud])
+        {
+            Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+            Assert.StartsWith("[", run.Output, StringComparison.Ordinal);
+            Assert.EndsWith("]" + Environment.NewLine, run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Scanned", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("quarantined", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("could not classify", run.Output, StringComparison.Ordinal);
+
+            // The whole stdout parses as one array, so there is no prose hiding after it.
+            using var document = JsonDocument.Parse(run.Output);
+            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        }
+
+        // The notices and the counts are on stderr, where they belong; the verbose counts are
+        // the same ones the text report's summary line carries.
+        Assert.Contains("could not classify", loud.Error, StringComparison.Ordinal);
+        Assert.Contains("okf: scanned", loud.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("okf: scanned", quiet.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The inventory's order is the text report's order, byte-stably: two runs over the same bytes
+    /// print the same array, so one run's output diffs against the next and what shows up is what
+    /// was newly verified (#71 story 35).
+    /// </summary>
+    [Fact]
+    public void TheArrayIsByteStableAcrossRunsAndMatchesTheTextOrder()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        foreach (var name in new[] { "zebra.md", "alpha.md", "topic/mid.md", "About.md" })
+        {
+            tree.Write($"vault/bundles/b/{name}", Concept("type: Concept"));
+        }
+
+        var first = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+        var second = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+        var text = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
+
+        Assert.Equal(first.Output, second.Output);
+
+        using var document = JsonDocument.Parse(first.Output);
+        string[] expected = ["vault/bundles/b/About.md", "vault/bundles/b/alpha.md", "vault/bundles/b/topic/mid.md", "vault/bundles/b/zebra.md"];
+        Assert.Equal(
+            expected,
+            document.RootElement.EnumerateArray().Select(row => row.GetProperty("displayPath").GetString()));
+
+        // The text report lists the same concepts in the same order: one ordering, two renderings.
+        string[] rows = [
+            .. text.OutputLines
+                .Where(line => line.StartsWith("  ", StringComparison.Ordinal) && !line.StartsWith("    ", StringComparison.Ordinal))
+                .Select(line => line.TrimStart().Split("  ")[0]),
+        ];
+        Assert.Equal(expected, rows);
     }
 
     /// <summary>

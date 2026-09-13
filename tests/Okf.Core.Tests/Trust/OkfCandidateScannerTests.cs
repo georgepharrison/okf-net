@@ -108,6 +108,26 @@ public class OkfCandidateScannerTests
     }
 
     /// <summary>
+    /// The record carries <c>stale_after</c> as written alongside the <c>stale</c> flag, so a
+    /// consumer can rank review priority without re-parsing frontmatter (#77's field list). The
+    /// value is reported as written, not canonicalized: the file's own text is the answer.
+    /// </summary>
+    [Fact]
+    public void ACandidateCarriesStaleAfterAsWritten()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("fresh.md", Document("type: Concept\nstale_after: 2020-01-01"))
+            .Add("bare.md", Document("type: Concept"));
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Equal(
+            "2020-01-01",
+            result.Candidates.Single(candidate => candidate.Path == "fresh.md").StaleAfter);
+        Assert.Null(result.Candidates.Single(candidate => candidate.Path == "bare.md").StaleAfter);
+    }
+
+    /// <summary>
     /// Candidates are ordered by bundle, then by bundle-relative path, and that order is the
     /// walk's rather than a second sort: two runs over the same bytes print the same list, and
     /// the bundle order the caller named is the order reported (#71 story 3).

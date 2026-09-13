@@ -276,9 +276,20 @@ internal static class CandidatesCommand
               --help, -h                    Show this help
 
             Standard output carries the inventory and nothing else, in both formats;
-            quarantine notices go to standard error in both. The summary line begins
-            `Scanned` and counts concepts, bundles, candidates and quarantines, so an
-            empty inventory is distinguishable from a failed run.
+            quarantine notices go to standard error in both. In text, each row is followed
+            by a line saying what makes it a candidate. In JSON, stdout is a bare array of
+            records and that explanation is not one of them: the array's shape is the same
+            whether or not a quarantine is being reported, and the exit code is what says
+            whether the array is the whole truth.
+
+            JSON records carry the concept, not the mechanism: identity (id, path,
+            displayPath, absolutePath, bundle, bundleName), content (title, type,
+            description, tags), and state (trustTier, stale, status, generatedBy,
+            generatedAt, staleAfter). Absent optionals are null rather than missing keys,
+            and there are no verification fields — a candidate has no verification events by
+            definition, so an always-null one would only be a field to disbelieve. Ordering
+            is byte-stable across runs on unchanged bytes, so one run's output diffs against
+            the next to show what was newly verified.
 
             Exit codes:
               0  the enumeration completed, whatever its length

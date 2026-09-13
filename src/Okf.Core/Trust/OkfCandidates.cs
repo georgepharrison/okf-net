@@ -103,6 +103,14 @@ public sealed class OkfCandidate(OkfConcept concept)
     /// <summary>The derived trust tier (§5.3), reported as-is even where it disagrees with the verdict.</summary>
     public OkfTrustTier TrustTier => Concept.TrustTier;
 
+    /// <summary>
+    /// The <c>stale_after</c> value as written (§5.5), or <see langword="null" /> when the concept
+    /// names no date. Read the way the inbox reads it, so the two surfaces cannot print different
+    /// text for one file. <see cref="OkfConcept.Stale" /> is the derived half; this is the half a
+    /// consumer ranks review priority with.
+    /// </summary>
+    public string? StaleAfter => FrontmatterValues.Scalar(Concept.Frontmatter, "stale_after");
+
     /// <inheritdoc />
     public override string ToString() => Concept.Path;
 }
