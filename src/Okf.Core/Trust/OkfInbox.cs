@@ -238,7 +238,9 @@ public sealed class OkfInboxResult
 /// Derives acknowledgment, staleness, and source-drift state across a working set (PRD
 /// CORE-15, CLI-12). It lives in <c>Okf.Core</c> so that <c>okf inbox</c>, a future MCP
 /// tool, and any consumer embedding the library answer the question identically
-/// (decisions.md §4).
+/// (decisions.md §4). Which files are concepts, and in what order, is <see
+/// cref="OkfConceptWalk" />'s question to answer, and this scanner asks it rather than
+/// writing its own walk.
 /// </summary>
 /// <remarks>
 /// Nothing here is a diagnostic. <c>okf lint</c> already reports staleness (<c>OKF0202</c>)
@@ -263,49 +265,13 @@ public static class OkfInboxScanner
         options ??= new OkfInboxOptions();
 
         List<OkfBundle> list = bundles.ToList();
-        (List<OkfConcept> concepts, int skipped) = ReadConcepts(list, options.Today);
+        (List<OkfConcept> concepts, List<OkfUnreadableConcept> unreadable) = OkfConceptWalk.Read(list, options.Today);
         List<OkfInboxItem> items = concepts
             .Select(concept => Classify(concept, options.Today))
             .OfType<OkfInboxItem>()
             .ToList();
 
-        return new OkfInboxResult(items, list, concepts.Count, skipped);
-    }
-
-    /// <summary>
-    /// Every concept in the bundles, plus how many files were skipped because their
-    /// frontmatter does not parse. <see cref="OkfBundle.MarkdownFiles" /> is already
-    /// ordinal by path and skips links out of the bundle, so the bundle order the working
-    /// set fixed is the whole ordering story.
-    /// </summary>
-    private static (List<OkfConcept> Concepts, int Skipped) ReadConcepts(List<OkfBundle> bundles, DateOnly today)
-    {
-        List<OkfConcept> concepts = new List<OkfConcept>();
-        int skipped = 0;
-
-        foreach (OkfBundle bundle in bundles)
-        {
-            foreach (string file in bundle.MarkdownFiles().Where(file => !OkfBundle.IsReservedFile(file)))
-            {
-                // Only the parse is guarded. Reading the lifecycle of what parsed cannot
-                // raise this, and if it ever did, counting it as an unreadable file would
-                // hide the bug.
-                OkfDocument document;
-                try
-                {
-                    document = OkfDocument.Parse(File.ReadAllText(file));
-                }
-                catch (OkfDocumentException)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                concepts.Add(new OkfConcept(bundle, file, document, today));
-            }
-        }
-
-        return (concepts, skipped);
+        return new OkfInboxResult(items, list, concepts.Count, unreadable.Count);
     }
 
     /// <summary>Classifies one concept.</summary>
