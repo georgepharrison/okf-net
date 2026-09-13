@@ -66,6 +66,20 @@ public class CompletionCommandTests
             ["completion"] = "Completion/CompletionCommand.cs",
         };
 
+    /// <summary>
+    /// The rule identifiers <c>--severity</c> offers. They come out of <see cref="OkfRules" />
+    /// in the catalog's own order, not from a list someone keeps beside it: a rule that never
+    /// reaches the completion table is a rule nobody can name at the tab key, and a candidate
+    /// the catalog does not ship is one the parser will reject (issue #73).
+    /// </summary>
+    [Fact]
+    public void TheSeverityCandidatesAreExactlyTheShippedRuleCatalog()
+    {
+        Assert.Equal(
+            OkfRules.All.Select(rule => rule.Id),
+            CompletionValue.Severity.Candidates);
+    }
+
     [Fact]
     public void TheTableCoversExactlyTheVerbsTheCliDispatches()
     {
