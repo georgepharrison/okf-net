@@ -1,5 +1,9 @@
 # Directory Update Log
 
+## 2026-09-14
+
+* **Update**: A `verified` block that cannot be read as events became a diagnostic. `OKF0203` (unreadable-verification) warns on exactly the shapes `okf candidates` refuses to classify, and reports them from the same internal predicate the scanner uses, so the two surfaces cannot disagree about what counts as malformed. Catalogued in [the lint severity model](toolset/lint-severity-model.md). The exit codes still differ by design — lint warns and exits 0, the candidate scan gates on its own completeness and exits 1 — which [candidate enumeration and the completeness contract](trust/candidates-and-completeness.md) already states as the rule.
+
 ## 2026-08-16
 
 * **Update**: okf learned to replace itself. `okf upgrade` reads the same `latest.json` from the same `OKF_INSTALL_URL` the installers read, verifies the asset for the machine against the manifest's `sha256`, stages it beside the running binary and renames it into place; `okf upgrade --check` answers current-versus-published as an exit code and downloads nothing. This is the **only** network path in the toolset and the one deliberate exception to the offline contract — one library file holds it, one verb reaches it, and okf never checks for an update it was not asked to check for. Recorded in [release and versioning](practices/release-and-versioning.md), with the layering claim corrected in [library, CLI, and MCP layering](toolset/library-cli-mcp-layering.md) and the rule itself in [the architecture spine](toolset/architecture-spine.md). The manifest is still unsigned, so what the digest buys is integrity and not origin — the same deferral `okf-bundle.json` makes.

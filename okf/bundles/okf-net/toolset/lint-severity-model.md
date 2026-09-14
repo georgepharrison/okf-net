@@ -3,7 +3,7 @@ type: Reference
 title: The Lint Severity Model
 description: Four Roslyn-style severities, OKF-numbered diagnostics in reserved ranges, and defaults that block only spec conformance.
 tags: [okf-net, lint, diagnostics, severity, configuration]
-generated: { by: claude-fable/5, at: 2026-08-15T20:40:00Z }
+generated: { by: claude-fable/5, at: 2026-09-14T05:37:48Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -83,6 +83,7 @@ are never valid configuration keys — configuration references the number.
 | `OKF0103` | source-drift | A source's `last_modified` is later than `generated.at` | warning |
 | `OKF0201` | self-verification | A `verified[].by` equals `generated.by` | warning |
 | `OKF0202` | stale-concept | `stale_after` has passed | warning |
+| `OKF0203` | unreadable-verification | A `verified` block is present but cannot be read as events | warning |
 | `OKF0301` | missing-description | The concept has no `description` | warning |
 | `OKF0302` | broken-internal-link | A bundle-internal link resolves to nothing | info |
 | `OKF0303` | near-duplicate-concept | Title or filename collision after normalisation | warning |
@@ -97,6 +98,12 @@ are never valid configuration keys — configuration references the number.
 Two rules default to **hidden** rather than off: hidden is a severity, so
 enabling a tag policy is a configuration edit rather than a feature flag.
 
+`OKF0203` is the rule a verification pipeline reads. It fires on exactly the
+`verified` blocks `okf candidates` refuses to classify, because both surfaces
+ask one internal predicate rather than each stating the shape test — and the
+exit codes still differ by design: lint warns and exits 0, while candidates
+gates on the completeness of its own inventory and exits 1.
+
 `OKF0310` is the one rule scoped to the **vault** rather than to a bundle
 root, because `raw/` sits outside every bundle root by construction. It follows
 the vault a command resolved — the same vault whose `okf.json` decides these
@@ -110,7 +117,7 @@ A run says how many of those rules were live, because a clean report and a
 silenced one are otherwise the same sentence:
 
 ```text
-Checked 26 files in 1 bundle (19 rules: 19 active, 0 hidden): 0 errors, 0 warnings, 0 infos.
+Checked 26 files in 1 bundle (20 rules: 20 active, 0 hidden): 0 errors, 0 warnings, 0 infos.
 ```
 
 `--verbose` expands that to one line per rule — effective severity and the

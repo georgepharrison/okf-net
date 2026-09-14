@@ -102,6 +102,12 @@ public static class OkfRules
     /// <summary>The concept is stale: <c>today &gt;= stale_after</c> (§5.5).</summary>
     public const string StaleConcept = "OKF0202";
 
+    /// <summary>
+    /// A <c>verified</c> block is present but is not a structure the §5.2 normalization can read
+    /// as events — the shape <c>okf candidates</c> quarantines (#78).
+    /// </summary>
+    public const string UnreadableVerification = "OKF0203";
+
     /// <summary>The concept has no <c>description</c> (§4.1).</summary>
     public const string MissingDescription = "OKF0301";
 
@@ -196,6 +202,12 @@ public static class OkfRules
             OkfRuleCategory.Trust,
             OkfSeverity.Warning,
             "The concept has reached its stale_after date (§5.5)."),
+        new(
+            UnreadableVerification,
+            "unreadable-verification",
+            OkfRuleCategory.Trust,
+            OkfSeverity.Warning,
+            "A verified block claims verification but cannot be read as events (§5.2)."),
         new(
             MissingDescription,
             "missing-description",

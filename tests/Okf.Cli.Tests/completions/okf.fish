@@ -42,7 +42,7 @@ complete -c okf -n '__fish_seen_subcommand_from lint' -l config -r -F -d 'Read t
 complete -c okf -n '__fish_seen_subcommand_from lint' -l format -x -a 'json text' -d 'Output format'
 complete -c okf -n '__fish_seen_subcommand_from lint' -l json -d 'Emit the stable JSON form instead of text'
 complete -c okf -n '__fish_seen_subcommand_from lint' -l list-rules -d 'Print the rule catalog and stop'
-complete -c okf -n '__fish_seen_subcommand_from lint' -l severity -x -a 'OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310' -d 'Override the severity of one rule as OKF####=level'
+complete -c okf -n '__fish_seen_subcommand_from lint' -l severity -x -a 'OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0203 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310' -d 'Override the severity of one rule as OKF####=level'
 complete -c okf -n '__fish_seen_subcommand_from lint' -l treat-all-warnings-as-errors -d 'Promote every warning to an error'
 complete -c okf -n '__fish_seen_subcommand_from lint' -l verbose -d 'Report vault resolution and effective configuration'
 complete -c okf -n '__fish_seen_subcommand_from lint' -s v -d 'Report vault resolution and effective configuration'

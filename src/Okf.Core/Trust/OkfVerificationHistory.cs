@@ -91,8 +91,14 @@ internal static class OkfVerificationVerdictExtensions
 
 /// <summary>
 /// The one reading of a concept's <c>verified</c> key that answers "does it have any readable
-/// verification history?" (work item #74).
+/// verification history?" (work items #74 and #78).
 /// </summary>
+/// <remarks>
+/// Consumed from two surfaces and no more: <see cref="OkfCandidateScanner" />, which quarantines
+/// what it cannot classify, and <c>OkfLinter</c>, which reports the same shapes as <c>OKF0203</c>.
+/// That is the whole reason the verdict is one type rather than a predicate each surface writes —
+/// a consumer that re-decides readability can disagree with the quarantine list beside it.
+/// </remarks>
 /// <remarks>
 /// WHY A SECOND READING EXISTS
 /// ---------------------------
@@ -150,6 +156,21 @@ internal static class OkfVerificationHistory
 
     /// <summary>The instant key inside one verification event (§5.2).</summary>
     public const string TimestampKey = "at";
+
+    /// <summary>
+    /// Whether a <c>verified</c> block claims verification but cannot be safely read as events —
+    /// the one question <c>okf candidates</c> quarantines on and <c>okf lint</c> reports as
+    /// <c>OKF0203</c>, so neither surface states the shape test itself.
+    /// </summary>
+    /// <remarks>
+    /// Exposed inside the library rather than published: the two consumers are in this assembly,
+    /// and a public "is this malformed" helper would invite a third reading of the same block
+    /// from outside it.
+    /// </remarks>
+    /// <param name="frontmatter">The frontmatter to read.</param>
+    /// <returns><see langword="true" /> for exactly the shapes <see cref="OkfVerificationVerdict.Unreadable" /> names.</returns>
+    internal static bool IsUnreadable(OkfMapping frontmatter) =>
+        Verdict(frontmatter) == OkfVerificationVerdict.Unreadable;
 
     /// <summary>Asks a concept whether it has any readable verification history.</summary>
     /// <param name="concept">The concept to read. Its frontmatter is the only thing consulted.</param>

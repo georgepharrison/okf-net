@@ -322,6 +322,7 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
   | Missing `tags` | A concept has no `tags` | off (opt-in) |
   | Unregistered tag | A tag is absent from the bundle's tag registry (beyond-spec extension) | off (opt-in) |
   | Self-verification | Any `verified[].by` equals `generated.by` | warning |
+  | Unreadable verification | A `verified` block is present but is not a structure the §5.2 normalization can read as events — the shapes `okf candidates` quarantines, reported from the same logic (#78) | warning |
   | Human actor on CI commit | `generated.by` is a `human:` actor on a CI-authored commit | **not shipped** — no rule id, no implementation (Q9) |
   | Missing source resource | A `sources[]` entry carries no `resource`, which §5.1 requires within an entry | warning |
   | Unresolvable source resource | A `sources[].resource` written as a path names nothing inside the bundle (§6.2); absolute URLs and §5.1 scope descriptors are never checked | info |
@@ -334,7 +335,7 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
 
   **BUILT, one row excepted.** Every row above except *Human actor on CI commit* ships as a
   numbered rule. The shipped catalog is `OKF0001`–`OKF0004` (conformance),
-  `OKF0101`–`OKF0103` (provenance), `OKF0201`–`OKF0202` (trust) and `OKF0301`–`OKF0310`
+  `OKF0101`–`OKF0103` (provenance), `OKF0201`–`OKF0203` (trust) and `OKF0301`–`OKF0310`
   (hygiene). `okf lint --list-rules` prints every id with its **default** severity;
   `--verbose` on a real run reports the **effective** one and the layer that set it, and
   `docs/architecture.md` AD-11 fixes the ranges. The two "off (opt-in)" rows above ship as
@@ -762,7 +763,7 @@ decision (and its rationale) is recorded in decisions.md.
 - **Q9 — Detecting a CI-authored commit. RESOLVED by not shipping the rule (2026-08-15).**
   No reliable signal was decided, so the "human actor on a CI commit" warning has no rule
   id and no implementation; it is absent from the shipped catalog (`OKF0001`–`OKF0004`,
-  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0202`, `OKF0301`–`OKF0310`). CLI-7's table row records
+  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0203`, `OKF0301`–`OKF0310`). CLI-7's table row records
   the intent, not a rule that fires. Reopening it means picking a signal first.
 - **Q10 — .NET target and AOT viability. PARTIALLY RESOLVED (2026-08-14, see
   decisions.md).** Target framework is `net10.0` (mise pins `dotnet = "10"`). NativeAOT
