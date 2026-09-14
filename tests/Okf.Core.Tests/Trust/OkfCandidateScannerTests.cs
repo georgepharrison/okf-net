@@ -8,9 +8,9 @@ namespace Okf.Core.Tests.Trust;
 /// <remarks>
 /// The scanner's contract is two lists that are not opposites. A concept is a candidate only
 /// when its history is provably absent; a concept whose history cannot be established is
-/// quarantined and is NOT a candidate. A third group — a file whose frontmatter does not parse
-/// — is neither, yet, and is out of scope for this ticket (#76 adds that reason); what this
-/// ticket owes is that such a file never appears as a candidate.
+/// quarantined and is NOT a candidate. The third group — a file whose frontmatter cannot be
+/// read at all — is quarantined too (#76), under its own reason, because a file nobody could
+/// read has not been shown to lack history either.
 /// </remarks>
 public class OkfCandidateScannerTests
 {
@@ -58,7 +58,7 @@ public class OkfCandidateScannerTests
         OkfCandidateResult result = Scan(bundle);
 
         Assert.Equal(outcome == Outcome.Candidate, result.Candidates.Any(candidate => candidate.Path == "concept.md"));
-        Assert.Equal(outcome == Outcome.Quarantined, result.Quarantined.Any(item => item.Concept.Path == "concept.md"));
+        Assert.Equal(outcome == Outcome.Quarantined, result.Quarantined.Any(item => item.Path == "concept.md"));
     }
 
     internal enum Outcome
@@ -81,7 +81,7 @@ public class OkfCandidateScannerTests
 
         OkfQuarantinedConcept quarantined = Assert.Single(Scan(bundle).Quarantined);
 
-        Assert.Equal("quiet.md", quarantined.Concept.Path);
+        Assert.Equal("quiet.md", quarantined.Path);
         Assert.Equal(OkfQuarantineReason.VerificationStructure, quarantined.Reason);
         Assert.Equal("verification-structure", quarantined.Reason.ToWireString());
         Assert.Contains("ahormati", quarantined.Detail, StringComparison.Ordinal);
@@ -243,13 +243,13 @@ public class OkfCandidateScannerTests
     }
 
     /// <summary>
-    /// A concept whose frontmatter does not parse is NOT yet quarantined by this ticket — #76
-    /// adds that reason — but it must never be reported as a candidate either, because a file
-    /// nobody could read has not been shown to lack history. It is counted so the count is
-    /// honest about what was not classified.
+    /// A concept whose frontmatter does not parse is quarantined under its own reason, and is
+    /// never reported as a candidate: a file nobody could read has not been shown to lack
+    /// history. It is named rather than counted, because an inventory that reports only a
+    /// number cannot tell a person which file to open (#76).
     /// </summary>
     [Fact]
-    public void AFileWhoseFrontmatterDoesNotParseIsNeitherCandidateNorQuarantineYet()
+    public void AFileWhoseFrontmatterDoesNotParseIsQuarantinedAndNotACandidate()
     {
         using var bundle = new TempBundle();
         // Two colons on one line: not a mapping, so the frontmatter itself fails to parse.
@@ -259,28 +259,101 @@ public class OkfCandidateScannerTests
         OkfCandidateResult result = Scan(bundle);
 
         Assert.Equal(["healthy.md"], result.Candidates.Select(candidate => candidate.Path));
-        Assert.Empty(result.Quarantined);
-        Assert.Equal(1, result.ConceptCount);
-        Assert.Equal(1, result.UnreadableFileCount);
+        OkfQuarantinedConcept quarantined = Assert.Single(result.Quarantined);
+        Assert.Equal("broken.md", quarantined.Path);
+        Assert.Equal(OkfQuarantineReason.FrontmatterUnreadable, quarantined.Reason);
+        // Both files the walk reached are counted, including the one that never became a
+        // concept: an unreadable file is a file the scan reached and set aside, not one it did
+        // not see.
+        Assert.Equal(2, result.ConceptCount);
     }
 
     /// <summary>
-    /// A file with no frontmatter fence at all parses as an EMPTY mapping rather than failing,
-    /// so it is a concept with no <c>verified</c> key and IS a candidate. That is the walk's
-    /// documented behaviour (#72) and the reason #76 will quarantine it: today an unverified
-    /// concept can hide its history by losing its fence, and this is the shape that proves the
-    /// hole rather than pretending it is closed.
+    /// THE #76 REPRODUCTION. A file with no frontmatter fence at all PARSES SUCCESSFULLY, to
+    /// empty frontmatter, so its absent <c>verified</c> key used to read as provably-absent
+    /// history and the file was enumerated as a review candidate at exit 0. That is the
+    /// manipulability defect this ticket exists to close: three dashes must not move a file
+    /// between "candidate" and "quarantined", in either direction.
     /// </summary>
     [Fact]
-    public void AFileWithNoFrontmatterFenceIsACandidateTodayAndThatIsTheKnownHole()
+    public void AFileWithNoFrontmatterFenceIsQuarantinedRatherThanEnumeratedAsAReviewCandidate()
     {
         using var bundle = new TempBundle();
-        bundle.Add("no-fence.md", "# Just prose\n\nNo frontmatter at all.\n");
+        bundle.Add("healthy.md", Document("type: Concept\ntitle: Healthy"))
+            .Add("README.md", "# README\n\nNot a concept.\n");
 
         OkfCandidateResult result = Scan(bundle);
 
-        Assert.Equal(["no-fence.md"], result.Candidates.Select(candidate => candidate.Path));
-        Assert.Equal(1, result.ConceptCount);
+        Assert.Equal(["healthy.md"], result.Candidates.Select(candidate => candidate.Path));
+        OkfQuarantinedConcept quarantined = Assert.Single(result.Quarantined);
+        Assert.Equal("README.md", quarantined.Path);
+        Assert.Equal(OkfQuarantineReason.FrontmatterUnreadable, quarantined.Reason);
+        Assert.False(result.IsComplete);
+    }
+
+    /// <summary>
+    /// The three unreadability shapes the ticket enumerates — no opening fence, a fence that
+    /// never closes, and a block that does not parse — all quarantine under the one reason, and
+    /// each keeps its own detail. The symmetry of the outcome is the anti-manipulation
+    /// property; the asymmetry of the detail is what lets a person fix the right thing.
+    /// </summary>
+    /// <param name="text">The file's whole content.</param>
+    /// <param name="fragment">What the detail must name about that shape.</param>
+    [Theory]
+    [InlineData("# README\n\nNo frontmatter block at all.\n", "has no YAML frontmatter block")]
+    [InlineData("---\ntype: Concept\n\nno closing fence\n", "Unterminated")]
+    [InlineData("---\nkey: [unterminated\n---\n\nBody.\n", "Invalid YAML")]
+    [InlineData("---\njust a string\n---\n\nBody.\n", "must be a YAML mapping")]
+    public void EveryUnreadableShapeIsQuarantinedUnderItsOwnDetail(string text, string fragment)
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("odd.md", text);
+
+        OkfQuarantinedConcept quarantined = Assert.Single(Scan(bundle).Quarantined);
+
+        Assert.Equal(OkfQuarantineReason.FrontmatterUnreadable, quarantined.Reason);
+        Assert.Contains(fragment, quarantined.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The frontmatter reason is a different KIND from the verification-structure reason, and
+    /// the wire spellings keep them apart: one wants an editor, the other wants a linter. A
+    /// shared spelling would let a caller triage a stray <c>README.md</c> as a malformed
+    /// <c>verified</c> block.
+    /// </summary>
+    [Fact]
+    public void TheFrontmatterReasonIsDistinctFromTheVerificationStructureReason()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("fenceless.md", "# README\n\nNo frontmatter.\n")
+            .Add("lying.md", Document("type: Concept\nverified: ahormati"));
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Equal(
+            [("fenceless.md", "frontmatter-unreadable"), ("lying.md", "verification-structure")],
+            result.Quarantined.Select(item => (item.Path, item.Reason.ToWireString())));
+        Assert.Equal(1, result.Count(OkfQuarantineReason.FrontmatterUnreadable));
+        Assert.Equal(1, result.Count(OkfQuarantineReason.VerificationStructure));
+    }
+
+    /// <summary>
+    /// Quarantine names come from the walk's order, not from the two reasons: a fenceless file,
+    /// a candidate, and a malformed block interleave by path, so the incomplete list is one
+    /// deterministic list rather than one list per reason.
+    /// </summary>
+    [Fact]
+    public void QuarantinesFromBothReasonsComeBackInWalkOrder()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("alpha.md", "# Alpha\n")
+            .Add("middle.md", Document("type: Concept"))
+            .Add("zulu.md", Document("type: Concept\nverified: 42"));
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Equal(["alpha.md", "zulu.md"], result.Quarantined.Select(item => item.Path));
+        Assert.Equal(["middle.md"], result.Candidates.Select(candidate => candidate.Path));
     }
 
     /// <summary>
@@ -328,7 +401,7 @@ public class OkfCandidateScannerTests
         Assert.False(result.IsComplete);
         Assert.Equal(1, result.Count(OkfQuarantineReason.VerificationStructure));
         Assert.Equal(0, result.Count(OkfQuarantineReason.FrontmatterUnreadable));
-        Assert.Equal(["garbage.md"], result.For(OkfQuarantineReason.VerificationStructure).Select(item => item.Concept.Path));
+        Assert.Equal(["garbage.md"], result.For(OkfQuarantineReason.VerificationStructure).Select(item => item.Path));
     }
 
     /// <summary>
@@ -372,12 +445,15 @@ public class OkfCandidateScannerTests
             new OkfCandidateOptions { Today = Today });
 
         Assert.Equal(["project", "personal"], result.Bundles.Select(b => b.Name));
-        // 4 concepts: project's unverified.md and verified.md (index.md is reserved, broken.md
-        // did not parse) plus personal's notes.md and garbage.md.
-        Assert.Equal(4, result.ConceptCount);
+        // 5 files reached: project's unverified.md and verified.md (index.md is reserved) plus
+        // its unreadable broken.md, and personal's notes.md and garbage.md.
+        Assert.Equal(5, result.ConceptCount);
         Assert.Equal(["project/unverified.md", "personal/notes.md"], result.Candidates.Select(c => $"{c.Bundle.Name}/{c.Path}"));
-        Assert.Equal(["personal/garbage.md"], result.Quarantined.Select(q => $"{q.Concept.Bundle.Name}/{q.Concept.Path}"));
-        Assert.Equal(1, result.UnreadableFileCount);
+        // Both reasons, in the walk's order: project's unreadable file sorts before personal's
+        // malformed block, so the incomplete list is one list across bundles, not one per reason.
+        Assert.Equal(
+            [("project/broken.md", "frontmatter-unreadable"), ("personal/garbage.md", "verification-structure")],
+            result.Quarantined.Select(q => ($"{q.Bundle.Name}/{q.Path}", q.Reason.ToWireString())));
         Assert.False(result.IsComplete);
     }
 
@@ -397,7 +473,7 @@ public class OkfCandidateScannerTests
 
         Assert.Empty(result.Candidates);
         OkfQuarantinedConcept quarantined = Assert.Single(result.Quarantined);
-        Assert.Equal(OkfTrustTier.MachineConfirmed, quarantined.Concept.TrustTier);
+        Assert.Equal(OkfTrustTier.MachineConfirmed, quarantined.TrustTier);
     }
 
     /// <summary>
@@ -460,11 +536,12 @@ public class OkfCandidateScannerTests
     }
 
     /// <summary>
-    /// A file whose frontmatter is a truthy non-mapping fails to parse, so it is counted and
-    /// not listed. This is the fence-present sibling of the no-fence case.
+    /// A file whose frontmatter is a truthy non-mapping fails to parse, so it is quarantined
+    /// and never listed. This is the fence-present sibling of the no-fence case, and it lands
+    /// in the same place.
     /// </summary>
     [Fact]
-    public void AFileWhoseFrontmatterIsNotAMappingIsCountedAndNotListed()
+    public void AFileWhoseFrontmatterIsNotAMappingIsQuarantinedAndNotListed()
     {
         using var bundle = new TempBundle();
         bundle.Add("scalar.md", "---\njust a string\n---\n\nBody.\n");
@@ -472,9 +549,8 @@ public class OkfCandidateScannerTests
         OkfCandidateResult result = Scan(bundle);
 
         Assert.Empty(result.Candidates);
-        Assert.Empty(result.Quarantined);
-        Assert.Equal(0, result.ConceptCount);
-        Assert.Equal(1, result.UnreadableFileCount);
+        Assert.Equal(OkfQuarantineReason.FrontmatterUnreadable, Assert.Single(result.Quarantined).Reason);
+        Assert.Equal(1, result.ConceptCount);
     }
 
     /// <summary>
@@ -582,6 +658,104 @@ public class OkfCandidateScannerTests
 
         Assert.StartsWith("'verified:", quarantined.Detail, StringComparison.Ordinal);
         Assert.Contains("2026-06-25", quarantined.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The merge is order-sensitive, not merely set-valued. A candidate that sorts BETWEEN two
+    /// quarantines must not push them both after it, and the two reasons must interleave by path
+    /// rather than group by reason — otherwise the incomplete list is one list per reason and a
+    /// reader scanning it top-to-bottom loses the file that sits in the middle of the bundle.
+    /// </summary>
+    [Fact]
+    public void QuarantinesAndCandidatesInterleaveByPathRatherThanByReason()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("a-fenceless.md", "# A\n")
+            .Add("b-signed.md", Document("type: Concept\nverified: { by: human:ahormati }"))
+            .Add("c-fenceless.md", "# C\n")
+            .Add("d-open.md", "---\ntype: Concept\nnever closed\n")
+            .Add("e-broken.md", "---\nkey: [unterminated\n---\n\nBody.\n")
+            .Add("f-lying.md", Document("type: Concept\nverified: 42"))
+            .Add("g-open.md", "---\ntype: Concept\nnever closed\n");
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ["a-fenceless.md", "c-fenceless.md", "d-open.md", "e-broken.md", "f-lying.md", "g-open.md"],
+            result.Quarantined.Select(item => item.Path));
+        // The verification-structure quarantine is last because its path is last, not because
+        // its reason was reached second: the unreadable files on either side of it keep their place.
+        Assert.Equal(
+            ["frontmatter-unreadable", "frontmatter-unreadable", "frontmatter-unreadable",
+                "frontmatter-unreadable", "verification-structure", "frontmatter-unreadable"],
+            result.Quarantined.Select(item => item.Reason.ToWireString()));
+    }
+
+    /// <summary>
+    /// The incomplete list is ordered by bundle-relative path ACROSS bundles, not by bundle first:
+    /// <c>MarkdownFiles()</c> orders by (bundle, path) with a separator-safe comparison, so path
+    /// order is the walk's order, and a report that grouped by bundle instead would sort a vault's
+    /// gaps differently depending on which bundle happened to be named first. Two bundles carrying
+    /// the same filenames make the grouping visible: grouped output alternates, path-ordered
+    /// output does not.
+    /// </summary>
+    [Fact]
+    public void TheIncompleteListIsOrderedByPathAcrossBundlesNotByBundleFirst()
+    {
+        using var alpha = new TempBundle("alpha");
+        alpha.Add("z-fenceless.md", "# Z\n")
+            .Add("a-signed.md", Document("type: Concept\nverified: { by: human:x }"))
+            .Add("m-lying.md", Document("type: Concept\nverified: 42"));
+        using var beta = new TempBundle("beta");
+        beta.Add("z-fenceless.md", "# Z\n")
+            .Add("a-signed.md", Document("type: Concept\nverified: { by: human:x }"))
+            .Add("m-lying.md", Document("type: Concept\nverified: 42"));
+
+        OkfCandidateResult result = OkfCandidateScanner.Scan(
+            [alpha.Bundle, beta.Bundle], new OkfCandidateOptions { Today = Today });
+
+        // `m-lying.md` from BOTH bundles before `z-fenceless.md` from either: the paths decide,
+        // and the bundle only breaks a tie between two files that share one.
+        Assert.Equal(
+            [("alpha", "m-lying.md"), ("beta", "m-lying.md"), ("alpha", "z-fenceless.md"), ("beta", "z-fenceless.md")],
+            result.Quarantined.Select(item => (item.Bundle.Name, item.Path)));
+    }
+
+    /// <summary>
+    /// Path ordering inside the merge ranks <c>/</c> below the letters, the way the walk's
+    /// bundle-relative sort does: a file in a subdirectory sorts BEFORE a sibling whose name
+    /// continues with a letter, so <c>topic/a.md</c> precedes <c>topicZ.md</c>. A merge that
+    /// compared raw host separators would put them the other way round on Windows.
+    /// </summary>
+    [Fact]
+    public void TheMergeOrdersASubdirectoryBeforeALetterSibling()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("topic/a-fenceless.md", "# A\n")
+            .Add("topicZ-broken.md", "---\nkey: [unterminated\n---\n\nBody.\n")
+            .Add("topic/signed.md", Document("type: Concept\nverified: { by: human:x }"));
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Equal(["topic/a-fenceless.md", "topicZ-broken.md"], result.Quarantined.Select(item => item.Path));
+    }
+
+    /// <summary>
+    /// A path that is a strict prefix of another sorts first, and the comparison must not read
+    /// past the shorter string to decide it: <c>note.md</c> comes before <c>notes-more.md</c>
+    /// because it is shorter, not because of a character that exists in only one of them.
+    /// </summary>
+    [Fact]
+    public void AShorterPathSortsBeforeItsOwnExtension()
+    {
+        using var bundle = new TempBundle();
+        bundle.Add("note.md", "# Note\n")
+            .Add("note.md-open.md", "---\ntype: Concept\nnever closed\n");
+
+        OkfCandidateResult result = Scan(bundle);
+
+        Assert.Equal(["note.md", "note.md-open.md"], result.Quarantined.Select(item => item.Path));
     }
 
     /// <summary>

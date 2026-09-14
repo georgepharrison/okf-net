@@ -11,6 +11,12 @@ namespace Okf.Core.Tests.Vault;
 /// inbox scanner: the answer is pinned here, once, so the surfaces that consume it — the
 /// inbox today, <c>okf candidates</c> next — cannot each grow a private copy that
 /// disagrees (AD-6).
+///
+/// #76 moved one boundary here: a file with NO frontmatter block is unreadable rather than
+/// a concept with empty frontmatter. The parser's leniency is unchanged and deliberately so;
+/// what changed is that the walk no longer calls a file it never found a frontmatter block in
+/// a concept. <c>okf lint</c> and <c>okf inbox</c> report the same counts as before, because
+/// lint reports its own <c>OKF0001</c> for that file and the inbox counts skipped files.
 /// </remarks>
 public class OkfConceptWalkTests
 {
@@ -149,11 +155,10 @@ public class OkfConceptWalkTests
     /// disjoint and together account for every non-reserved <c>.md</c> the walk found.
     /// </summary>
     /// <remarks>
-    /// A file with no frontmatter block is NOT unreadable: <c>OkfDocument.Parse</c> reads
-    /// one as an empty mapping, so it is a concept and <c>okf lint</c> reports its missing
-    /// <c>type</c> (<c>OKF0001</c>) — see <see cref="AFrontmatterlessFileIsAConceptNotAnUnreadableFile" />.
-    /// What lands here is a frontmatter block that opens and then fails to parse, or opens
-    /// and never closes.
+    /// A file with no frontmatter block IS unreadable (#76) — see
+    /// <see cref="AFrontmatterlessFileIsUnreadableNotAConcept" />. What lands here is any file
+    /// whose frontmatter could not be read: a block that opens and then fails to parse, a block
+    /// that opens and never closes, or no block at all.
     /// </remarks>
     [Fact]
     public void AFileWhoseFrontmatterDoesNotParseIsReportedAsUnreadable()
@@ -185,23 +190,26 @@ public class OkfConceptWalkTests
     }
 
     /// <summary>
-    /// A file with no frontmatter block at all is a concept, not an unreadable file:
-    /// <c>OkfDocument.Parse</c> reads it as an empty mapping. §11 still rejects it, but for
-    /// a missing <c>type</c>, which is <c>okf lint</c>'s finding to make — the walk's
-    /// question is only whether what it read parsed.
+    /// A file with no frontmatter block at all is unreadable, not a concept (#76).
+    /// <c>OkfDocument.Parse</c> still reads it as an empty mapping — that leniency is
+    /// <c>okf lint</c>'s and <c>okf search</c>'s and does not move — but the walk no longer
+    /// hands it on as a concept, because a file whose frontmatter was never found has not been
+    /// shown to lack verification history. §11 makes the same call from the other side: every
+    /// non-reserved <c>.md</c> file is conformant material, and this one is broken.
     /// </summary>
     [Fact]
-    public void AFrontmatterlessFileIsAConceptNotAnUnreadableFile()
+    public void AFrontmatterlessFileIsUnreadableNotAConcept()
     {
         using var bundle = new TempBundle();
         bundle.Add("prose.md", "Just prose. Nobody wrote a frontmatter block.\n");
 
         (List<OkfConcept> concepts, List<OkfUnreadableConcept> unreadable) = Walk([bundle.Bundle]);
 
-        OkfConcept concept = Assert.Single(concepts);
-        Assert.Equal("prose.md", concept.Path);
-        Assert.Null(concept.Type);
-        Assert.Empty(unreadable);
+        Assert.Empty(concepts);
+        OkfUnreadableConcept file = Assert.Single(unreadable);
+        Assert.Equal("prose.md", file.Path);
+        Assert.Equal(OkfDocument.OkfFrontmatterRead.NoFence, file.Read);
+        Assert.Contains("no YAML frontmatter block", file.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -227,24 +235,36 @@ public class OkfConceptWalkTests
     }
 
     /// <summary>
-    /// The three malformed shapes, and the one near-miss that is not one. What the walk
-    /// calls unreadable is decided by what <c>OkfDocument.Parse</c> throws, not by how
-    /// broken the file looks: bad YAML inside a block, and a block that never closes, are
-    /// collected; a file with no block at all parses (as nothing) and is a concept.
+    /// The three shapes that cannot be read, and the near-miss that can. What the walk calls
+    /// unreadable is decided by whether a frontmatter block was FOUND and read, not by how
+    /// broken the file looks: bad YAML inside a block, a block that never closes, a block that
+    /// is not a mapping, and a file with no block at all are collected; an empty-but-delimited
+    /// block is a readable block with nothing in it, which is <c>okf lint</c>'s missing-<c>type</c>
+    /// finding rather than this walk's.
     /// </summary>
     [Fact]
-    public void OnlyAFrontmatterBlockThatFailsToParseIsUnreadable()
+    public void OnlyAFrontmatterBlockThatCannotBeReadIsUnreadable()
     {
         using var bundle = new TempBundle();
         bundle.Add("bad-yaml.md", "---\nkey: [unterminated\n---\n\nbody\n")
             .Add("unclosed.md", "---\ntype: Concept\n\nno closing fence\n")
             .Add("scalar-block.md", "---\n- just\n- a\n- list\n---\n\nbody\n")
-            .Add("no-block.md", "Just prose.\n");
+            .Add("no-block.md", "Just prose.\n")
+            .Add("empty-block.md", "---\n---\n\nbody\n")
+            .Add("comments-only.md", "---\n# a comment\n---\n\nbody\n");
 
         (List<OkfConcept> concepts, List<OkfUnreadableConcept> unreadable) = Walk([bundle.Bundle]);
 
-        Assert.Equal(["bad-yaml.md", "scalar-block.md", "unclosed.md"], unreadable.Select(entry => entry.Path));
-        Assert.Equal(["no-block.md"], concepts.Select(concept => concept.Path));
+        Assert.Equal(["comments-only.md", "empty-block.md"], concepts.Select(concept => concept.Path));
+        Assert.Equal(["bad-yaml.md", "no-block.md", "scalar-block.md", "unclosed.md"], unreadable.Select(entry => entry.Path));
+        Assert.Equal(
+            [
+                OkfDocument.OkfFrontmatterRead.Unparseable,
+                OkfDocument.OkfFrontmatterRead.NoFence,
+                OkfDocument.OkfFrontmatterRead.Unparseable,
+                OkfDocument.OkfFrontmatterRead.Unterminated,
+            ],
+            unreadable.Select(entry => entry.Read));
     }
 
     /// <summary>

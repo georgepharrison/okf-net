@@ -529,12 +529,112 @@ public class CandidatesCommandTests
     }
 
     /// <summary>
-    /// A file whose frontmatter does not parse is counted in the summary but is neither a
-    /// candidate nor a quarantine yet — that is work item #76, which converts these into
-    /// quarantines. Until then the count is the disclosure that they were not silently dropped.
+    /// THE #76 REPRODUCTION, named. The ticket's own case: one healthy concept and one fenceless
+    /// <c>README.md</c>. Before #76 this printed "2 candidates, 0 quarantined" at exit 0 and
+    /// handed the stray file to an automated verifier as knowledge to review.
     /// </summary>
     [Fact]
-    public void AFileWhoseFrontmatterDoesNotParseIsCountedButNotYetQuarantined()
+    public void AFencelessReadmeAlongsideOneHealthyConceptIsOneCandidateAndOneQuarantine()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/healthy.md", Concept("type: Concept\ntitle: Healthy"));
+        tree.Write("vault/bundles/b/README.md", "# README\n\nNot a concept.\n");
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        Assert.Equal(
+            [
+                "  vault/bundles/b/healthy.md  Healthy  [unverified] (Concept)",
+                "    no `verified` key — nobody has ever stood behind this content",
+                "Scanned 2 concepts in 1 bundle: 1 candidate, 1 quarantined.",
+            ],
+            run.OutputLines);
+        Assert.Equal(
+            [
+                "okf: could not classify vault/bundles/b/README.md [frontmatter-unreadable]: "
+                    + "this file is not readable as a concept: File has no YAML frontmatter block. "
+                    + "Run `okf lint` on the bundle to fix it.",
+            ],
+            [.. run.ErrorLines.Select(line => line.Replace(tree.Root + "/", string.Empty, StringComparison.Ordinal))]);
+    }
+
+    /// <summary>
+    /// The three unreadability shapes each get their own stable wire spelling on the notice,
+    /// and none of them prints the verification-structure spelling — a stray <c>README.md</c>
+    /// must not read as a malformed <c>verified</c> block to whoever is triaging it.
+    /// </summary>
+    /// <param name="content">The file's whole content.</param>
+    /// <param name="wire">The reason's wire spelling the notice must carry.</param>
+    /// <param name="fragment">What the notice must say about that shape.</param>
+    [Theory]
+    [InlineData("# README\n\nNo frontmatter.\n", "frontmatter-unreadable", "no YAML frontmatter block")]
+    [InlineData("---\ntype: Concept\n\nno closing fence\n", "frontmatter-unreadable", "Unterminated")]
+    [InlineData("---\nkey: [unterminated\n---\n\nBody.\n", "frontmatter-unreadable", "Invalid YAML")]
+    public void EachUnreadableShapeIsNamedWithItsOwnReason(
+        string content,
+        string wire,
+        string fragment)
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/odd.md", content);
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        Assert.Contains($"[{wire}]", run.Error, StringComparison.Ordinal);
+        Assert.Contains(fragment, run.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("verification-structure", run.Error, StringComparison.Ordinal);
+        Assert.Equal("Scanned 1 concept in 1 bundle: 0 candidates, 1 quarantined.", LastLine(run));
+    }
+
+    /// <summary>
+    /// The notice says plainly that the file is not readable as a concept and points at
+    /// <c>okf lint</c> for the fix — the two things a person needs, in the order they need them.
+    /// </summary>
+    [Fact]
+    public void AnUnreadableNoticeSaysTheFileIsNotAConceptAndPointsAtLint()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/README.md", "# README\n\nNo frontmatter.\n");
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
+
+        Assert.Contains("not readable as a concept", run.Error, StringComparison.Ordinal);
+        Assert.Contains("Run `okf lint`", run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The JSON array stays exactly the candidates whatever the reason: an unreadable file is
+    /// not a record, and a machine consumer reads exit 1 as "that array is not the whole truth".
+    /// </summary>
+    [Fact]
+    public void AnUnreadableFileStaysOutOfTheJsonAndStillMovesTheExitCode()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/quiet.md", Concept("type: Concept\ntitle: Quiet"));
+        tree.Write("vault/bundles/b/README.md", "# README\n\nNo frontmatter.\n");
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--json");
+
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
+        using var document = JsonDocument.Parse(run.Output);
+        Assert.Equal(["quiet"], document.RootElement.EnumerateArray().Select(row => row.GetProperty("id").GetString()));
+        Assert.DoesNotContain("frontmatter-unreadable", run.Output, StringComparison.Ordinal);
+        Assert.Contains("frontmatter-unreadable", run.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A file whose frontmatter does not parse is now a quarantine like any other: counted in
+    /// the summary, exit 1, and named on stderr. The parenthetical count #75 shipped as an
+    /// intermediate disclosure is gone, because the quarantined count replaced it.
+    /// </summary>
+    [Fact]
+    public void AFileWhoseFrontmatterDoesNotParseIsQuarantinedAndCountsAsOne()
     {
         using var tree = new TempTree();
         var bundle = tree.CreateDirectory("vault/bundles/b");
@@ -543,14 +643,35 @@ public class CandidatesCommandTests
 
         var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle);
 
-        Assert.Equal(CliApplication.ExitSuccess, run.ExitCode);
+        Assert.Equal(CliApplication.ExitDiagnostics, run.ExitCode);
         Assert.Equal(
             [
                 "  vault/bundles/b/quiet.md  Quiet  [unverified] (Concept)",
                 "    no `verified` key — nobody has ever stood behind this content",
-                "Scanned 1 concept in 1 bundle: 1 candidate, 0 quarantined (1 file whose frontmatter does not parse).",
+                "Scanned 2 concepts in 1 bundle: 1 candidate, 1 quarantined.",
             ],
             run.OutputLines);
+        Assert.DoesNotContain("whose frontmatter does not parse", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>--verbose</c> counts the quarantines that came from unreadable files in the same total
+    /// the summary prints, so the two channels cannot disagree about how much was set aside.
+    /// </summary>
+    [Fact]
+    public void VerboseCountsUnreadableQuarantinesInTheSameTotal()
+    {
+        using var tree = new TempTree();
+        var bundle = tree.CreateDirectory("vault/bundles/b");
+        tree.Write("vault/bundles/b/README.md", "# README\n\nNo frontmatter.\n");
+        tree.Write("vault/bundles/b/lying.md", Concept("type: Concept\ntitle: Lying\nverified: 42"));
+
+        var run = CliHarness.RunIn(tree.Root, tree.Root, "candidates", bundle, "--verbose");
+
+        // One concept (the unreadable README never became one), one quarantine per reason, and
+        // the same 2 on both channels.
+        Assert.Contains("okf: scanned 2 concepts, 0 candidates, 2 quarantined", run.Error, StringComparison.Ordinal);
+        Assert.Contains("0 candidates, 2 quarantined", LastLine(run));
     }
 
     [Theory]

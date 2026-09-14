@@ -32,11 +32,15 @@ namespace Okf.Core.Trust;
 ///    entry ride along inside an otherwise-readable list and hide the concept from review. The
 ///    ratified asymmetry survives: <c>verified: []</c> stays <see cref="Absent" /> (nothing in it
 ///    could be malformed) and <c>verified: [{}]</c> stays <see cref="Unreadable" />.
-/// 3. A FENCELESS FILE IS <see cref="Absent" />, ON PURPOSE. <c>OkfDocument.Parse</c> reads a
-///    file with no frontmatter fence as an EMPTY mapping, so it has no <c>verified</c> key and
-///    this verdict answers <see cref="Absent" />, making it a candidate. That is correct for this
-///    contract, which adjudicates verification-STRUCTURE unreadability only; a file whose
-///    frontmatter cannot be read at all is #76 to quarantine, and #74 deliberately does not.
+/// 3. A FENCELESS FILE IS NOT THIS VERDICT'S QUESTION ANY MORE (#76). <c>OkfDocument.Parse</c>
+///    still reads a file with no frontmatter fence as an EMPTY mapping, so this verdict alone
+///    would answer <see cref="Absent" /> for it — which is what #74 recorded, and what #76
+///    superseded: a file whose frontmatter was never FOUND is not a file shown to lack history.
+///    <see cref="OkfConceptWalk" /> now asks
+///    <see cref="OkfDocument.FrontmatterReadOf" /> first and hands such a file to the scanner as
+///    unreadable, so it is quarantined under <see cref="OkfQuarantineReason.FrontmatterUnreadable"
+///    /> and never reaches this verdict. That is why deleting three dashes can no longer move a
+///    file between "candidate" and "quarantined".
 /// </remarks>
 internal enum OkfVerificationVerdict
 {

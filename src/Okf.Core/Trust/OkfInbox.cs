@@ -271,7 +271,30 @@ public static class OkfInboxScanner
             .OfType<OkfInboxItem>()
             .ToList();
 
-        return new OkfInboxResult(items, list, concepts.Count, unreadable.Count);
+        // Issue #71 story 43 freezes the inbox: *"sharing a corpus walk with the new scanner cannot
+        // silently move the inbox … that is a behaviour change requiring its own justification, not
+        // a drive-by."* #76 moved it. The walk used to ask only whether PARSE threw, and a fenceless
+        // file does not throw — §4 makes the whole text body, so it parses into a document with zero
+        // frontmatter keys — and landed among the concepts. Asking the fence question first moved it
+        // to the unreadable list, so the two counts swapped by one.
+        //
+        // The fix is the distinction the two counts were always asking about. The inbox skips files
+        // whose frontmatter does not PARSE, and a fenceless file does not fail to parse; the scanner
+        // quarantines files whose frontmatter cannot be READ, and a fenceless file fails that. So the
+        // inbox reads the CAUSE the walk recorded and declines to treat one newly-added cause as its
+        // own reason to skip — the walk still owns which files are which.
+        //
+        // The surfaces then answer three different questions about one file, which is the design and
+        // not a drift: lint asks *is this conformant* and errors; the scanner asks *can I claim a
+        // complete inventory* and quarantines and exits 1; the inbox asks *does this need a person*
+        // and neither lists it nor skips it.
+        int filesThatDoNotParse = unreadable
+            .Count(file => file.Read != OkfDocument.OkfFrontmatterRead.NoFence);
+        return new OkfInboxResult(
+            items,
+            list,
+            concepts.Count + unreadable.Count - filesThatDoNotParse,
+            filesThatDoNotParse);
     }
 
     /// <summary>Classifies one concept.</summary>

@@ -368,6 +368,35 @@ public class OkfInboxTests
         Assert.False(result.IsEmpty);
     }
 
+    /// <summary>
+    /// #71 story 43 freezes the inbox: "sharing a corpus walk with the new scanner cannot silently
+    /// move the inbox". #76 is the change that came closest to moving it, because it asks the walk
+    /// a second question — was a fence FOUND — and a file with no fence answers NO to that while
+    /// still answering YES to the question the inbox's count has always asked, does it PARSE.
+    /// Without the cause-aware count in the scanner, this vault's numbers move from 2/1 to 1/2 and
+    /// the stdout notice starts saying "Skipped 2 files" on a vault nobody changed.
+    /// </summary>
+    [Fact]
+    public void AFileWithNoFrontmatterFenceIsCountedAsAConceptAndNotSkipped()
+    {
+        using var bundle = new TempBundle();
+        bundle
+            .Add("alpha.md", Document("type: Concept"))
+            .Add("fenceless.md", "# Just prose\n\nA stray README with no frontmatter block.\n")
+            .Add("broken.md", "---\nkey: [unterminated\n---\n\nbody\n");
+
+        var result = OkfInboxScanner.Scan([bundle.Bundle], new OkfInboxOptions { Today = Today });
+
+        // Two concepts read and one file skipped: the numbers this vault produced before #76, and
+        // the only one of these three files that fails to PARSE is broken.md. The fenceless file is
+        // not an inbox item either — it has no `generated` stamp to be unacknowledged about — so it
+        // is counted and otherwise ignored, exactly as it was. `okf candidates` quarantines it and
+        // `okf lint` errors on it; neither is the inbox's question.
+        Assert.Equal(2, result.ConceptCount);
+        Assert.Equal(1, result.SkippedCount);
+        Assert.Empty(result.Items);
+    }
+
     [Fact]
     public void AVaultWhereNothingIsWaitingScansEmpty()
     {

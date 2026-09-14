@@ -3,7 +3,7 @@ type: Concept
 title: Candidate Enumeration and the Completeness Contract
 description: The eligibility test behind `okf candidates`, why it is not the trust tier's question, and the exit-code contract that reports an incomplete inventory instead of a shorter list
 tags: [okf-net, trust, verification, lifecycle, determinism, cli]
-generated: { by: openai-codex/gpt-5.6-luna, at: 2026-09-13T00:00:00Z }
+generated: { by: "openai-codex/gpt-5.6-luna", at: 2026-09-13T23:16:26Z }
 sources:
   - id: issue-71
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/issues/71
@@ -13,6 +13,11 @@ sources:
   - id: issue-75
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/issues/75
     title: Expose okf candidates as a verb
+    author: "human:ringo"
+    last_modified: 2026-09-13
+  - id: issue-76
+    resource: https://gitlab.tychostation.dev/ringo/okf-net/-/issues/76
+    title: Quarantine concepts whose frontmatter cannot be read
     author: "human:ringo"
     last_modified: 2026-09-13
   - id: decisions
@@ -105,10 +110,23 @@ sequence as "no value". The distinction is the sentence's entire purpose.
 `Found` — the shared test harness already assigns those to lint, index and search, and reusing
 one would make the harness attribute this verb's summary to a different command.[^issue-75]
 
-**Files whose frontmatter does not parse are counted, not yet quarantined.** The summary carries
-them as a parenthetical. That is a deliberate intermediate state: the reason exists in the
-enumeration but is not populated yet, and until it is, the count is the disclosure that a broken
-vault is not a clean one.
+**A file nobody could read is quarantined, not enumerated.** A markdown file with no frontmatter
+fence parses *successfully* — to an empty mapping — so its absent `verified` key reads as provably
+absent history and the file looks like a candidate. That is why it is not one: a file whose
+frontmatter was never found has not been shown to lack verification history, and an author must
+not be able to move a concept between "candidate" and "quarantined" by adding or deleting three
+dashes.[^issue-76] Three causes quarantine under `frontmatter-unreadable` — no opening fence, a
+fence that never closes, and a block that is not a YAML mapping — and that spelling is deliberately
+not `verification-structure`, because one wants an editor and `okf lint` while the other wants a
+look at a `verified` block.
+
+The fix is in the scanner's eligibility test, not in the parser. `OkfDocument.Parse` still reads a
+fenceless file as empty frontmatter, because `okf lint` must report a *missing block* as a finding
+about a file rather than as a crash, and `okf search` indexes such a file's prose. A second,
+narrower question — *was a frontmatter block found and read* — is what the concept walk asks
+instead. An **empty but delimited** block stays readable, and that asymmetry is deliberate: the
+reference implementation's `safe_load(fm_text) or {}` treats a falsy document as empty frontmatter,
+and §11's complaint about it is a missing `type`, which is lint's finding to make.
 
 # What this is not
 

@@ -4091,3 +4091,125 @@ make the harness attribute this verb's summary to another command.
 **Files whose frontmatter does not parse are counted, not yet quarantined.** #74 left that
 reason to #76, and #75 carries the count in the summary so a broken vault cannot look like a
 clean one. #76 converts them into quarantines; until then the disclosure is the count.
+
+### Proposed decisions: an unreadable file is quarantined, not enumerated (work item #76, 2026-09-13)
+
+`okf candidates` shipped a defect that its own wording hid: a markdown file with **no frontmatter
+fence** parses successfully — to an empty mapping — so its absent `verified` key read as
+*provably absent history*, and the file was enumerated as a review candidate at exit 0. The
+reproduction from `dev` after #75, on a bundle holding one healthy concept and one fenceless
+`README.md`, printed `Scanned 2 concepts in 1 bundle: 2 candidates, 0 quarantined.` and exited 0.
+Now: one candidate, one quarantine, exit 1.
+
+**Two harms, and the second is the one the feature exists to prevent.** A stray `README.md`
+handed to an automated verifier is bad enough. Worse: frontmatter presence moved a concept
+between "candidate" and "quarantined" in a way nobody specified, so **an author could opt a
+concept out of review by adding or deleting three dashes** — the same class of manipulability as
+`verified: "ahormati" hiding a concept behind malformed metadata. Whatever the intended
+direction, the answer must not depend on a fence's being there or not.
+
+**The fix is in eligibility, not in the parser.** #76's note for the implementer said to raise
+it rather than widen a shared primitive if the clean fix looked like a parser change, and the
+resolution honors that: `OkfDocument.Parse` still reads a fenceless file as empty frontmatter
+with the whole text as body, because `okf lint` needs to report a *missing block* as a finding
+about a file rather than as a parse crash, and `okf search` indexes such a file's prose. What
+changed is a second, narrower question — `OkfDocument.FrontmatterReadOf`, which answers
+*was a frontmatter block found and read* — asked by `OkfConceptWalk` alongside the parse it
+already guarded. The scanner stops treating "no block was found" as "no `verified` key".
+
+**Three causes, one reason, distinct from the verification-structure reason.** No opening fence,
+a fence that never closes, and a delimited block that is not a YAML mapping all quarantine under
+`frontmatter-unreadable`, and that spelling is deliberately not `verification-structure`: one
+wants an editor and `okf lint`, the other wants a look at a `verified` block. The *causes* stay
+distinct inside Core (`OkfDocument.OkfFrontmatterRead`) because the fixes are distinct, and each
+keeps its own words on the stderr line — the case #74 could not name, because it had no exception
+behind it, is exactly the case that most needs its own sentence.
+
+**The asymmetry the parser does NOT draw is a decision, and it is lint's.** An *empty but
+delimited* block (`---` then `---`, or a block holding only comments) is `Readable`: the
+reference implementation's `safe_load(fm_text) or {}` treats a falsy document as empty
+frontmatter, §11 then reports the missing `type`, and `okf lint` already owns that finding. This
+asks whether a readable block was **found**, not whether it holds anything. Conflating the two
+would double-report one file from two surfaces.
+
+**A quarantine is now a file, not always a concept.** A fenceless file has no `OkfConcept` to
+carry — there was no mapping to read `type`, `title` or a trust tier out of — and inventing one
+would mean synthesizing frontmatter to describe a file that has none. So
+`OkfQuarantinedConcept` names a file by bundle, bundle-relative path and absolute path, and
+carries the trust tier only when the file earned one. The stderr line prints the tier when it
+exists, because a tier that disagrees with a verdict is itself the finding (#84), and prints
+nothing when there was no tier to print.
+
+**The two quarantine kinds are merged by the walk's order, not concatenated by reason.** A
+fenceless `README.md` and a malformed `verified` block belong on one incomplete list in path
+order. Re-sorting by reason would be a second opinion about the corpus, and AD-6 exists so there
+is only one; the merge restates the walk's own ordering (bundle root, then bundle-relative path
+with `\` ranked as `/`) purely to interleave its two outputs.
+
+**`okf lint` does not move, and `okf inbox` had to be held still by hand.** Lint reports the same
+`OKF0001` for a fenceless file as before — its own message, its own severity, nothing shared with
+the scanner's wording — and its suite was not edited for this ticket.
+
+The inbox is the harder case, and the first version of this entry claimed it did not move. That
+claim was false and the CLI proved it: pointing both binaries at a bundle holding one conformant
+concept, one fenceless file and one unterminated block printed `Checked 2 concepts / Skipped 1
+file` before this change and `Checked 1 concept / Skipped 2 files` after it. The mechanism is that
+the walk used to ask only whether `Parse` THREW, and a fenceless file does not throw — §4 makes the
+whole text body, so it parses leniently into a document with zero frontmatter keys — and therefore
+landed in the concept list. Asking the fence question first moved it into the unreadable list, and
+issue #71 story 43 forbids exactly that: *"sharing a corpus walk with the new scanner cannot
+silently move the inbox … If the extraction cannot be done without moving the inbox, that is a
+behaviour change requiring its own justification, not a drive-by."*
+
+The justification is the distinction the two counts were always asking about. The inbox skips files
+whose frontmatter does not PARSE, and a fenceless file does not fail to parse; the scanner
+quarantines files whose frontmatter cannot be READ, and a fenceless file fails that. So the inbox
+reads the CAUSE the walk recorded and declines to treat one newly-added cause as its own reason to
+skip, which restores `2 concepts / 1 skipped` without re-deciding which files are which — the walk
+still owns that. `AFileWithNoFrontmatterFenceIsCountedAsAConceptAndNotSkipped` pins the numbers, and
+it was shown to fail when the cause-aware count is replaced by `unreadable.Count`.
+
+The three surfaces then answer three different questions about the same file, which is the design
+rather than a drift: lint asks *is this conformant* and errors; the scanner asks *can I claim a
+complete inventory* and quarantines and exits 1; the inbox asks *does this need a person* and
+neither lists it nor skips it. The two surfaces that did move — search and the static site — did
+not: both walk markdown themselves rather than through `OkfConceptWalk`, so their output is
+byte-identical across the change.
+
+**What this supersedes in this log.** The passage above says *"Files whose frontmatter does not
+parse are counted, not yet quarantined"* and the note #74 left in `OkfVerificationHistory` says a
+fenceless file is `Absent` on purpose. Both are now wrong and stay as written, because the record
+of what was once true is what makes a reversal reviewable. A fenceless file is treated as
+**unreadable** for the purposes of this enumeration, and `OkfQuarantineReason.FrontmatterUnreadable`
+is populated. The summary's parenthetical count — the intermediate disclosure that a broken vault
+was not a clean one — is gone, replaced by the quarantine it was standing in for.
+
+**One consequence nobody asked for, and it is taken deliberately: `Scanned N` now counts files the
+scan could not read.** An unreadable file is a file the scan reached and set aside, so excluding it
+would let `Scanned 1 concept` describe a bundle of two. `OkfCandidateResult.ConceptCount` keeps its
+name for the concept-shaped majority of that set; the renderer's help says plainly that unreadable
+files are included. The alternative — reporting only what parsed — is the understatement this ticket
+exists to remove.
+
+**The incomplete list is a two-finger merge of the walk's two outputs, not an append.** A
+`verified`-structure quarantine *is* a concept, so it sorts among the unreadable files by path;
+appending one kind after the other would print `zulu.md` before `alpha.md`. Both lists are
+subsequences of the walk's single order, so the merge compares **bundle-relative paths only** — and
+nothing else. Comparing bundle identity would be wrong, not merely redundant: the walk's bundle arm
+is the *caller's* order, which no sort over `Bundle.Name` or `Bundle.Root` can reproduce. Hand it
+`[bb, b]` and any such sort disagrees with the walk it claims to reproduce.
+
+**Why path-only is sufficient rather than merely convenient.** `MarkdownFiles()` orders by
+(bundle, relative path) with a separator-safe comparison — the sort work item #36 pinned — so a
+file is never reached before an earlier-named bundle's file whatever its own path, and comparing
+paths alone reproduces the walk's order across bundles as well as within one. A reviewer read the
+absence of a bundle arm as a bug and predicted that a later bundle's `a.md` could precede an
+earlier bundle's `z.md`. It cannot, and the reason is that no caller can hand the scanner a bundle
+list in an order of its own choosing: `okf candidates` takes at most one path, discovery sorts the
+bundles it finds ordinally in `OkfDiscovery.FromVault`, and that is the only production route to
+`OkfCandidateScanner.Scan`. A caller that did pass `[beta, alpha]` would get path order, which is
+what `TheIncompleteListIsOrderedByPathAcrossBundlesNotByBundleFirst` asserts — deliberately, because
+path order is the invariant a consumer can rely on while bundle order is an artifact of argument
+order. The entry above saying the merge "restates the walk's own ordering (bundle root, then
+bundle-relative path)" overstates it: the bundle arm is unreachable, and the sentence survives
+because it describes the walk, not the merge.
