@@ -1,7 +1,9 @@
 # okf-net — Product Requirements
 
 > **Status:** MVP requirements, reconciled against the code on 2026-08-15 (work item #37);
-> CLI-2 and CLI-3's registry scope landed in work item #43 (2026-08-16).
+> CLI-2 and CLI-3's registry scope landed in work item #43 (2026-08-16); CORE-16 and CLI-19 —
+> verification-history readability and `okf candidates` — landed in work items #75–#79
+> (2026-09-14) and are the newest rows in §2.
 > Everything in §2 is **BUILT**; the three post-MVP items in §5
 > marked **BUILT** shipped too. A `BUILT` marker names the work item that delivered the
 > requirement and is a pointer, not a rewrite — where a resolution has since been
@@ -105,9 +107,10 @@ thin adapters over it (decisions §4). `Okf.Core` is explicitly non-packable and
 distributed NuGet API. Every requirement below is satisfied by the library and is
 unit-testable without a process boundary.
 
-**BUILT (CORE-1 … CORE-15).** The in-repository public API surface was frozen by the 1.0.0
-review (work item #9) on 2026-08-15, and the two changes that review ordered landed in work
-item #30.
+**BUILT (CORE-1 … CORE-16).** CORE-16 (verification-history readability) shipped with
+`okf candidates` in work items #75–#78, after the 1.0.0 surface freeze. The in-repository public
+API surface was frozen by the 1.0.0 review (work item #9) on 2026-08-15, and the two changes that
+review ordered landed in work item #30.
 
 - **CORE-1 — Frontmatter parse.** Parse a UTF-8 markdown file into `(frontmatter, body)`
   per spec §4.
@@ -230,6 +233,34 @@ item #30.
 - **CORE-15 — Acknowledgment state.** Derive whether a concept is unacknowledged:
   `generated.at` is newer than the latest `verified[].at`, **or** `status: draft`
   (decisions §7). No new frontmatter field is introduced.
+- **CORE-16 — Verification-history readability.** Answer, for one document's `verified` block,
+  whether it carries verification history at all — `absent`, `present`, or `unreadable` — and
+  report the cause when it cannot be read (work items #75–#78).
+  - Absent is the legally empty set: no `verified` key, an explicit `null`, or `[]`. Nothing in
+    an empty sequence could be malformed, so it says "nobody has signed this yet".
+  - Present is at least one recognizable event and no unrecognizable one: a mapping with a
+    non-empty scalar author. Whether the author satisfies the §7 actor grammar, and whether the
+    `at` parses, are somebody else's questions — a legal event with an unreadable timestamp still
+    says somebody stood behind the content.
+  - Unreadable is a block that claims verification and cannot be safely read as events: any
+    scalar, an empty mapping, a mapping naming nobody, or a sequence containing an item that is
+    not a recognizable event. `verified: [{}]` is quarantined while `verified: []` is absent —
+    the sequence of empty mappings holds an event claiming verification that names nobody.
+  - The answer is three-valued because "no idea" is not an answer the trust tier has an arm for:
+    §5.3 asks *who* vouches, this asks whether anybody wrote themselves down. A concept may
+    therefore report a trust tier that disagrees with its verdict, and that is by design — such a
+    concept is named on the incomplete list either way (`docs/architecture.md` AD-20, AD-56).
+  - The readability reading is not the §5.2 normalization reading. `OkfDocument.NormalizeVerified`
+    keeps its consumers and its tolerances (`verified: "ahormati"` reads as zero events,
+    `verified: {}` as one); this asks the narrower question a second way rather than widening the
+    hinge every other surface depends on.
+  - The cause is part of the answer, and there are two kinds: a `verified` block that is not a
+    readable structure, and a file whose frontmatter could not be read at all — no opening fence,
+    a fence that never closes, or a block that is not a YAML mapping. A file with no frontmatter
+    block *found* has not been shown to lack verification history, so its absent `verified` key
+    proves nothing. An **empty but delimited** block stays readable: the reference implementation's
+    `safe_load(fm_text) or {}` treats a falsy document as empty frontmatter, and §11's complaint
+    about it is the missing `type`, which is `okf lint`'s finding to make.
 
 ### 2.2 `okf` CLI
 
@@ -242,7 +273,7 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
 `okf bundle` (work item #5), `okf site` (work item #6), `okf mcp` (work item #2),
 `okf skills` (work item #41), `okf capture` and `okf generated` (work item #44),
 `okf register` / `okf unregister` / `okf registry` (work item #43), `okf candidates`
-(work item #75), plus
+(work items #75–#79), plus
 `okf help` and `okf version`. §3's table is the full surface, row for row.
 
 - **CLI-1 — Vault resolution.** Every command resolves its working set the same way.
@@ -335,8 +366,9 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
 
   **BUILT, one row excepted.** Every row above except *Human actor on CI commit* ships as a
   numbered rule. The shipped catalog is `OKF0001`–`OKF0004` (conformance),
-  `OKF0101`–`OKF0103` (provenance), `OKF0201`–`OKF0203` (trust) and `OKF0301`–`OKF0310`
-  (hygiene). `okf lint --list-rules` prints every id with its **default** severity;
+  `OKF0101`–`OKF0103` (provenance), `OKF0201`–`OKF0203` (trust, the last added by #78) and
+  `OKF0301`–`OKF0310` (hygiene). `okf lint --list-rules` prints every id with its **default**
+  severity;
   `--verbose` on a real run reports the **effective** one and the layer that set it, and
   `docs/architecture.md` AD-11 fixes the ranges. The two "off (opt-in)" rows above ship as
   `hidden` and move together as one decision (AD-48).
@@ -392,14 +424,18 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
   - Each row shows concept ID, why it is unacknowledged (regenerated since verification /
     draft), trust tier, and stale flag.
   - Ordering is deterministic. `--json` is supported.
-- **CLI-18 — `okf candidates`. BUILT (work items #75 and #76).** Enumerate the concepts in the
-  resolved scope whose verification history is provably absent (CORE-16), across the same
-  scope CLI-1 resolves.
+- **CLI-19 — `okf candidates`. BUILT (work items #75, #76, #77 and #78).** Enumerate the
+  concepts in the resolved scope whose verification history is provably absent (CORE-16), across
+  the same scope CLI-1 resolves.
   - It is an inventory, not a gate on volume: the presence of candidates is exit 0, so a
     verification pipeline's scan step does not fail merely because there is work to do.
   - It is complete or it says so: a file whose history could not be established is named on
-    stderr and the command exits 1, because an enumeration that quietly omits concepts is worse
-    than one that admits a gap. Two reasons, kept distinct because their fixes differ:
+    stderr and the command exits 1 **regardless of any configured severity**, because an
+    enumeration that quietly omits concepts is worse than one that admits a gap — this is a
+    mechanical gate in AD-5's family, and a gate does not branch on somebody's severity
+    configuration. The consequence is stated rather than smoothed over: `OKF0203` defaults to
+    warning, so `okf lint` may exit 0 on a bundle where this command exits 1. Two reasons, kept
+    distinct because their fixes differ:
     `frontmatter-unreadable` (no opening fence, a fence that never closes, or a block that is not
     a YAML mapping) and `verification-structure` (a `verified` block that cannot be read as
     events). A fenceless file is quarantined rather than enumerated as a candidate, so deleting a
@@ -407,7 +443,10 @@ one verb that uses a network, and nothing puts it in a hook — CLI-16.)
   - stdout carries the inventory and nothing else in both formats; quarantine notices go to
     stderr in both. The summary line begins `Scanned` and counts the markdown files reached
     (unreadable ones included), the bundles, the candidates and the quarantines.
-  - Ordering is deterministic, and `--json` is the machine contract (#77).
+  - Ordering is deterministic, and `--json` is the machine contract (#77): a JSON array of the
+    candidates and nothing else. Quarantined concepts are deliberately absent from that array —
+    mixing two kinds of record into one array would make every consumer branch on a discriminator
+    to find the list it asked for — so the array is complete only when `$?` is 0.
   - Distinct from CLI-12: the inbox is a superset in one direction (a verified-but-regenerated
     concept is on the inbox and has history) and a strict subset in the other (a hand-written
     concept with no `generated` stamp is deliberately never listed there).
@@ -541,7 +580,7 @@ Every row below is what `okf` dispatches today, and every verb `okf help` lists 
 | `okf index [path]` | Generate `index.md` for every directory in a bundle | `--check` (write nothing; fail on drift), `--json`, `--format` | 0 written/no drift · 1 drift under `--check` · 2 usage |
 | `okf search <query> [path]` | Search resolved bundles | `--scope`, `--type`, `--tag`, `--limit`, `--format`, `--json` | 0 (including no matches) · 2 usage |
 | `okf inbox [path]` | List unacknowledged concepts (regenerated-since-verified, `draft`, stale or source-drifted) | `--json`, `--format`, `--fail-if-any` | 0 (whatever it finds) · 1 non-empty inbox under `--fail-if-any` · 2 usage |
-| `okf candidates [path]` | List the concepts whose verification history is **provably absent** — an inventory for an independent verifier, not a triage list (#71, #75, #76) | `--json`, `--format` | 0 the enumeration completed, whatever its length · 1 at least one file's history could not be established (the inventory is incomplete) · 2 usage/environment |
+| `okf candidates [path]` | List the concepts whose verification history is **provably absent** — an inventory for an independent verifier, not a triage list (CLI-19; #71, #75, #76, #77) | `--json`, `--format` | 0 the enumeration completed, whatever its length · 1 at least one file's history could not be established (the inventory is incomplete, whatever any rule's configured severity) · 2 usage/environment |
 | `okf verify <concept>...` | Stamp `verified: {by: human:<id>, at: now}` | `--by <actor>` (machine confirmation, Q12), `--dry-run`, `--config` | 0 stamped · 1 refused (no resolvable human id — `verify.actor` unset and no global git email, unknown concept) · 2 usage, or a refused self-verification |
 | `okf capture <add\|close>` | Record an item already sitting in `raw/` in the capture manifest, or close its ingestion | `--by <actor>` (required), `--url`, `--title`, `--source-last-modified`, `--form flat\|packet`, `--concept` (`close`), `--captured-at` / `--at`, `--json` | 0 written · 1 the record says no (already captured and ingested, entry already closed, named concept absent) · 2 the manifest does not read as one, the item is not capturable, no actor, or usage |
 | `okf generated stamp <concept>...` | Write the `generated: {by, at}` stamp a producer owes on every write | `--by <actor>` (required), `--at`, `--dry-run` | 0 stamped · 2 missing concept, frontmatter that does not parse, malformed actor, or usage |
@@ -763,7 +802,9 @@ decision (and its rationale) is recorded in decisions.md.
 - **Q9 — Detecting a CI-authored commit. RESOLVED by not shipping the rule (2026-08-15).**
   No reliable signal was decided, so the "human actor on a CI commit" warning has no rule
   id and no implementation; it is absent from the shipped catalog (`OKF0001`–`OKF0004`,
-  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0203`, `OKF0301`–`OKF0310`). CLI-7's table row records
+  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0203`, `OKF0301`–`OKF0310`; `OKF0203` became a real rule in
+  work item #78, which reopened the deferral this resolution had recorded). CLI-7's table row
+  records
   the intent, not a rule that fires. Reopening it means picking a signal first.
 - **Q10 — .NET target and AOT viability. PARTIALLY RESOLVED (2026-08-14, see
   decisions.md).** Target framework is `net10.0` (mise pins `dotnet = "10"`). NativeAOT

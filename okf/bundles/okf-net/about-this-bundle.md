@@ -22,8 +22,8 @@ validating, and consuming OKF v0.2 knowledge bundles.[^prd] `Okf.Core` is the
 internal library layer behind a single self-contained CLI binary (`okf`) that
 also hosts an MCP server (`okf mcp`); it is explicitly non-packable and is not
 a distributed NuGet API. The release also carries a set of agent skills. All
-three are built: `Okf.Core`, every CLI verb — `init`, `lint`, `index`,
-`search`, `register`, `unregister`, `registry`, `inbox`, `verify`, `capture`,
+three are built: `Okf.Core`, every CLI verb — `init`, `lint`, `index`, `search`,
+`register`, `unregister`, `registry`, `inbox`, `candidates`, `verify`, `capture`,
 `generated`, `bundle`, `site`, `skills`, `mcp`, `completion`, `upgrade`, plus
 `help` and `version` — the MCP server, and the three skills in `skills/`: two
 that produce knowledge and one that consumes it. What remains designed rather
