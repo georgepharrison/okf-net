@@ -43,8 +43,10 @@ consume.
   - `okf candidates` — the concepts nobody has ever verified: an exhaustive,
     deterministic inventory of the concepts whose `verified` history is provably
     absent, for pointing a second reviewer at them. It is complete or it says so
-    — a concept whose `verified` block cannot be read is named on stderr and the
-    run exits 1, so malformed metadata can never hide a concept from review
+    — a file whose history cannot be established is named on stderr and the run
+    exits 1, whether that is a `verified` block that cannot be read or a file
+    whose frontmatter cannot be read at all, so malformed or missing metadata
+    can never hide a concept from review
   - `okf capture` / `okf generated` — the bookkeeping a producer owes,
     written by code rather than by hand: `capture add` hashes an artifact
     dropped in `raw/` and records it, `capture close` marks it ingested, and

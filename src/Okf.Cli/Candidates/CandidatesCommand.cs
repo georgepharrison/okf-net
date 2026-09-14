@@ -191,16 +191,10 @@ internal static class CandidatesCommand
             .Append(result.Quarantined.Count.ToString(CultureInfo.InvariantCulture))
             .Append(" quarantined");
 
-        // Files whose frontmatter could not be read at all are counted here rather than
-        // quarantined: work item #76 converts them into quarantines, and until then the count is
-        // the disclosure that they were not silently dropped.
-        if (result.UnreadableFileCount > 0)
-        {
-            summary.Append(" (")
-                .Append(DiagnosticWriter.Plural(result.UnreadableFileCount, "file"))
-                .Append(" whose frontmatter does not parse)");
-        }
-
+        // A file whose frontmatter could not be read is a quarantine like any other, so it is
+        // counted in the number above and named on stderr. #75 carried it as a parenthetical
+        // count instead, as the disclosure that a broken vault was not a clean one; #76 replaced
+        // the disclosure with the quarantine it was standing in for.
         summary.Append('.');
         if (result.Candidates.Count == 0 && result.Quarantined.Count == 0)
         {
@@ -211,21 +205,42 @@ internal static class CandidatesCommand
     }
 
     /// <summary>
-    /// The concepts whose history could not be established, named on standard error with the
+    /// The files whose history could not be established, named on standard error with the
     /// reason's wire spelling and the detail a person can act on. They are never in the inventory
     /// and never in the JSON array: a machine consumer reads the array as the candidates it is,
     /// and reads exit 1 as "that array is not the whole truth".
     /// </summary>
+    /// <remarks>
+    /// A frontmatter quarantine is worded as "not readable as a concept" and points at
+    /// <c>okf lint</c>, because that file is not a verification problem at all — it is a file a
+    /// linter can already explain — whereas a verification-structure quarantine is. Printing the
+    /// same sentence for both would send a reader to look for a <c>verified</c> key in a file
+    /// that has no frontmatter to put one in. The tier is printed only when the file earned one.
+    /// </remarks>
     private static void WriteQuarantined(OkfCandidateResult result, string baseDirectory, TextWriter error)
     {
         foreach (OkfQuarantinedConcept quarantined in result.Quarantined)
         {
+            string where = Displayed(quarantined.Bundle, quarantined.Path, baseDirectory);
+            string tier = quarantined.TrustTier is { } trustTier
+                ? $" [{trustTier.ToSpecString()}]"
+                : string.Empty;
             error.WriteLine(
-                $"okf: could not classify {Displayed(quarantined.Concept, baseDirectory)} " +
-                $"[{quarantined.Reason.ToWireString()}] " +
-                $"[{quarantined.Concept.TrustTier.ToSpecString()}]: {quarantined.Detail}");
+                $"okf: could not classify {where} [{quarantined.Reason.ToWireString()}]{tier}: " +
+                $"{Notice(quarantined)}");
         }
     }
+
+    /// <summary>
+    /// The one sentence a person reads for one quarantine. The verification-structure half is the
+    /// library's own words about the block (#74); the frontmatter half says plainly that the file
+    /// is not readable as a concept and names the tool that fixes it.
+    /// </summary>
+    private static string Notice(OkfQuarantinedConcept quarantined) =>
+        quarantined.Reason == OkfQuarantineReason.FrontmatterUnreadable
+            ? $"this file is not readable as a concept: {quarantined.Detail}. " +
+                "Run `okf lint` on the bundle to fix it."
+            : quarantined.Detail;
 
     /// <summary>
     /// A concept named by bundle and bundle-relative path, relative to the working directory when
@@ -233,7 +248,10 @@ internal static class CandidatesCommand
     /// them, and a row that does not say which bundle it came from cannot be opened.
     /// </summary>
     private static string Displayed(OkfConcept concept, string baseDirectory) =>
-        $"{DiagnosticWriter.Display(concept.Bundle.Root, baseDirectory)}/{concept.Path}";
+        Displayed(concept.Bundle, concept.Path, baseDirectory);
+
+    private static string Displayed(OkfBundle bundle, string path, string baseDirectory) =>
+        $"{DiagnosticWriter.Display(bundle.Root, baseDirectory)}/{path}";
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine("""
             okf candidates [path] [options]
@@ -252,10 +270,18 @@ internal static class CandidatesCommand
               Not listed      Any `verified` event with a non-empty author — a person,
                               a process, a producer. A garbage timestamp still names
                               somebody, and somebody is the answer.
-              Quarantined     A `verified` block that claims verification but cannot be
-                              read as events: a scalar, an empty mapping, a mapping
-                              naming no author, a sequence with junk in it. Named on
-                              standard error, never listed, and the run exits 1.
+              Quarantined     A file the scan could not classify, under one of
+                              two reasons kept distinct because their fixes
+                              differ. Named on standard error, never listed,
+                              and the run exits 1.
+                frontmatter-  No opening fence, a fence that never closes, or
+                unreadable    a block that is not a YAML mapping: the file is
+                              not readable as a concept, and `okf lint`
+                              explains the fix.
+                verification- A `verified` block that claims verification but
+                structure     cannot be read as events: a scalar, an empty
+                              mapping, a mapping naming no author, a sequence
+                              with junk in it.
 
             Draft concepts, stale concepts, and per-directory `about.md` files are all
             included: they are concepts, and a concept nobody verified is a candidate
@@ -282,6 +308,10 @@ internal static class CandidatesCommand
             whether or not a quarantine is being reported, and the exit code is what says
             whether the array is the whole truth.
 
+            The summary line begins `Scanned` and counts the markdown files reached
+            (unreadable ones included), the bundles, the candidates and the quarantines, so
+            an empty inventory is distinguishable from a failed run.
+
             JSON records carry the concept, not the mechanism: identity (id, path,
             displayPath, absolutePath, bundle, bundleName), content (title, type,
             description, tags), and state (trustTier, stale, status, generatedBy,
@@ -289,7 +319,7 @@ internal static class CandidatesCommand
             and there are no verification fields — a candidate has no verification events by
             definition, so an always-null one would only be a field to disbelieve. Ordering
             is byte-stable across runs on unchanged bytes, so one run's output diffs against
-            the next to show what was newly verified.
+            the next to show what was newly verified. (fix(core): quarantine files whose frontmatter cannot be read)
 
             Exit codes:
               0  the enumeration completed, whatever its length

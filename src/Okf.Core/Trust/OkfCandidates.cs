@@ -10,8 +10,8 @@ namespace Okf.Core.Trust;
 /// #77's JSON contract both print, rather than a string each surface invents. The two reasons
 /// are deliberately distinct in kind: <see cref="VerificationStructure" /> is a concept whose
 /// bytes were read and whose <c>verified</c> block cannot be read as events, while
-/// <see cref="FrontmatterUnreadable" /> is a concept whose bytes could not be read at all —
-/// and a caller triaging one wants a linter, while a caller triaging the other wants an editor.
+/// <see cref="FrontmatterUnreadable" /> is a file whose frontmatter could not be read at all —
+/// and a caller triaging one wants an editor, while a caller triaging the other wants a linter.
 /// </remarks>
 public enum OkfQuarantineReason
 {
@@ -23,10 +23,17 @@ public enum OkfQuarantineReason
     VerificationStructure,
 
     /// <summary>
-    /// The file's frontmatter does not parse, so nothing about the concept — including its
-    /// verification history — could be established. Reserved here so #76 can add it without
-    /// renaming the reason #74 ships; the scanner does not populate it yet.
+    /// The file's frontmatter could not be read at all — no opening fence, a fence that never
+    /// closed, or a delimited block that is not a YAML mapping — so nothing about the concept,
+    /// including its verification history, could be established (#76).
     /// </summary>
+    /// <remarks>
+    /// A fenceless file is in this arm deliberately, and that supersedes the note #74 left about
+    /// it reading as provably-absent history: the parser still returns an empty mapping for it,
+    /// because <c>okf lint</c> and <c>okf search</c> need that leniency, but the scanner no
+    /// longer treats "no frontmatter was found" as "no <c>verified</c> key". Deleting three
+    /// dashes must not move a file between candidate and quarantined.
+    /// </remarks>
     FrontmatterUnreadable,
 }
 
@@ -56,25 +63,64 @@ public static class OkfQuarantineReasonExtensions
 /// an enumeration that quietly omits concepts is worse than one that admits a gap (#71), so
 /// every quarantined concept is here with its path, its id, and the reason.
 /// </summary>
-/// <param name="concept">The concept whose history could not be established.</param>
-/// <param name="reason">Why it could not be established.</param>
+/// <remarks>
+/// The two kinds of quarantine are carried the same way on purpose. A file whose frontmatter
+/// could not be read has no <see cref="OkfConcept" /> to carry — there was no mapping to read
+/// <c>type</c>, <c>title</c> or a trust tier out of — and forcing one into existence would mean
+/// inventing frontmatter to describe a file that has none. So a quarantine names a file by
+/// paths and carries its tier only when the file earned one.
+/// </remarks>
+/// <param name="bundle">The bundle the file sits in.</param>
+/// <param name="path">The bundle-relative path, with <c>/</c> separators.</param>
+/// <param name="absolutePath">The file's absolute path — the one a caller opens.</param>
+/// <param name="reason">Why its history could not be established.</param>
 /// <param name="detail">
-/// What the block actually looked like, as written, for the human who has to fix it. The
-/// reason's wire spelling is the machine-readable half; this is the half a person reads.
+/// What was found, as written, for the human who has to fix it. The reason's wire spelling is
+/// the machine-readable half; this is the half a person reads.
 /// </param>
-public sealed class OkfQuarantinedConcept(OkfConcept concept, OkfQuarantineReason reason, string detail)
+/// <param name="concept">
+/// The concept behind the file, when there was one: a file that read as a concept but whose
+/// <c>verified</c> block could not be read. A file whose frontmatter could not be read at all
+/// has no concept, and is named by its paths instead.
+/// </param>
+public sealed class OkfQuarantinedConcept(
+    OkfBundle bundle,
+    string path,
+    string absolutePath,
+    OkfQuarantineReason reason,
+    string detail,
+    OkfConcept? concept = null)
 {
-    /// <summary>The concept whose history could not be established.</summary>
-    public OkfConcept Concept { get; } = concept ?? throw new ArgumentNullException(nameof(concept));
+    /// <summary>The concept whose history could not be established, when it had one.</summary>
+    public OkfConcept? Concept { get; } = concept;
+
+    /// <summary>The bundle the file sits in.</summary>
+    public OkfBundle Bundle { get; } = bundle ?? throw new ArgumentNullException(nameof(bundle));
+
+    /// <summary>The bundle-relative path, with <c>/</c> separators.</summary>
+    public string Path { get; } = path ?? throw new ArgumentNullException(nameof(path));
+
+    /// <summary>The file's absolute path.</summary>
+    public string AbsolutePath { get; } = absolutePath ?? throw new ArgumentNullException(nameof(absolutePath));
+
+    /// <summary>The concept id: the bundle-relative path minus <c>.md</c> (spec §2).</summary>
+    public string Id => Path.EndsWith(".md", StringComparison.Ordinal) ? Path[..^3] : Path;
 
     /// <summary>Why it could not be established.</summary>
     public OkfQuarantineReason Reason { get; } = reason;
 
-    /// <summary>What the block looked like as written.</summary>
+    /// <summary>What was found, as written.</summary>
     public string Detail { get; } = detail ?? throw new ArgumentNullException(nameof(detail));
 
+    /// <summary>
+    /// The trust tier the file appears to earn, or <see langword="null" /> when the file never
+    /// got far enough to earn one. Reported where it exists because the disagreement between a
+    /// tier and a verdict is itself the finding (#84).
+    /// </summary>
+    public OkfTrustTier? TrustTier => Concept?.TrustTier;
+
     /// <inheritdoc />
-    public override string ToString() => Concept.Path;
+    public override string ToString() => Path;
 }
 
 /// <summary>
@@ -131,7 +177,7 @@ public sealed class OkfCandidateOptions
 }
 
 /// <summary>
-/// The outcome of a candidate scan: the candidates, the quarantined concepts, and the counts
+/// The outcome of a candidate scan: the candidates, the quarantined files, and the counts
 /// that let a caller say the inventory is complete.
 /// </summary>
 /// <remarks>
@@ -145,16 +191,17 @@ public sealed class OkfCandidateResult
 {
     /// <summary>Initializes a result.</summary>
     /// <param name="candidates">The concepts with provably absent history, already ordered.</param>
-    /// <param name="quarantined">The concepts whose history could not be established, in the same order.</param>
+    /// <param name="quarantined">The files whose history could not be established, in the same order.</param>
     /// <param name="bundles">The bundles that were scanned.</param>
-    /// <param name="conceptCount">How many concepts were read and classified.</param>
-    /// <param name="unreadableFileCount">How many files' frontmatter did not parse. Reported, not yet quarantined (#76).</param>
+    /// <param name="conceptCount">
+    /// How many markdown files the walk reached and placed, unreadable ones included. See
+    /// <see cref="ConceptCount" />.
+    /// </param>
     public OkfCandidateResult(
         IReadOnlyList<OkfCandidate> candidates,
         IReadOnlyList<OkfQuarantinedConcept> quarantined,
         IReadOnlyList<OkfBundle> bundles,
-        int conceptCount,
-        int unreadableFileCount)
+        int conceptCount)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(quarantined);
@@ -164,40 +211,39 @@ public sealed class OkfCandidateResult
         Quarantined = quarantined;
         Bundles = bundles;
         ConceptCount = conceptCount;
-        UnreadableFileCount = unreadableFileCount;
     }
 
     /// <summary>The candidates, ordered by bundle, then by bundle-relative path.</summary>
     public IReadOnlyList<OkfCandidate> Candidates { get; }
 
-    /// <summary>The concepts whose history could not be established, in the same order as the candidates.</summary>
+    /// <summary>The files whose history could not be established, in the same order as the candidates.</summary>
     public IReadOnlyList<OkfQuarantinedConcept> Quarantined { get; }
 
     /// <summary>The bundles that were scanned, in the order they were named.</summary>
     public IReadOnlyList<OkfBundle> Bundles { get; }
 
-    /// <summary>How many concepts were read and classified. Quarantined concepts are counted here.</summary>
+    /// <summary>
+    /// How many markdown files the scan reached and placed, so a caller can state the size of
+    /// what it looked at. Both kinds of quarantine are counted, including a file whose
+    /// frontmatter never read — it is a file the scan reached and set aside, not one it did not
+    /// see, and leaving it out would make <c>Scanned N concepts</c> understate a broken bundle.
+    /// The name is kept for the concept-shaped majority of that set; the spec's reserved files are
+    /// the only markdown excluded, and they are not concepts by §3.1.
+    /// </summary>
     public int ConceptCount { get; }
 
-    /// <summary>
-    /// How many files' frontmatter did not parse. #74 does not quarantine them — that is #76 —
-    /// but it must not report them as candidates either, so the count is carried here for the
-    /// command to surface and for #76 to convert into quarantines.
-    /// </summary>
-    public int UnreadableFileCount { get; }
-
-    /// <summary>Whether any concept was quarantined, which is what makes the inventory incomplete.</summary>
+    /// <summary>Whether any file was quarantined, which is what makes the inventory incomplete.</summary>
     public bool IsComplete => Quarantined.Count == 0;
 
     /// <summary>Whether nothing was found: no candidates and nothing quarantined.</summary>
     public bool IsEmpty => Candidates.Count == 0 && Quarantined.Count == 0;
 
-    /// <summary>Counts the quarantined concepts carrying a reason.</summary>
+    /// <summary>Counts the quarantined files carrying a reason.</summary>
     /// <param name="reason">The reason to count.</param>
     /// <returns>How many carry it.</returns>
     public int Count(OkfQuarantineReason reason) => Quarantined.Count(item => item.Reason == reason);
 
-    /// <summary>The quarantined concepts carrying a reason, in scan order.</summary>
+    /// <summary>The quarantined files carrying a reason, in scan order.</summary>
     /// <param name="reason">The reason to select.</param>
     /// <returns>The matching concepts.</returns>
     public IEnumerable<OkfQuarantinedConcept> For(OkfQuarantineReason reason) =>
@@ -206,9 +252,9 @@ public sealed class OkfCandidateResult
 
 /// <summary>
 /// Enumerates the concepts in a working set whose verification history is provably absent,
-/// and separately names the concepts whose history could not be established (work item #74).
-/// It is an inventory, not a gate on volume: forty candidates is a success, and finding them
-/// is the library's whole job — deciding what a reviewer should do about one is not.
+/// and separately names every file whose history could not be established (work items #74 and
+/// #76). It is an inventory, not a gate on volume: forty candidates is a success, and finding
+/// them is the library's whole job — deciding what a reviewer should do about one is not.
 /// </summary>
 /// <remarks>
 /// WHAT IS NOT A FILTER
@@ -216,9 +262,22 @@ public sealed class OkfCandidateResult
 /// Draft concepts are included, stale concepts are included, and <c>about.md</c> is included:
 /// all three are concepts, and a concept nobody has verified is a candidate whatever else is
 /// true of it. The two exclusions are the two that follow from the verdict: history present
-/// (already human-verified or machine-confirmed) and history unreadable (quarantined). The
-/// spec §3.1 reserved files never appear because <see cref="OkfConceptWalk" /> does not call
-/// them concepts, which is that primitive's answer rather than this scanner's.
+/// (already human-verified or machine-confirmed) and history that could not be established
+/// (quarantined). The spec §3.1 reserved files never appear because <see cref="OkfConceptWalk" />
+/// does not call them concepts, which is that primitive's answer rather than this scanner's.
+///
+/// TWO REASONS, ONE LIST, AND WHY A FENCELESS FILE IS QUARANTINED
+/// --------------------------------------------------------------
+/// A file is quarantined for one of two reasons, and they are different kinds of problem:
+/// <see cref="OkfQuarantineReason.VerificationStructure" /> is a concept whose bytes read fine
+/// and whose <c>verified</c> block cannot be read as events, while
+/// <see cref="OkfQuarantineReason.FrontmatterUnreadable" /> is a file whose frontmatter was
+/// never readable, so the question was never answerable. A fenceless <c>README.md</c> is the
+/// second, not a candidate: <see cref="OkfDocument.Parse" /> hands back an empty mapping for it,
+/// and reading that as "provably no <c>verified</c> key" made an author's three dashes an
+/// eligibility switch (#76). The parser does not change — its leniency is <c>okf lint</c>'s and
+/// <c>okf search</c>'s requirement — the scanner simply stops treating an absent block as a
+/// proven absence.
 ///
 /// WHY THE VERDICT AND THE TIER ARE NOT THE SAME QUESTION
 /// ------------------------------------------------------
@@ -254,25 +313,71 @@ public static class OkfCandidateScanner
         List<OkfQuarantinedConcept> quarantined = [];
 
         // The walk's order is the report's order: bundle order, then ordinal bundle-relative
-        // path. Nothing is re-sorted here, because a second ordering is a second opinion about
-        // the corpus, and the walk exists so there is only one (AD-6).
-        foreach (OkfConcept concept in concepts)
+        // path. Nothing is RE-sorted here, because a second ordering is a second opinion about
+        // the corpus, and the walk exists so there is only one (AD-6). What the scanner does has
+        // to be a MERGE and not an append: a `verified`-structure quarantine is a concept, so it
+        // sorts among the unreadable files by path, and appending one kind after the other would
+        // print `zulu.md` before `alpha.md`.
+        //
+        // The comparison is deliberately bundle-relative path ONLY, and that is exactly
+        // sufficient. `MarkdownFiles()` orders by (bundle, relative path) — the separator-safe
+        // sort work item #36 pinned — so a file is never reached before an earlier-named bundle's
+        // file whatever its own path, and comparing paths alone reproduces the walk's order
+        // across bundles as well as within one. Comparing bundle identity would be a second,
+        // different answer: the walk's bundle arm is the CALLER's order, which no sort over
+        // `Bundle.Name` or `Bundle.Root` can reproduce (hand it [bb, b] and any such sort
+        // disagrees with the walk it claims to reproduce).
+        int conceptIndex;
+        int unreadableIndex;
+        for (conceptIndex = 0, unreadableIndex = 0;
+            conceptIndex < concepts.Count || unreadableIndex < unreadable.Count;)
         {
-            OkfVerificationVerdict verdict = OkfVerificationHistory.Verdict(concept);
-            if (verdict.IsCandidate())
+            // Equal paths cannot happen across the two lists of one bundle — they are disjoint by
+            // construction — so the tie goes to the concept only to keep the comparison total,
+            // never to prefer a kind. That tie is why Stryker's `<= 0` to `< 0` mutant survives: it
+            // differs from the real comparison only when the paths are equal, and no bundle can
+            // produce that input. It is an equivalent mutant, not an untested branch.
+            bool takeConcept = conceptIndex < concepts.Count
+                && (unreadableIndex >= unreadable.Count
+                    || string.CompareOrdinal(
+                        concepts[conceptIndex].Path, unreadable[unreadableIndex].Path) <= 0);
+
+            if (takeConcept)
             {
-                candidates.Add(new OkfCandidate(concept));
+                OkfConcept concept = concepts[conceptIndex++];
+                OkfVerificationVerdict verdict = OkfVerificationHistory.Verdict(concept);
+                if (verdict.IsCandidate())
+                {
+                    candidates.Add(new OkfCandidate(concept));
+                }
+                else if (verdict == OkfVerificationVerdict.Unreadable)
+                {
+                    // Named with the paths the concept carries, so both quarantine kinds print
+                    // the same way and a consumer never branches on the reason to find a path.
+                    quarantined.Add(new OkfQuarantinedConcept(
+                        concept.Bundle,
+                        concept.Path,
+                        concept.AbsolutePath,
+                        OkfQuarantineReason.VerificationStructure,
+                        Describe(concept),
+                        concept));
+                }
             }
-            else if (verdict == OkfVerificationVerdict.Unreadable)
+            else
             {
+                OkfUnreadableConcept file = unreadable[unreadableIndex++];
                 quarantined.Add(new OkfQuarantinedConcept(
-                    concept,
-                    OkfQuarantineReason.VerificationStructure,
-                    Describe(concept)));
+                    file.Bundle,
+                    file.Path,
+                    file.AbsolutePath,
+                    OkfQuarantineReason.FrontmatterUnreadable,
+                    file.Reason));
             }
         }
 
-        return new OkfCandidateResult(candidates, quarantined, list, concepts.Count, unreadable.Count);
+        // An unreadable file is a file the scan reached and set aside, so counting it is what keeps
+        // `Scanned N concepts` from understating a broken bundle.
+        return new OkfCandidateResult(candidates, quarantined, list, concepts.Count + unreadable.Count);
     }
 
     /// <summary>

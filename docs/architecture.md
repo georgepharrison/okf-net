@@ -1163,7 +1163,7 @@ flowchart TB
 | `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`, `OkfScope`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49, AD-51 | CORE-11, CLI-3, CLI-11 |
 | `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator`, `OkfScope` | AD-6, AD-28, AD-29, AD-30, AD-49, AD-51 | MCP-1 … MCP-5, CORE-12 |
 | `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
-| `okf candidates` | `OkfCandidateScanner`, `OkfVerificationHistory`, `OkfVerificationStamp`, `OkfConceptWalk`; `CandidatesCommand` + `CandidatesJson` render | AD-6, AD-7, AD-16, AD-20, AD-31, AD-44 | CLI-1, CLI-14, CLI-16, CORE-6 |
+| `okf candidates` | `OkfCandidateScanner`, `OkfVerificationHistory`, `OkfVerificationStamp`, `OkfConceptWalk`, `OkfDocument.FrontmatterReadOf`; `CandidatesCommand` + `CandidatesJson` render | AD-6, AD-7, AD-16, AD-20, AD-31, AD-44 | CLI-1, CLI-14, CLI-16, CORE-6 |
 | `okf capture` / `okf generated` | `OkfCaptureWriter`, `OkfCaptureManifest`, `OkfStamp`; `CaptureCommand` + `GeneratedCommand` render | AD-16, AD-18, AD-19, AD-21, AD-23, AD-24, AD-30, AD-52 | SKILL-3, ACC-5 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |

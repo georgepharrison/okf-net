@@ -12,6 +12,44 @@ public sealed class OkfDocument
     /// <summary>The frontmatter fence, <c>---</c> on a line of its own (§4).</summary>
     public const string FrontmatterDelimiter = "---";
 
+    /// <summary>
+    /// Why a file's frontmatter cannot be read at all (§4). Three causes, one answer: nothing
+    /// about the file — not its <c>type</c>, not its <c>verified</c> history — can be
+    /// established from what was read.
+    /// </summary>
+    /// <remarks>
+    /// INTERNAL SURFACE. <c>Okf.Core</c> is non-packable and its public surface is frozen
+    /// (architecture.md header), and #71 ruled that the corpus-reading machinery added for the
+    /// candidate scanner is internal to Core while only the scanner's RESULT is public. This
+    /// answers "was a frontmatter block found and read", which is a step of that machinery, not a
+    /// verdict a consumer is allowed to re-derive: a CLI that asked this question itself would be
+    /// a second authority on what a concept is, which is what AD-6 forbids.
+    /// </remarks>
+    /// <remarks>
+    /// The causes are kept distinct because the fixes are distinct, and a report that printed
+    /// one message for all three would send a person to the wrong line of the file. They are
+    /// deliberately NOT the same question as "is the <c>verified</c> block readable", which
+    /// <c>OkfVerificationHistory</c> answers for a file whose frontmatter parsed fine.
+    /// </remarks>
+    internal enum OkfFrontmatterRead
+    {
+        /// <summary>The fence opened, closed, and parsed to a mapping (§4).</summary>
+        Readable,
+
+        /// <summary>
+        /// The first line is not the fence, so there is no frontmatter block to read. §4 makes
+        /// the whole text body, which is what <see cref="Parse" /> does with it, and what
+        /// §11.1 refuses to accept as a concept.
+        /// </summary>
+        NoFence,
+
+        /// <summary>The fence opened and never closed, so the block's extent is unknown.</summary>
+        Unterminated,
+
+        /// <summary>The block is delimited but is not YAML, or is YAML that is not a mapping.</summary>
+        Unparseable,
+    }
+
     /// <summary>The <c>human:</c> actor prefix that marks human review (§7, §5.3).</summary>
     public const string HumanActorPrefix = "human:";
 
@@ -86,6 +124,72 @@ public sealed class OkfDocument
         string body = Body.EndsWith('\n') ? Body : Body + "\n";
         return $"{FrontmatterDelimiter}\n{frontmatterText}\n{FrontmatterDelimiter}\n\n{body}";
     }
+
+    /// <summary>
+    /// Asks whether a file's frontmatter can be read at all, and if not, why (§4). This is the
+    /// question <see cref="Parse" /> refuses to answer: its leniency is its contract — text with
+    /// no fence is body, which is what lets <c>okf lint</c> report a missing block as a finding
+    /// about a file rather than as a parse crash, and what lets <c>okf search</c> index a
+    /// fenceless document's prose. So this asks a second way, without touching that leniency.
+    /// </summary>
+    /// <param name="text">The document text.</param>
+    /// <returns>
+    /// <see cref="OkfFrontmatterRead.Readable" /> exactly when <see cref="Parse" /> returns a
+    /// document carrying frontmatter that came from a delimited block; otherwise the cause.
+    /// </returns>
+    /// <remarks>
+    /// A falsy block — <c>---</c> then <c>---</c>, or a block holding only comments — is
+    /// <see cref="OkfFrontmatterRead.Readable" />, because the reference implementation's
+    /// <c>safe_load(fm_text) or {}</c> treats it as empty frontmatter and §11 then reports the
+    /// missing <c>type</c>. This asks whether a readable block was FOUND, not whether it holds
+    /// anything: those are different findings and <c>okf lint</c> already owns the second.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="text" /> is null.</exception>
+    internal static OkfFrontmatterRead FrontmatterReadOf(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        List<string> lines = SplitLines(text);
+        if (lines.Count == 0 || !IsDelimiter(lines[0]))
+        {
+            return OkfFrontmatterRead.NoFence;
+        }
+
+        int end = ClosingDelimiterIndex(lines);
+        if (end < 0)
+        {
+            return OkfFrontmatterRead.Unterminated;
+        }
+
+        // One parse, and only its outcome is consulted: a second YAML reading of the same bytes
+        // would be a second answer to "is this a mapping", and AD-6 puts that answer here.
+        try
+        {
+            ParseFrontmatter(string.Join('\n', lines.GetRange(1, end - 1)));
+            return OkfFrontmatterRead.Readable;
+        }
+        catch (OkfDocumentException)
+        {
+            return OkfFrontmatterRead.Unparseable;
+        }
+    }
+
+    /// <summary>
+    /// The cause-specific words for a frontmatter that cannot be read, as the finding a report
+    /// prints. <see cref="OkfFrontmatterRead.Readable" /> has no message and throws rather than
+    /// returning an empty string, because a caller that reaches it has a logic bug, not a file
+    /// to name.
+    /// </summary>
+    /// <param name="read">The cause.</param>
+    /// <returns>The message, without trailing punctuation.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="read" /> is <see cref="OkfFrontmatterRead.Readable" />.</exception>
+    internal static string MessageFor(OkfFrontmatterRead read) => read switch
+    {
+        OkfFrontmatterRead.NoFence => "File has no YAML frontmatter block",
+        OkfFrontmatterRead.Unterminated => "Unterminated YAML frontmatter block",
+        OkfFrontmatterRead.Unparseable => "Frontmatter does not parse",
+        _ => throw new ArgumentOutOfRangeException(nameof(read), read, "A readable block has no message."),
+    };
 
     /// <summary>Checks OKF v0.2 §11 conformance for a single document.</summary>
     /// <exception cref="OkfDocumentException">A required frontmatter key is missing or empty.</exception>
