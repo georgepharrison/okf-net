@@ -302,3 +302,22 @@ dotnet_diagnostic.CA1716.severity = none  # #59 (2026-08-16): Okf.Cli.Tests.Shar
 # has ever honored, and inventing one would be a rule with no owner.
 [*.{yml,yaml}]
 max_line_length = off
+
+# The bash completion golden is generated output, and pi-lens runs `shfmt -w` on it with no
+# `-i` flag, so shfmt falls back to its tab default and rewrites all 399 lines on every touch.
+# That churn is not cosmetic for a golden: it fails EachScriptMatchesItsGoldenFile and it makes
+# every agent that opens the file look like it edited generated artifacts.
+#
+# The completion generator now emits shfmt-canonical text (case arms expanded, no padding inside
+# COMPREPLY parens, spaced operators), which removes every rewrite shfmt wants EXCEPT the indent,
+# because the script is written at 4-space indent while the repo's shell default here is 2. This
+# section names the file's real indent so shfmt agrees with the generator instead of fighting it.
+#
+# Scoped to the one file rather than widening [*.sh]: shfmt's formatter matches .sh and .bash
+# only, so okf.zsh/okf.fish/okf.ps1 are never touched, and the repo's hand-written scripts under
+# scripts/ and install.sh genuinely are 2-space. A blanket rule would have reformatted those.
+#
+# The guard against silent recurrence is CompletionCommandTests: it asserts the committed golden
+# equals `okf completion bash` output, and that the emitted script is shfmt-clean at this indent.
+[tests/Okf.Cli.Tests/completions/okf.bash]
+indent_size = 4
