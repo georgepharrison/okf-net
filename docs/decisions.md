@@ -298,7 +298,8 @@ question in `prd.md` §6.
 - **Deferred out of this milestone, deliberately.** (a) CLI-9's two rules —
   generated-file drift and `raw/` ingestion immutability — wait on `okf index` and the
   capture manifest respectively; neither has a rule id yet. (Generated-file drift got
-  one, `OKF0306`, in the `okf index` milestone; `raw/` immutability is still waiting.) (b) CLI-7's "human actor on a
+  one, `OKF0306`, in the `okf index` milestone; `raw/` immutability got one, `OKF0310`, with
+  `okf init` (work item #4), so nothing in this list is still waiting.) (b) CLI-7's "human actor on a
   CI commit" warning waits on Q9 (no reliable CI signal is decided). (c) Reserved-file
   structure checks are deliberately light: `index.md` is checked for the frontmatter rule
   (§8/§12), for at least one `#` heading when it has content, and for the
@@ -4269,3 +4270,90 @@ their key is written on, and so does this rule, through the same `FrontmatterKey
 including for a block sequence whose offending item is several lines below the key. The message
 names the key, the section, and the other surface that will refuse the concept — the shape's own
 bytes stay `okf candidates'` business, because that command is the surface that prints them.
+
+### Proposed decisions: what the candidates feature decided, recorded where it will be read (work item #79, 2026-09-14)
+
+Four work items built `okf candidates` (#75 the verb, #76 the unreadable-file quarantine, #77 the
+machine-readable array, #78 the lint rule) and each wrote its reasoning into the section above it.
+This one changes no behaviour: it gathers what those four **decided** into the documents that own
+the decisions and the requirements, so the reasoning is where the next person and the next agent
+look rather than where a merge request body once was. Three identifiers join existing sequences —
+`CORE-16`, `CLI-19`, `AD-56` — the `okf candidates` row of the Capability → Architecture Map gains
+the types that shipped unnumbered, and two stale statements in this log and the PRD get corrected
+where the fact-check convention says to correct them.
+
+**The eligibility contract is the row-by-row table, and it is a contract, not a summary.**
+`OkfVerificationHistory.Verdict` reads the `verified` block a second, narrower way — absent,
+present, unreadable — and the rows are these: absent, explicit `null` and `[]` are **absent**; a
+mapping naming a non-empty author is **present**, whatever else its fields look like; a scalar, an
+empty mapping, a mapping naming nobody, and a sequence containing any item that is not a
+recognizable event are **unreadable**. Two asymmetries in that table are deliberate and are written
+down as asymmetries rather than smoothed into a rule that sounds uniform. **An empty sequence is
+absent while a sequence of empty mappings is quarantined**: nothing in `[]` could be malformed, so
+it says "nobody has signed this yet"; `verified: [{}]` holds an event that claims verification and
+names nobody, which is the claim without the somebody. **A legal event with an unreadable
+timestamp still counts as history**: the timestamp's parseability is §5.2's and `OKF0103`'s
+question, and somebody who wrote themselves down has stood behind the content regardless of how
+they spelled the date. "At least one recognizable event" was rejected for the same reason as the
+first asymmetry — it lets a junk item ride along inside an otherwise-readable list, which is how a
+concept escapes review.
+
+**Verification-history readability is not the trust tier, and a verdict that disagrees with a tier
+is the design.** The tier (AD-20, §5.3) asks *who* vouches for a concept. The verdict asks whether
+anything vouches for it **at all**, and an unreadable block answers "no idea" — a third answer the
+tier has no arm for, since every one of its four tiers is a claim about a vouching party. So
+`verified: {}` reads `machine-confirmed` to §5.3 while the scanner refuses to classify it, and
+`okf candidates` prints both on the same line. That is stated as designed, not as a defect, and it
+is safe for one reason worth naming: the concept is named on the incomplete list either way, so a
+disagreeing tier cannot hide it from review. Issue #84 owns the question of whether the tier should
+ever be made to answer the third question; until it decides, reconciling them here would be a
+second answer.
+
+**The completeness gate joins the family of mechanical gates, and it is severity-blind.**
+`okf candidates` exits 1 on an incomplete inventory regardless of any configured severity, in the
+same family as `okf index --check` and `okf inbox --fail-if-any` (AD-5, now AD-56). The consequence
+is explicit because a reviewer will meet it: `OKF0203` defaults to **warning**, so `okf lint` may
+exit 0 on a bundle where `okf candidates` exits 1. That is not two surfaces contradicting each
+other — the linter reports findings at configured severities, and the scanner answers a mechanical
+question about its own inventory — and a gate that branched on somebody's severity configuration
+would stop being a gate. The shape test behind both is one predicate —
+`OkfVerificationHistory.IsUnreadable` — so the two surfaces cannot disagree about what counts as
+malformed even while their exit codes do.
+
+**The lint-rule deferral is reopened, and the reason is recorded with the reopening.** The
+lint-milestone entry above deferred this shape with no rule id and the 1.0.0 fact-check recorded
+`OKF0203` as an id naming nothing; both were true while verification history was inert, and #78's
+section says why the premise expired. That note is repeated here only because this section is the
+one place all four decisions are in view at once — the record stays where it was written, as the
+fact-check convention in this log requires.
+
+**What the shared walk decides, and what it does not.** `OkfConceptWalk` is the primitive that
+answers *which files are concepts* for the surfaces that enumerate concepts — `okf inbox` and
+`okf candidates` — and it asks two questions per file in a fixed order: was a frontmatter block
+**found** (`OkfDocument.FrontmatterReadOf`), and did what was found **parse**. `AD-49`'s
+`MarkdownFiles()`/`ContentFiles()` answer a different question — which files are bundle content —
+and the two do not collapse into one: the corpus walk is built on the file walk, and the file walk
+has no opinion about frontmatter. `AD-27` stays the corpus rule for search and the site, which
+enumerate markdown themselves rather than through the concept walk; that is why #76's fence
+question moved neither of them. The walk's unreadable list is shared, and the two consumers read it
+differently on purpose: the scanner quarantines every cause, the inbox declines to adopt
+`frontmatter-unreadable` as its own reason to skip, which is what keeps `okf inbox`'s counts where
+issue #71's "One corpus walk, shared" acceptance story pinned them.
+
+**The identifiers, and where each one now lives.** `CORE-16` is the verification-history
+requirement behind the verdict and `CLI-19` the verb. `CLI-18` is deliberately skipped, and the
+skip is recorded here rather than discovered later: `docs/prd.md` numbers its CLI requirements in
+the order they were *written down*, not the order they shipped — `CLI-17` is distribution and
+`CLI-18` is the exit-code contract that was already numbered `CLI-14` — so a free number is the
+only thing the new verb could take, and the number it takes is the next unused one. `AD-56` is
+the completeness gate. `AD-5` gains the gate to its list of mechanical gates in place, `AD-27`
+gains a pointer to the shared walk, `AD-49` gains the walk's two consumers, and `AD-11`'s shipped
+catalog gains `OKF0203` — which is the one place in the repo where that id was still missing from a
+range, the spine having been amended by #78 while the PRD's two catalog sentences were not. The
+stale statement in this log is the lint milestone's deferral note, which still said `raw/`
+immutability was "still waiting" for a rule id it got in work item #4 (`OKF0310`); it now says so.
+The other stale pair is the PRD's two shipped-catalog sentences, which listed `OKF0201`–`OKF0203`
+while Q9's resolution still described `OKF0203` as an id with no implementation — both now record
+the reopening beside the range. The dogfood concept
+`trust/candidates-and-completeness.md` already carries the same reasoning in prose; maintenance
+rule 6 of the spine is what keeps the two in step.

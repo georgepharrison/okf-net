@@ -28,6 +28,7 @@ Okf.Core   parse · validate · trust · staleness · index · search
            discovery · bundle · site
    │
    ├── Okf.Cli    okf init | lint | index | search | inbox | verify   (built)
+   │              okf candidates                                      (built)
    │              okf register | unregister | registry               (built)
    │              okf capture | generated                            (built)
    │              okf bundle | site | skills | completion            (built)
@@ -35,8 +36,11 @@ Okf.Core   parse · validate · trust · staleness · index · search
    └── okf mcp    okf_list · okf_search · okf_read, over stdio       (built)
 ```
 
-Every verb above is built. `register`, `unregister` and `registry` are what
-`okf search --scope` and `okf mcp --scope` read (see [vaults, registry, and
+Every verb above is built. `okf candidates` is the one verb whose exit code is not about
+findings: it reports whether its own enumeration was complete, and nothing else moves it (see
+[candidate enumeration and the completeness contract](../trust/candidates-and-completeness.md)).
+`register`, `unregister` and `registry` are what `okf search --scope` and `okf mcp --scope` read
+(see [vaults, registry, and
 config](vault-registry-and-config.md)); scope resolution itself is one function
 in `Okf.Core`, so the CLI and the server cannot disagree about which bundles a
 scope names. `okf completion` came last and describes the rest: it prints a

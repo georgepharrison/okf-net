@@ -66,14 +66,15 @@ back to the `decisions.md` entry that argued it:
 * **Rule** — the constraint downstream must follow, stated so it can be
   checked.
 
-The fifty-five rules cover layering and the offline contract — including the
+The fifty-six rules cover layering and the offline contract — including the
 single, bounded exception to it, the self-replacing `okf upgrade` — the diagnostic
 ranges and the severity model, provenance capture-versus-cite and the capture
 manifest, which bookkeeping a verb writes rather than an agent,
 trust derivation and acknowledgment, the canonical timestamp,
 configuration precedence, search determinism and its engine-agnostic result
 contract, MCP containment, the bundler's dangling-and-record answer, the
-site's untrusted-data posture, the single bundle walk every surface reads,
+site's untrusted-data posture, the single bundle walk every surface reads, the
+shared concept walk that decides what an inventory of concepts is complete over,
 release stamping, the exact-byte GitLab-built GitHub release and Pages boundary,
 the license gate, the split between what a commit hook may
 cost and what CI owes, the registry as the only way scope widens, and the rule

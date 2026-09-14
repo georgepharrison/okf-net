@@ -189,13 +189,16 @@ flowchart TB
 - **Binds:** every command, every hook, every CI job
 - **Prevents:** a hook or pipeline whose branch depends on how somebody configured a rule.
 - **Rule:** `0` success · `1` diagnostics at error severity, or `--check` drift, or a
-  `--verify` mismatch, or `okf inbox --fail-if-any` over a non-empty inbox · `2` usage or
-  environment failure. Warnings alone never change the exit code unless promoted. Each of
-  the mechanical gates is severity-blind: `okf index --check` returns 1 on drift regardless
-  of `OKF0306`'s configured severity, and `--fail-if-any` reads the inbox rather than any
-  diagnostic. `okf search` exits 0 on an empty result set.
+  `--verify` mismatch, or `okf inbox --fail-if-any` over a non-empty inbox, or `okf candidates`
+  over an inventory it could not complete · `2` usage or environment failure. Warnings alone
+  never change the exit code unless promoted. Each of the mechanical gates is severity-blind:
+  `okf index --check` returns 1 on drift regardless
+  of `OKF0306`'s configured severity, `okf candidates` returns 1 on an incomplete inventory
+  whatever `OKF0203`'s configured severity is (AD-56), and `--fail-if-any` reads the inbox
+  rather than any diagnostic. `okf search` exits 0 on an empty result set.
 - **Source:** PRD CLI-14, [index milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-index-milestone-2026-08-14),
-  [exit codes](decisions.md#exit-codes-prd-wins-over-the-grep-convention)
+  [exit codes](decisions.md#exit-codes-prd-wins-over-the-grep-convention),
+  [what the candidates feature decided](decisions.md#proposed-decisions-what-the-candidates-feature-decided-recorded-where-it-will-be-read-work-item-79-2026-09-14)
 
 ### AD-6 — All logic lives in `Okf.Core`; adapters render and never decide
 
@@ -493,9 +496,14 @@ flowchart TB
   is unreachable by AD-17. A concept whose frontmatter does not parse is not a corpus entry
   — it is already an `OKF0001` error and `okf lint` is the surface that says so. The same
   rule governs the site: reserved files become pages, but only concepts are counted,
-  graphed and back-linked.
+  graphed and back-linked. Where a surface enumerates **concepts** rather than markdown —
+  `okf inbox` and `okf candidates` — the shared walk `OkfConceptWalk` is what decides what
+  the corpus is, and it is the walk that separates a file whose frontmatter could not be
+  read from the concepts that came out of the ones that could; search and the site walk
+  markdown themselves and are unchanged by that separation.
 - **Source:** [Q7](decisions.md#q7-resolution-search-semantics-2026-08-14),
-  [site milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-static-site-milestone-work-item-6-2026-08-15)
+  [site milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-static-site-milestone-work-item-6-2026-08-15),
+  [an unreadable file is quarantined](decisions.md#proposed-decisions-an-unreadable-file-is-quarantined-not-enumerated-work-item-76-2026-09-13)
 
 ### AD-28 — The result contract is engine-agnostic and rendered once
 
@@ -849,8 +857,9 @@ flowchart TB
 
 ### AD-49 — One walk decides what is bundle content, and a dot-prefix hides nothing
 
-- **Binds:** `OkfBundle.MarkdownFiles`, `OkfBundle.ContentFiles`, `OkfDiscovery`, and every
-  surface that reads them — lint, index, search, MCP, the site, the bundler
+- **Binds:** `OkfBundle.MarkdownFiles`, `OkfBundle.ContentFiles`, `OkfDiscovery`, `OkfConceptWalk`,
+  and every surface that reads them — lint, index, search, MCP, the site, the bundler, and
+  the two consumers that enumerate concepts (`okf inbox`, `okf candidates`)
 - **Prevents:** `okf lint` reporting conformance over a tree it did not read, and two
   surfaces disagreeing about which files a bundle contains.
 - **Rule:** `MarkdownFiles()` and `ContentFiles()` are the only walk; nothing enumerates a
@@ -861,8 +870,14 @@ flowchart TB
   `.svn`, `.vscode`, `Thumbs.db`, `desktop.ini` — matched on the whole name,
   case-insensitively, for files and directories alike, used by the walk and by bundle
   discovery, and asserted literally by a test so it cannot grow unreviewed. A symlinked
-  directory is still never descended, dot-prefixed or not.
-- **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15)
+  directory is still never descended, dot-prefixed or not. `OkfConceptWalk` is that walk one
+  level up — the only thing that turns a bundle's markdown into concepts — and it asks two
+  questions per file in this order: was a frontmatter block *found*
+  (`OkfDocument.FrontmatterReadOf`), and did what was found *parse*. Its two output lists
+  are disjoint and together are every non-reserved `.md` file the walk reached, so a
+  consumer that needs a complete inventory has one place to ask.
+- **Source:** [dot-prefixed markdown](decisions.md#proposed-decisions-dot-prefixed-markdown-is-linted-work-item-42-2026-08-15),
+  [an unreadable file is quarantined](decisions.md#proposed-decisions-an-unreadable-file-is-quarantined-not-enumerated-work-item-76-2026-09-13)
 
 ### AD-50 — The skills ship inside the binary, and a committed pointer never names a home directory
 
@@ -1008,6 +1023,32 @@ flowchart TB
   contained relative `path`, leaving the existing authenticated GitLab `url` unchanged.
 - **Source:** [GitHub public downstream release and Pages publication](decisions.md#github-public-downstream-release-and-pages-publication-work-item-66-2026-08-18),
   [issue #40](https://gitlab.tychostation.dev/ringo/okf-net/-/issues/40)
+
+### AD-56 — A candidate inventory is complete or it says so, and the gate reads the inventory not the severity
+
+- **Binds:** `OkfCandidateScanner`, `OkfCandidateResult.IsComplete`, `OkfConceptWalk`,
+  `CandidatesCommand`, `CandidatesJson`
+- **Prevents:** an enumeration that quietly omits concepts, and a verification pipeline that
+  reads a short list as a clean one.
+- **Rule:** `okf candidates` lists the concepts whose `verified` block is *provably* absent —
+  no key, explicit `null`, or `[]` — and nothing else qualifies. A block that claims
+  verification and cannot be read as events is **quarantined**, never listed as a candidate
+  and never counted as history; so is a file whose frontmatter could not be read at all,
+  because a file with no frontmatter block found has not been shown to lack verification
+  history. The two reasons stay distinct — `verification-structure` and
+  `frontmatter-unreadable` — because their fixes differ. stdout carries the inventory and
+  nothing else in both formats, quarantine notices go to stderr in both, and quarantined
+  concepts are absent from the JSON array: one array, one kind of record. Exit `1` means
+  *"that list is not the whole truth"* and fires on an incomplete inventory regardless of any
+  configured severity (AD-5); exit `0` means the enumeration completed whatever its length,
+  so forty candidates is a success and there is no `--fail-if-any` here. The shape test is
+  one predicate — `OkfVerificationHistory.IsUnreadable`, the same one `OKF0203` reports
+  through — so `okf lint` and `okf candidates` cannot disagree about what counts as malformed
+  even while their exit codes do.
+- **Source:** [`okf candidates`](decisions.md#proposed-decisions-okf-candidates-work-items-71-and-75-2026-09-13),
+  [an unreadable file is quarantined](decisions.md#proposed-decisions-an-unreadable-file-is-quarantined-not-enumerated-work-item-76-2026-09-13),
+  [a verified block that is not a readable structure](decisions.md#proposed-decisions-a-verified-block-that-is-not-a-readable-structure-is-a-lint-rule-work-item-78-2026-09-14),
+  [what the candidates feature decided](decisions.md#proposed-decisions-what-the-candidates-feature-decided-recorded-where-it-will-be-read-work-item-79-2026-09-14)
 
 ## Consistency Conventions
 
@@ -1164,7 +1205,7 @@ flowchart TB
 | `okf search` | `OkfSearchEngine`, `OkfSearchQuery`, `OkfTokenizer`, `OkfScope`; `SearchCommand` + `SearchJson` render | AD-6, AD-7, AD-26, AD-27, AD-28, AD-49, AD-51 | CORE-11, CLI-3, CLI-11 |
 | `okf mcp` | `McpServer`, `McpToolset`, `McpCommand` over `OkfSearchEngine`, `OkfConceptReader`, `OkfIndexGenerator`, `OkfScope` | AD-6, AD-28, AD-29, AD-30, AD-49, AD-51 | MCP-1 … MCP-5, CORE-12 |
 | `okf inbox` / `okf verify` | `OkfInboxScanner`, `OkfLifecycleInstant`, `OkfStamp`, `OkfVerifyIdentity` | AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-31 | CORE-14, CORE-15, CLI-12, CLI-13 |
-| `okf candidates` | `OkfCandidateScanner`, `OkfVerificationHistory`, `OkfVerificationStamp`, `OkfConceptWalk`, `OkfDocument.FrontmatterReadOf`; `CandidatesCommand` + `CandidatesJson` render | AD-6, AD-7, AD-16, AD-20, AD-31, AD-44 | CLI-1, CLI-14, CLI-16, CORE-6 |
+| `okf candidates` | `OkfCandidateScanner`, `OkfCandidate`, `OkfCandidateResult`, `OkfQuarantinedConcept`, `OkfQuarantineReason`, `OkfVerificationHistory`, `OkfVerificationStamp`, `OkfConceptWalk`, `OkfDocument.FrontmatterReadOf`; `CandidatesCommand` + `CandidatesJson` render | AD-5, AD-6, AD-7, AD-16, AD-20, AD-27, AD-31, AD-44, AD-49, AD-56 | CORE-6, CORE-16, CLI-1, CLI-14, CLI-19 |
 | `okf capture` / `okf generated` | `OkfCaptureWriter`, `OkfCaptureManifest`, `OkfStamp`; `CaptureCommand` + `GeneratedCommand` render | AD-16, AD-18, AD-19, AD-21, AD-23, AD-24, AD-30, AD-52 | SKILL-3, ACC-5 |
 | `okf init` | `OkfScaffold`, `OkfDiscovery`, `OkfIndexGenerator` (it *writes* `okf.json`, never reads one) | AD-2, AD-13, AD-15, AD-32 | CLI-8 |
 | `okf bundle` | `OkfBundler`, `OkfBundle`, `OkfDistribution*`, `OkfCaptureManifest.Sha256Of` | AD-19, AD-33, AD-34, AD-35, AD-36, AD-37, AD-49 | PRD §5 (post-MVP roadmap), CLI-14 |
