@@ -87,6 +87,13 @@
       "domain",
       "dogfood",
       "meta",
+      // Added with toolset/capability-describes-itself.md (work item #81): a concept whose
+      // subject is this bundle's own knowledge, rather than the code or the format it
+      // describes. `meta` is already here for the self-describing documents (the bundle's
+      // about-page, the tag vocabulary's human face); `selfdoc` marks the narrower claim those
+      // documents do not make — that the knowledge was produced by the tool it documents, and
+      // can be re-checked by running it.
+      "selfdoc",
 
       // The format and its guarantees.
       "acceptance",
