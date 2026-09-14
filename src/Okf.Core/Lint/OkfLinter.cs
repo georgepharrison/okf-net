@@ -949,6 +949,38 @@ public sealed class OkfLinter
     {
         CheckSelfVerification(walk, concept);
         CheckStaleness(walk, concept);
+        CheckVerificationStructure(walk, concept);
+    }
+
+    /// <summary>
+    /// A <c>verified</c> block that claims verification but cannot be read as events (§5.2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The shape test is <see cref="OkfVerificationHistory" />'s and is not restated here: the
+    /// candidate scanner quarantines on the same call, which is what stops <c>okf lint</c> and
+    /// <c>okf candidates</c> disagreeing about what counts as malformed (#78). A second statement
+    /// of the rule would be a second answer.
+    /// </para>
+    /// <para>
+    /// Warning and not error, for the reason #71 records: defaults block only §11 conformance
+    /// (PRD CLI-5), and nothing about a directory marks a bundle as a foreign one, so strictness
+    /// cannot be conditioned on provenance. The consequence is designed — <c>okf lint</c> may exit
+    /// 0 where <c>okf candidates</c> exits 1, because the scanner's gate asks a mechanical
+    /// question about its own inventory and a gate must not consult severity (AD-5).
+    /// </para>
+    /// </remarks>
+    private static void CheckVerificationStructure(BundleWalk walk, LintedConcept concept)
+    {
+        if (OkfVerificationHistory.IsUnreadable(concept.Frontmatter))
+        {
+            walk.Report(
+                OkfRules.UnreadableVerification,
+                "`verified` claims verification but is not a structure that can be read as " +
+                "verification events; `okf candidates` will refuse to classify this concept (§5.2).",
+                concept.Path,
+                concept.Layout.FrontmatterKeyLine(OkfVerificationHistory.Key) ?? 1);
+        }
     }
 
     // decisions.md §7: an agent MAY verify, but never its own output.

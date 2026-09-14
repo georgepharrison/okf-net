@@ -97,7 +97,7 @@ _okf() {
             case "$prev" in
                 (--config) _files; return ;;
                 (--format) compadd -- json text; return ;;
-                (--severity) compadd -- OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310; return ;;
+                (--severity) compadd -- OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0203 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310; return ;;
             esac
             if [[ "$cur" == -* ]]; then
                 options=(

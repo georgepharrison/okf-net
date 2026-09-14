@@ -45,7 +45,7 @@ Register-ArgumentCompleter -Native -CommandName okf -ScriptBlock {
             switch ($previous) {
                 '--config' { $candidates = @() }
                 '--format' { $candidates = @('json', 'text') }
-                '--severity' { $candidates = @('OKF0001', 'OKF0002', 'OKF0003', 'OKF0004', 'OKF0101', 'OKF0102', 'OKF0103', 'OKF0201', 'OKF0202', 'OKF0301', 'OKF0302', 'OKF0303', 'OKF0304', 'OKF0305', 'OKF0306', 'OKF0307', 'OKF0308', 'OKF0309', 'OKF0310') }
+                '--severity' { $candidates = @('OKF0001', 'OKF0002', 'OKF0003', 'OKF0004', 'OKF0101', 'OKF0102', 'OKF0103', 'OKF0201', 'OKF0202', 'OKF0203', 'OKF0301', 'OKF0302', 'OKF0303', 'OKF0304', 'OKF0305', 'OKF0306', 'OKF0307', 'OKF0308', 'OKF0309', 'OKF0310') }
                 default { $candidates = @('--help', '-h', '--config', '--format', '--json', '--list-rules', '--severity', '--treat-all-warnings-as-errors', '--verbose', '-v') }
             }
         }

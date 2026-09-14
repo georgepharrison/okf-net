@@ -284,6 +284,7 @@ question in `prd.md` §6.
   | `OKF0103` | source-drift | `sources[].last_modified` > `generated.at` (CORE-8) | warning |
   | `OKF0201` | self-verification | A `verified[].by` equals `generated.by` | warning |
   | `OKF0202` | stale-concept | `today >= stale_after` (§5.5) | warning |
+  | `OKF0203` | unreadable-verification | A `verified` block is present but cannot be read as events (§5.2) | warning (added by #78, reopening the deferral below) |
   | `OKF0301` | missing-description | No `description` | warning |
   | `OKF0302` | broken-internal-link | Bundle-internal link resolves to nothing (§6.1) | info |
   | `OKF0303` | near-duplicate-concept | Title or filename collision | warning |
@@ -2532,6 +2533,13 @@ why the wrong detail survived review for as long as it did.
   on 2026-08-15: `grep -rn OKF0203` over the working tree returns nothing. The id was never
   a valid configuration key and never appeared in a diagnostic the tool emits, so nothing
   downstream was configured against it.
+  - **Superseded 2026-09-14 by #78, which reopened the number deliberately.** The trust
+    range's next number is now `OKF0203`, `unreadable-verification`, a warning for a
+    `verified` block that cannot be read as events. What this entry corrected — prose and
+    comments naming a bare id while describing what `OKF0103` does — stays corrected; the
+    stragglers were renamed to `OKF0103` and are not coming back. The id becoming real does
+    not undo the fact-check, and the correction stays as written rather than being deleted
+    now that the sentence's premise has changed.
 
 Two further numbers were checked and restated where they had gone stale, both in the
 dogfood bundle rather than here: the `publish` job produces **seven** assets, not six
@@ -4213,3 +4221,51 @@ path order is the invariant a consumer can rely on while bundle order is an arti
 order. The entry above saying the merge "restates the walk's own ordering (bundle root, then
 bundle-relative path)" overstates it: the bundle arm is unreachable, and the sentence survives
 because it describes the walk, not the merge.
+
+### Proposed decisions: a verified block that is not a readable structure is a lint rule (work item #78, 2026-09-14)
+
+`OKF0203` (`unreadable-verification`, trust range, **warning**) reports a `verified` block that
+is present but is not a structure the §5.2 normalization can read as events. It fires on exactly
+the shapes `okf candidates` quarantines, and it fires on them because `okf candidates`
+quarantines them: the rule calls `OkfVerificationHistory.IsUnreadable`, the same internal
+predicate the scanner reaches through `Verdict`, so the two surfaces cannot state the shape test
+differently.
+
+**This reopens a recorded deferral, and the reason is stated with it rather than in place of
+it.** The lint-milestone entry above deferred the shape with no rule id, and the 1.0.0
+fact-check recorded `OKF0203` as an id that named nothing. Both were right when written, because
+nothing consumed verification history: a `verified` block that read as zero events was merely
+inert. Once an automated verifier consumes that history, the same shape is a **trust boundary** —
+it can cause a concept to be skipped by a review — and a defect that can hide a concept from
+review is worth a rule id. The deferral's premise expired; the deferral itself stays as written
+above, and the note on the fact-check entry records the reopening where the fact-check is.
+
+**One statement of the rule, reached two ways.** The candidate scanner quarantines on the verdict
+and the linter reports on `IsUnreadable`, which is that verdict read once. A second shape test
+would be a second answer, and the two surfaces disagreeing about what counts as malformed is the
+failure mode this ticket exists to close: a concept one surface hides from the other is a concept
+that escapes review. `IsUnreadable` is `internal` for the same reason the verdict is — the two
+consumers are in this assembly, and a published "is this malformed" helper would invite a third
+reading of the same block from outside it.
+
+**Warning, not error, and the reason is the one #71 wrote down.** Defaults block only what §11
+conformance requires (PRD CLI-5, decisions §7), and nothing about a directory marks a bundle as a
+foreign one, so strictness cannot be conditioned on provenance — an error default would fail the
+reference bundles ACC-1 requires okf-net to tolerate. The consequence is designed and asserted
+rather than smoothed over: `okf lint` warns and exits 0 on a bundle where `okf candidates`
+quarantines and exits 1. The scanner's gate asks a mechanical question about its own inventory,
+and AD-5's whole point is that a gate must not branch on somebody's severity configuration.
+
+**What the rule refuses to look at.** It adjudicates the shape and the author, and nothing else:
+the §7 actor grammar is #82's question, so `human:ahormati` and `Human:ahormati` land on the same
+side; a missing or unparseable `at` is nobody's finding; and an empty identifier is the grammar's
+problem, not this one. Absent, explicit `null` and `[]` are the legally empty forms — they say
+"nobody has signed this yet", which is absence and belongs to no rule. A file whose frontmatter
+never read is `OKF0001`'s finding, and reporting it here too would double-report one file from two
+surfaces, which is the same asymmetry #76 drew for the scanner.
+
+**The line is the key's line, like its neighbours.** `OKF0201` and `OKF0202` point at the line
+their key is written on, and so does this rule, through the same `FrontmatterKeyLine` lookup,
+including for a block sequence whose offending item is several lines below the key. The message
+names the key, the section, and the other surface that will refuse the concept — the shape's own
+bytes stay `okf candidates'` business, because that command is the surface that prints them.

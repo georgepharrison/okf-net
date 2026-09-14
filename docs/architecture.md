@@ -278,10 +278,11 @@ flowchart TB
   is fixed by category and never reused. A kebab nickname is a label — it may appear in
   prose and beside the id in `--json` output, and is never a valid configuration key. The
   shipped catalog is `OKF0001`–`OKF0004`,
-  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0202`, `OKF0301`–`OKF0310`.
+  `OKF0101`–`OKF0103`, `OKF0201`–`OKF0203`, `OKF0301`–`OKF0310`.
 - **Source:** [Q2](decisions.md#open-question-resolutions-2026-08-14),
   [lint milestone](decisions.md#proposed-decisions-decided-2026-08-15-review-9-the-okf-lint-milestone-2026-08-14),
-  [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15) (`OKF0310`)
+  [`okf init`](decisions.md#proposed-decisions-decided-2026-08-15-review-9-okf-init-work-item-4-2026-08-15) (`OKF0310`),
+  [`okf candidates`](decisions.md#proposed-decisions-okf-candidates-work-items-71-and-75-2026-09-13) (`OKF0203`)
 
 ### AD-12 — Four Roslyn severities, no exemptions, and a typo is never silent
 
