@@ -13,5 +13,5 @@ okf_version: "0.2"
 * [format](format/index.md) - OKF v0.2 itself — bundle shape, provenance, trust, and consumer obligations.
 * [practices](practices/index.md) - How the okf-net project is run — custodianship, tagging discipline, the dependency license gate, and the release scheme.
 * [references](references/index.md) - External material captured into the vault and rendered here as ordinary concepts, so a claim survives its source.
-* [toolset](toolset/index.md) - How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, and distribution.
+* [toolset](toolset/index.md) - How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, distribution, and running the tool on its own knowledge.
 * [trust](trust/index.md) - How okf-net decides whether anybody has ever stood behind a concept, and what it does when it cannot tell

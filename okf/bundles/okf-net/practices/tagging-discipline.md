@@ -3,7 +3,7 @@ type: Playbook
 title: Tagging Discipline
 description: The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.
 tags: [okf-net, tags, governance, lint, conventions]
-generated: { by: claude-fable/5, at: 2026-08-15T08:30:00Z }
+generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T07:15:18Z }
 sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/3fcbb9f828c2f23d109c855ee403c3a4c81f3a96/okf/SPEC.md
@@ -58,7 +58,7 @@ sit — and sees when it sits nowhere.
 | --- | --- | --- |
 | Scope | Which project is this about? | `okf`, `okf-net` |
 | Domain | Which subject area? | `architecture`, `format`, `practices`, `references` |
-| Kind | What is the concept doing? | `domain`, `dogfood`, `meta` |
+| Kind | What is the concept doing? | `domain`, `dogfood`, `meta`, `selfdoc` |
 | The format | Which guarantee of OKF? | `acceptance`, `acknowledgment`, `bundle`, `compatibility`, `compliance`, `conformance`, `conventions`, `interop`, `layout`, `lifecycle`, `readme-trap`, `spec`, `trust`, `verification` |
 | Provenance | Which part of the capture path? | `capture`, `custodian`, `maintenance`, `provenance`, `skills`, `sources` |
 | Machinery | Which part of the toolset? | `bm25`, `cli`, `configuration`, `determinism`, `diagnostics`, `discovery`, `distribution`, `drift`, `generation`, `index`, `layering`, `lint`, `mcp`, `registry`, `search`, `severity`, `vault` |
@@ -72,6 +72,17 @@ written: a concept needed a word the vocabulary did not have, and the concept
 came in the same diff as the word. It sits in Machinery rather than Process
 because `release` answers *how a version is cut* and `distribution` answers
 *what a consumer receives*; it joins the two concepts that describe each half.
+
+The second is `selfdoc`, in the Kind facet, arriving with [a capability
+describes itself](../toolset/capability-describes-itself.md). It is not
+`meta`, and not `dogfood`, and the difference is the claim each word is willing
+to carry. `meta` is a document about the bundle — an `about.md`, this page.
+`dogfood` is a document about this project, which is what most of the bundle is.
+`selfdoc` is a document the bundle's own tool produced *and can be re-checked
+by running*: its `generated` stamp came from `okf generated stamp`, and the
+concept's whole subject is that the tool reaches this file. That is a claim a
+reader can verify in one command, which is why it needs its own word rather
+than a loan from the two that cannot make it.
 
 **Scope is not optional.** Every concept in this bundle carries `okf` or
 `okf-net`, because the single most useful filter over a bundle that documents
