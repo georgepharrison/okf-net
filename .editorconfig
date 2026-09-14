@@ -290,3 +290,15 @@ dotnet_diagnostic.CA1716.severity = none  # #59 (2026-08-16): Okf.Cli.Tests.Shar
 # per-rule entries `AnalysisLevel=latest-all` generates, so the section would
 # parse cleanly and do nothing. `spikes/Directory.Build.props` does that job
 # instead, and says so.
+
+# YAML is linted here by an editor-side yamllint, which CI never runs: the pipeline's only
+# linters are `markdownlint-cli2 "**/*.md"` (mise.toml) and `dotnet build` at latest-all. Its
+# default 80-column limit is not this repository's rule — .gitlab-ci.yml carries 169 lines over
+# 80 at 18c7ba3a/558a770d/85e006cb/decc0c42 (2026-08-15), the longest at 215, and the file's own
+# prose comments are written to a ~78-column house style that the limit cannot see. Turning the
+# rule off keeps the findings that are real (parse errors, truthy/indentation, the `mis` typos
+# at information severity) and drops the ones every commit re-reports on lines nobody is
+# touching. max_line_length = off rather than a raised number: there is no number this file
+# has ever honored, and inventing one would be a rule with no owner.
+[*.{yml,yaml}]
+max_line_length = off

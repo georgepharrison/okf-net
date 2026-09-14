@@ -40,13 +40,17 @@ consume.
   - `okf inbox` / `okf verify` — review-and-acknowledge flow for
     agent-written changes, built on OKF's own `generated`/`verified` trust
     fields
-  - `okf candidates` — the concepts nobody has ever verified: an exhaustive,
-    deterministic inventory of the concepts whose `verified` history is provably
-    absent, for pointing a second reviewer at them. It is complete or it says so
-    — a file whose history cannot be established is named on stderr and the run
-    exits 1, whether that is a `verified` block that cannot be read or a file
-    whose frontmatter cannot be read at all, so malformed or missing metadata
-    can never hide a concept from review
+  - `okf candidates` / `okf verify` — the other half of that flow: an
+    exhaustive, deterministic inventory of the concepts whose `verified`
+    history is provably absent, for pointing a second reviewer at them, and
+    then the stamp that answers it. The inbox is a triage list of what is
+    waiting on a person; this is an inventory of what has never been verified.
+    They overlap and neither contains the other, so neither stands in for the
+    other. It is complete or it says so — a file whose history cannot be
+    established is named on stderr and the run exits 1, whether that is a
+    `verified` block that cannot be read or a file whose frontmatter cannot be
+    read at all, so malformed or missing metadata can never hide a concept
+    from review
   - `okf capture` / `okf generated` — the bookkeeping a producer owes,
     written by code rather than by hand: `capture add` hashes an artifact
     dropped in `raw/` and records it, `capture close` marks it ingested, and
@@ -79,7 +83,9 @@ consume.
 - **[Agent skills](skills/README.md)** — three host-neutral skills over the
   same doctrine: `okf-capture` gets knowledge in, `okf-custodian` keeps it
   alive, and `okf-vault` gets it back out for an agent answering a question.
-  They ship inside the binary and the installers place them for you
+  They name `okf candidates` where each already enumerates the vault-reading
+  commands, so an agent reaches for the inventory instead of writing its own
+  scanner. They ship inside the binary and the installers place them for you
 - **Guardrails** — hashed, immutable-after-ingestion evidence in `raw/`,
   provenance citation discipline, and honest trust tiers (unverified →
   machine-confirmed → human-reviewed)

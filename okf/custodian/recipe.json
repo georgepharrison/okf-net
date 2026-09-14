@@ -74,7 +74,14 @@
     // the machine interface the okf-custodian skill's refresh procedure starts
     // from; there is no reporting script, because the CLI is the interface.
     "inbox": "mise run cli -- inbox okf/",
-    "inboxJson": "mise run cli -- inbox okf/ --format json"
+    "inboxJson": "mise run cli -- inbox okf/ --format json",
+    // The candidate inventory, which is NOT the inbox: the inbox is what waits
+    // on a person, this is what nobody has ever verified. Both forms exit 0 on a
+    // long list and exit 1 only when a file's history could not be read, so a
+    // backlog never fails a run and an incomplete answer always does. It writes
+    // nothing and verifies nothing — it sizes the review, it does not do it.
+    "candidates": "mise run cli -- candidates okf/",
+    "candidatesJson": "mise run cli -- candidates okf/ --format json"
   },
 
   // Where each command runs today. Honest scoping: nothing on this list is an
@@ -105,9 +112,12 @@
     // The `custodian-inbox` job in .gitlab-ci.yml. It publishes both forms and
     // fails nothing; a schedule has to exist on the project for it to run at
     // all, and until one does this line describes an offer rather than a habit.
+    // `candidates` joins it as the same kind of offer: a report, not a gate.
     "scheduled": [
       "inbox",
-      "inboxJson"
+      "inboxJson",
+      "candidates",
+      "candidatesJson"
     ]
   }
 }

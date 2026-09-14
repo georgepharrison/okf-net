@@ -126,6 +126,9 @@ already provide — no new frontmatter field, no bespoke review queue:
 3. `okf inbox` lists everything waiting on a person — unacknowledged, stale,
    or citing a source that moved — grouped by reason, one row per concept.
    `okf verify <concept-path>` clears the first of those with a human stamp.
+   `okf candidates` is the other count, and it is not a bigger inbox: the inbox
+   is what waits on a person, the candidate inventory is what has never been
+   verified, and neither contains the other.
 4. A custodian running in CI opens a merge request. **The merge request is
    the inbox** for machine-derived insight — reviewable, and, importantly,
    ignorable.
@@ -235,7 +238,7 @@ that means concretely, and only what it means:
 | `okf/custodian/recipe.json` | Names the two skills by repo path — the copy in `skills/` is this repository's installed copy — plus the search seeds an enrichment pass starts from, the exact commands, and the triggers. | — |
 | `pre-commit` hook | `markdownlint-cli2` on staged markdown; `check-manifest.py` when anything under `okf/raw/` is staged. | Nothing. Both report. |
 | CI `dogfood` job | `okf lint okf/`, `okf index --check`, and `okf/custodian/check-manifest.py`. | Nothing. All three report. |
-| CI `custodian-inbox` job | `okf inbox okf/`, on a schedule, publishing the JSON as an artifact. | Nothing. It surfaces and exits 0 whatever it finds. |
+| CI `custodian-inbox` job | `okf inbox okf/` and `okf candidates okf/`, on a schedule, publishing both JSON arrays as artifacts. | Nothing. Both report; the inbox exits 0 whatever it finds, and candidates exits 0 on any inventory that completed. |
 | A session with the skills | Capture, ingestion, enrichment, refresh drafts, indexes, `log.md`. `okf capture add`, `okf capture close` and `okf generated stamp` are the only things that edit the manifest or a `generated` stamp. | A person, deliberately. |
 
 `okf/raw/` exists and holds its first capture, ingested into
