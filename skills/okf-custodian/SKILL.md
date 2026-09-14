@@ -34,12 +34,17 @@ indexes it, searches it, or ships it.
 
 ## The interface
 
-`okf search`, `okf index`, `okf inbox` and `okf lint` are how the vault is read;
-`okf capture close` and `okf generated stamp` are how its two machine-owned
-records are written. Run `okf <command> --help` for a command's options. Search
-is tokenized, field-weighted, and carries a trust tier and a stale flag on every
-hit — reach for it in place of a text scan of the directory. With `okf` absent
-from the PATH and no documented equivalent in the project, stop and say so.
+`okf search`, `okf index`, `okf inbox`, `okf candidates` and `okf lint` are how
+the vault is read; `okf capture close` and `okf generated stamp` are how its two
+machine-owned records are written. Run `okf <command> --help` for a command's
+options. Search is tokenized, field-weighted, and carries a trust tier and a
+stale flag on every hit — reach for it in place of a text scan of the directory.
+With `okf` absent from the PATH and no documented equivalent in the project,
+stop and say so.
+
+Where the project documents its own way of running the CLI, that is the command:
+in okf-net's own repository it is `mise run cli -- <command>`, and
+`okf/custodian/recipe.json` names the same alias for every command it lists.
 
 **Structure is the toolset's; prose is yours.** The manifest's JSON, every
 `sha256`, every timestamp and the `generated` stamp have a command that writes
@@ -318,6 +323,52 @@ The chain that keeps machine-derived insight reviewable:
 
 Drafted and derived material is presented as such. Where a concept carries a
 `human:` verification and your change contradicts it, say so in your reply.
+
+### The backlog nobody has ever verified
+
+`okf inbox` cannot answer "how much of this vault has never been verified", and
+a custodian that reaches for it anyway will report a number that is neither a
+floor nor a ceiling on the real one. **The inbox is a triage list of what is
+waiting on a person; `okf candidates` is an inventory of what has never been
+verified.** They overlap and neither contains the other: a hand-written concept
+that is `status: draft`, or past its `stale_after`, is on the inbox while
+carrying a real verification event, so it is not listed here at all, and a
+concept nobody has ever signed is listed here whether or not any inbox reason
+applies to it.
+
+```sh
+okf candidates <vault-path>                 # one row per concept, with why
+okf candidates <vault-path> --format json   # the same inventory as a bare array
+```
+
+Use it to size work you are proposing, not to justify skipping it: forty
+candidates is the answer and exits 0, since this is an inventory and not a gate.
+The report closes with a line beginning `Scanned` that counts the concepts
+scanned, the bundles, the candidates and the quarantines — quote that line
+rather than counting rows, since it is the one that distinguishes "everything
+here is verified" from "nothing could be read". A file whose history could not
+be established is quarantined: named on stderr, left off the list, and the run
+exits 1. That is an inventory admitting a gap, and the gap is the number to
+report rather than the shorter one.
+
+What it does **not** do is the part a custodian must not blur: `okf candidates`
+verifies nothing, reviews nothing, stamps nothing, and writes nothing. Reading a
+concept's row is not evidence anybody looked at the concept, and listing a
+concept here does not move its tier. Eligibility is one question — did anybody
+write themselves down in `verified` at all — and it is deliberately not §5.3's
+question about *who* vouches, so the two can disagree. They disagree in one
+direction only, and it is worth knowing which: a concept that reaches this list
+has no readable verification event, so it cannot derive `machine-confirmed` or
+`human-reviewed` and every row reads `unverified`. The disagreement shows up on
+the quarantine side instead, where a `verified: {}` block derives
+`machine-confirmed` to §5.3 while the scanner refuses to classify it — which is
+exactly why a disagreeing tier is safe: such a file is named on stderr either
+way. Verification stays a second actor's act, run by whoever did the checking;
+this command only says how many concepts are still waiting for that act to
+happen.
+
+**Done when** any backlog figure you report names the command it came from, and
+nothing you listed here has been treated as reviewed by you or anyone else.
 
 ## Refresh: clearing a stale or drifted concept
 

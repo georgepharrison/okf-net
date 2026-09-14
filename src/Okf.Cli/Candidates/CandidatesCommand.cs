@@ -319,7 +319,7 @@ internal static class CandidatesCommand
             and there are no verification fields — a candidate has no verification events by
             definition, so an always-null one would only be a field to disbelieve. Ordering
             is byte-stable across runs on unchanged bytes, so one run's output diffs against
-            the next to show what was newly verified. (fix(core): quarantine files whose frontmatter cannot be read)
+            the next to show what was newly verified.
 
             Exit codes:
               0  the enumeration completed, whatever its length

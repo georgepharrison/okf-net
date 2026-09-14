@@ -4,16 +4,18 @@ description: >
   Look up what a project already knows in its OKF vault and answer from it:
   orient by index, retrieve with `okf search`, open only the concepts you
   picked, and cite each one back with its trust tier. Use when asked what we
-  know about a topic, and when asked what needs attention, which is
-  `okf inbox`.
+  know about a topic, when asked what needs attention, which is `okf inbox`,
+  and when asked how much of the vault nobody has ever verified, which is
+  `okf candidates`.
 ---
 
 # okf-vault
 
-A vault is read to answer two questions — *what do we already know about
-this?* and *what is waiting on a person?* Both go wrong the same two ways:
-answering from memory while the vault holds better, and answering from the
-vault without saying which concept said it.
+A vault is read to answer three questions — *what do we already know about
+this?*, *what is waiting on a person?*, and *what has never been verified at
+all?* All three go wrong the same two ways: answering from memory while the
+vault holds better, and answering from the vault without saying which concept
+said it.
 
 ## Doctrine
 
@@ -44,14 +46,19 @@ the CLI's rules, and `okf_search` returns the same array `okf search --json`
 prints, from the same writer. Where the host exposes the tools, use them; the
 steps below name the CLI, and the tool of the same move is that step.
 
+The two inventories at the end — `okf inbox` and `okf candidates` — have no MCP
+tool. They are the CLI's, and the escape hatch below is the only fallback.
+
 `okf <command> --help` is the option lookup. It ships with the binary in front
 of you, so it is right about flags even when this file is old.
 
 Where a project documents its own way of running the CLI, that is the command
-— in okf-net's own repository it is `mise run cli -- <command>`. With `okf`
+— in okf-net's own repository it is `mise run cli -- <command>`, and that is the
+form every command in this skill and in **okf-custodian** takes. With `okf`
 absent from the PATH and no documented equivalent in the project, say so and
 stop: a text scan of the directory is a different question with similar-looking
-answers.
+answers, and it is the scan `okf search`, `okf inbox` and `okf candidates` exist
+to make unnecessary.
 
 The layout it resolves against, walking up from the working directory:
 
@@ -215,6 +222,58 @@ is **okf-custodian**'s refresh procedure.
 
 **Done when** your reply carries the closing line's count for all three
 reasons, and names the rows that bear on the human's current work.
+
+## What has never been verified
+
+```sh
+okf candidates                    # one row per concept, with why it is a candidate
+okf candidates --format json      # the same inventory as a bare array of records
+```
+
+The inventory answers a different question than the section above, and picking
+the wrong one quietly misstates the vault. **The inbox is a triage list of what
+is waiting on a person; this is an inventory of what has never been verified.**
+They overlap and neither contains the other: a hand-written concept that is
+`status: draft` or past its `stale_after` is on the inbox and has verification
+history, so it is not listed here at all, and a concept nobody has ever signed
+is listed here whether or not any inbox reason applies to it. Ask the inbox how
+much is on you; ask this how much nobody has ever vouched for.
+
+What the rows and records are worth saying to a human:
+
+- A candidate is a concept with **provably absent** history — no `verified`
+  key, `verified: null`, or `verified: []`. Any event naming an author takes
+  the concept off the list, and a garbage timestamp still names somebody.
+- Draft and stale concepts are listed like everything else. This is an
+  inventory, not a filter: forty candidates is a success and exits 0.
+- The report closes with a line beginning `Scanned`, counting the concepts
+  scanned, the bundles, the candidates and the quarantines — so
+  `0 candidates` because everything was verified and `0 candidates` because 30
+  files could not be read are the same row list and a different quarantine
+  count. Quote that line rather than counting rows; it is the one that says
+  which of the two you are looking at.
+- A file whose history could not be established is quarantined: named on
+  **stderr**, not listed, and the run exits 1. That is the inventory admitting a
+  gap, and the gap belongs in your reply — a quarantine count above zero means
+  the number you give is a floor, not a total.
+- In text, stdout is the rows and that closing line. In JSON, stdout is a bare
+  array of records with no run metadata, in a byte-stable order, so one run's
+  output diffs against the next to show what got verified since. Either way
+  stdout carries the report and nothing else — the notices are on stderr —
+  which is what makes `--json` safe to pipe into the next tool.
+
+Say which command produced a number. "Three concepts wait on you" and "nothing
+has ever been verified for 41 of them" are different asks, and a human who
+hears the first when you ran the second will answer the wrong one.
+
+`okf candidates` verifies nothing, reviews nothing, stamps nothing, and writes
+nothing. A row is not a judgement on the concept and it does not change its
+tier — the tier asks *who* vouches, and this asks only whether anybody wrote
+themselves down. Clearing a row is someone reading the concept and running
+`okf verify`; reporting the list is the whole of what this step is for.
+
+**Done when** your reply names the closing `Scanned` counts and the quarantine
+count, and says whether the number came from the inventory or the triage list.
 
 ## Guardrails
 

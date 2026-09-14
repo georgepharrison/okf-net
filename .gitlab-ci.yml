@@ -888,6 +888,22 @@ custodian-inbox:
     - dotnet run --project src/Okf.Cli -- inbox okf/
     - mkdir -p artifacts/custodian
     - dotnet run --project src/Okf.Cli -- inbox okf/ --format json > artifacts/custodian/inbox.json
+    # The candidate inventory, published beside the inbox because it answers
+    # a different question: what is waiting on a person, versus what nobody
+    # has ever verified. Exit 1 means "this list is not the whole truth" — a
+    # finding to publish, not a broken job — so exactly that code is tolerated,
+    # and it is tolerated for BOTH runs: GitLab runs each script line under
+    # `set -e`, so an unguarded exit 1 would redden the job and an unguarded
+    # exit 2 would be the same code, indistinguishable after the fact. An
+    # environment failure (exit 2: unreadable vault, bad path) must still
+    # redden it, since there is no inventory to report in that case. The JSON
+    # comes from its own run so a quarantine cannot truncate it.
+    - |
+      dotnet run --project src/Okf.Cli -- candidates okf/ || status=$?
+      dotnet run --project src/Okf.Cli -- candidates okf/ --format json \
+        > artifacts/custodian/candidates.json || status=$?
+      if [ "${status:-0}" -gt 1 ]; then exit "${status}"; fi
+      echo "candidates inventory: exit ${status:-0} (1 = incomplete; a floor)"
   artifacts:
     # Kept whatever the scan found: an empty array is as much a result as a full
     # one, and the run that reported it is the one worth having.
@@ -895,6 +911,7 @@ custodian-inbox:
     expire_in: 30 days
     paths:
       - artifacts/custodian/inbox.json
+      - artifacts/custodian/candidates.json
 
 # ---------------------------------------------------------------------------
 # GitLab Pages for the generated knowledge site (issue #6).

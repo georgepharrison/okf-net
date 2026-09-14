@@ -145,6 +145,13 @@ reads happily — and `okf init` writes the config with its reasons in it, so
 the convention is exercised from the first commit rather than discovered by
 reading the parser.
 
+`okf/custodian/recipe.json` is in the same class and the same tradeoff, for the
+same reason: it is read by a person or an agent before a maintenance pass, and
+the comments are the part that says why a command is a report rather than a
+gate. Both are read with comments skipped, so the file that documents its own
+intent and the file the tool accepts are one file. A schema that rejects them
+is measuring a different format than this project chose.
+
 The **project config is committed, and that is the point**: it is the team
 contract, reviewed like code. It sits at the vault root rather than as a
 repository dotfile for two reasons — a command that resolved the vault has
