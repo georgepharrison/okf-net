@@ -192,7 +192,7 @@ internal static class CompletionCommand
     private static void WriteBashHelpers(StringBuilder script)
     {
         Line(script, "__okf_words() {");
-        Line(script, "    COMPREPLY=( $(compgen -W \"$1\" -- \"$2\") )");
+        Line(script, "    COMPREPLY=($(compgen -W \"$1\" -- \"$2\"))");
         Line(script, "}");
         Line(script, "");
         Line(script, "__okf_files() {");
@@ -200,14 +200,14 @@ internal static class CompletionCommand
         Line(script, "    # into several candidates. `local IFS` keeps this to the one function and");
         Line(script, "    # stays inside bash 3.2, which is what macOS still ships.");
         Line(script, "    local IFS=$'\\n'");
-        Line(script, "    COMPREPLY=( $(compgen -f -- \"$1\") )");
+        Line(script, "    COMPREPLY=($(compgen -f -- \"$1\"))");
         Line(script, "    compopt -o filenames 2>/dev/null");
         Line(script, "}");
         Line(script, "");
         Line(script, "# The only thing a completion asks okf for. It answers from the binary itself, so");
         Line(script, "# there is no vault to find and no directory to walk.");
         Line(script, "__okf_skills() {");
-        Line(script, "    COMPREPLY=( $(compgen -W \"$(\"$2\" skills list --names 2>/dev/null)\" -- \"$1\") )");
+        Line(script, "    COMPREPLY=($(compgen -W \"$(\"$2\" skills list --names 2>/dev/null)\" -- \"$1\"))");
         Line(script, "}");
         Line(script, "");
     }
@@ -231,7 +231,7 @@ internal static class CompletionCommand
         Line(script, "    cur=\"${COMP_WORDS[COMP_CWORD]}\"");
         Line(script, "    prev=\"\"");
         Line(script, "    if [ \"$COMP_CWORD\" -gt 0 ]; then");
-        Line(script, "        prev=\"${COMP_WORDS[COMP_CWORD-1]}\"");
+        Line(script, "        prev=\"${COMP_WORDS[COMP_CWORD - 1]}\"");
         Line(script, "    fi");
         Line(script, "");
     }
@@ -252,16 +252,16 @@ internal static class CompletionCommand
         Line(script, "            continue");
         Line(script, "        fi");
         Line(script, "        case \"$word\" in");
-        Line(script, "            --*=*) ;;");
-        Line(script, $"            {string.Join("|", ValueFlags)}) skip=1 ;;");
-        Line(script, "            -*) ;;");
-        Line(script, "            *)");
-        Line(script, "                if [ -z \"$verb\" ]; then");
-        Line(script, "                    verb=\"$word\"");
-        Line(script, "                elif [ -z \"$sub\" ]; then");
-        Line(script, "                    sub=\"$word\"");
-        Line(script, "                fi");
-        Line(script, "                ;;");
+        Line(script, "        --*=*) ;;");
+        Line(script, $"        {string.Join(" | ", ValueFlags)}) skip=1 ;;");
+        Line(script, "        -*) ;;");
+        Line(script, "        *)");
+        Line(script, "            if [ -z \"$verb\" ]; then");
+        Line(script, "                verb=\"$word\"");
+        Line(script, "            elif [ -z \"$sub\" ]; then");
+        Line(script, "                sub=\"$word\"");
+        Line(script, "            fi");
+        Line(script, "            ;;");
         Line(script, "        esac");
         Line(script, "    done");
         Line(script, "");
@@ -286,12 +286,12 @@ internal static class CompletionCommand
 
     private static void WriteBashVerb(StringBuilder script, CompletionVerb verb)
     {
-        Line(script, $"        {verb.Name})");
+        Line(script, $"    {verb.Name})");
         WriteBashValueGroups(script, verb);
         WriteBashFlags(script, verb);
         WriteBashSubcommands(script, verb);
         WriteBashOperand(script, verb);
-        Line(script, "            ;;");
+        Line(script, "        ;;");
     }
 
     private static void WriteBashValueGroups(StringBuilder script, CompletionVerb verb)
@@ -302,20 +302,30 @@ internal static class CompletionCommand
             return;
         }
 
-        Line(script, "            case \"$prev\" in");
+        Line(script, "        case \"$prev\" in");
         foreach ((CompletionValue value, IReadOnlyList<string> flags) in groups)
         {
-            string pattern = string.Join("|", flags);
-            Line(script, value.Kind switch
+            string pattern = string.Join(" | ", flags);
+            string body = value.Kind switch
             {
-                "path" => $"                {pattern}) __okf_files \"$cur\"; return ;;",
-                "skill" => $"                {pattern}) __okf_skills \"$cur\" \"${{COMP_WORDS[0]}}\"; return ;;",
-                "text" => $"                {pattern}) return ;;",
-                _ => $"                {pattern}) __okf_words \"{Words(value.Candidates)}\" \"$cur\"; return ;;",
-            });
+                "path" => "__okf_files \"$cur\"",
+                "skill" => "__okf_skills \"$cur\" \"${COMP_WORDS[0]}\"",
+                "text" => string.Empty,
+                _ => $"__okf_words \"{Words(value.Candidates)}\" \"$cur\"",
+            };
+            if (body.Length == 0)
+            {
+                Line(script, $"        {pattern}) return ;;");
+                continue;
+            }
+
+            Line(script, $"        {pattern})");
+            Line(script, $"            {body}");
+            Line(script, "            return");
+            Line(script, "            ;;");
         }
 
-        Line(script, "            esac");
+        Line(script, "        esac");
     }
 
     private static void WriteBashFlags(StringBuilder script, CompletionVerb verb)
@@ -325,9 +335,12 @@ internal static class CompletionCommand
             return;
         }
 
-        Line(script, "            case \"$cur\" in");
-        Line(script, $"                -*) __okf_words \"{FlagWords(verb)}\" \"$cur\"; return ;;");
-        Line(script, "            esac");
+        Line(script, "        case \"$cur\" in");
+        Line(script, "        -*)");
+        Line(script, $"            __okf_words \"{FlagWords(verb)}\" \"$cur\"");
+        Line(script, "            return");
+        Line(script, "            ;;");
+        Line(script, "        esac");
     }
 
     private static void WriteBashSubcommands(StringBuilder script, CompletionVerb verb)
@@ -337,19 +350,19 @@ internal static class CompletionCommand
             return;
         }
 
-        Line(script, "            if [ -z \"$sub\" ]; then");
-        Line(script, $"                __okf_words \"{Words(verb.Subcommands)}\" \"$cur\"");
-        Line(script, "                return");
-        Line(script, "            fi");
+        Line(script, "        if [ -z \"$sub\" ]; then");
+        Line(script, $"            __okf_words \"{Words(verb.Subcommands)}\" \"$cur\"");
+        Line(script, "            return");
+        Line(script, "        fi");
     }
 
     private static void WriteBashOperand(StringBuilder script, CompletionVerb verb)
     {
         string guard = OperandCondition(verb, "$sub");
-        string indent = guard.Length > 0 ? "                " : "            ";
+        string indent = guard.Length > 0 ? "            " : "        ";
         if (guard.Length > 0)
         {
-            Line(script, $"            if [ {guard} ]; then");
+            Line(script, $"        if [ {guard} ]; then");
         }
 
         switch (verb.Operand.Kind)
@@ -372,7 +385,7 @@ internal static class CompletionCommand
 
         if (guard.Length > 0)
         {
-            Line(script, "            fi");
+            Line(script, "        fi");
         }
     }
 

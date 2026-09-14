@@ -258,6 +258,69 @@ public class CompletionCommandTests
     [SkippableFact]
     public void TheBashScriptParses() => AssertParses("bash", "-n", "okf.bash");
 
+    /// <summary>
+    /// The emitted bash completion is shfmt-clean, so a formatter that touches it is a no-op.
+    /// </summary>
+    /// <remarks>
+    /// The artifact is checked, not any editor or agent harness: <c>okf completion bash</c> output
+    /// is canonicalized at generation, so the golden stays byte-stable however a file gets opened.
+    /// <c>-i 4</c> is the script's own indent, which <c>.editorconfig</c> declares for this path.
+    /// Skipped when shfmt is absent, because no pipeline image installs it (node, python, dotnet)
+    /// and a gate that silently passes on a missing tool is the failure mode this test exists to
+    /// prevent. Where shfmt IS present - a developer machine, or any image that adds it - a
+    /// generator that drifts back to <c>COMPREPLY=( $(...) )</c> or a collapsed case arm goes red.
+    /// </remarks>
+    [SkippableFact]
+    public void TheBashScriptIsShfmtClean()
+    {
+        Skip.If(Repository.Root is null, "the tests are running outside a checkout");
+        Skip.IfNot(CommandExists("shfmt"), "shfmt is not installed");
+
+        string script = CompletionCommand.Render("bash")!;
+        string path = Path.Combine(Path.GetTempPath(), $"okf-shfmt-{Guid.NewGuid():N}.bash");
+        try
+        {
+            File.WriteAllText(path, script);
+            ProcessStartInfo start = new("shfmt", "-i 4 -d " + Quote(path))
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using Process process = Process.Start(start)!;
+            string diff = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, "`okf completion bash` is not shfmt-clean:\n" + diff);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>Whether an executable resolves on the PATH, without failing the suite if not.</summary>
+    private static bool CommandExists(string name)
+    {
+        try
+        {
+            using Process probe = Process.Start(new ProcessStartInfo("which", name)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            })!;
+            probe.WaitForExit();
+            return probe.ExitCode == 0;
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
+            or InvalidOperationException
+            or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Quotes a path for a shell word.</summary>
+    private static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
     [SkippableFact]
     public void TheZshScriptParses() => AssertParses("zsh", "-n", "okf.zsh");
 

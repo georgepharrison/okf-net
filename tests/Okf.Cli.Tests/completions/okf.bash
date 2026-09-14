@@ -5,7 +5,7 @@
 #     "${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/okf"
 
 __okf_words() {
-    COMPREPLY=( $(compgen -W "$1" -- "$2") )
+    COMPREPLY=($(compgen -W "$1" -- "$2"))
 }
 
 __okf_files() {
@@ -13,14 +13,14 @@ __okf_files() {
     # into several candidates. `local IFS` keeps this to the one function and
     # stays inside bash 3.2, which is what macOS still ships.
     local IFS=$'\n'
-    COMPREPLY=( $(compgen -f -- "$1") )
+    COMPREPLY=($(compgen -f -- "$1"))
     compopt -o filenames 2>/dev/null
 }
 
 # The only thing a completion asks okf for. It answers from the binary itself, so
 # there is no vault to find and no directory to walk.
 __okf_skills() {
-    COMPREPLY=( $(compgen -W "$("$2" skills list --names 2>/dev/null)" -- "$1") )
+    COMPREPLY=($(compgen -W "$("$2" skills list --names 2>/dev/null)" -- "$1"))
 }
 
 _okf() {
@@ -32,7 +32,7 @@ _okf() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev=""
     if [ "$COMP_CWORD" -gt 0 ]; then
-        prev="${COMP_WORDS[COMP_CWORD-1]}"
+        prev="${COMP_WORDS[COMP_CWORD - 1]}"
     fi
 
     # The verb and its subcommand are the first two bare words that are not some
@@ -49,16 +49,16 @@ _okf() {
             continue
         fi
         case "$word" in
-            --*=*) ;;
-            --at|--bundle|--by|--captured-at|--channel|--concept|--config|--dir|--form|--format|--generated-at|--host|--limit|--name|--out|--scope|--severity|--source-last-modified|--tag|--title|--type|--url|--verify|--version|-o) skip=1 ;;
-            -*) ;;
-            *)
-                if [ -z "$verb" ]; then
-                    verb="$word"
-                elif [ -z "$sub" ]; then
-                    sub="$word"
-                fi
-                ;;
+        --*=*) ;;
+        --at | --bundle | --by | --captured-at | --channel | --concept | --config | --dir | --form | --format | --generated-at | --host | --limit | --name | --out | --scope | --severity | --source-last-modified | --tag | --title | --type | --url | --verify | --version | -o) skip=1 ;;
+        -*) ;;
+        *)
+            if [ -z "$verb" ]; then
+                verb="$word"
+            elif [ -z "$sub" ]; then
+                sub="$word"
+            fi
+            ;;
         esac
     done
 
@@ -68,202 +68,331 @@ _okf() {
     fi
 
     case "$verb" in
-        init)
-            case "$prev" in
-                --name) return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --name --no-agents-md --personal --verbose -v" "$cur"; return ;;
-            esac
+    init)
+        case "$prev" in
+        --name) return ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --name --no-agents-md --personal --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    lint)
+        case "$prev" in
+        --config)
             __okf_files "$cur"
+            return
             ;;
-        lint)
-            case "$prev" in
-                --config) __okf_files "$cur"; return ;;
-                --format) __okf_words "json text" "$cur"; return ;;
-                --severity) __okf_words "OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0203 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --config --format --json --list-rules --severity --treat-all-warnings-as-errors --verbose -v" "$cur"; return ;;
-            esac
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        --severity)
+            __okf_words "OKF0001 OKF0002 OKF0003 OKF0004 OKF0101 OKF0102 OKF0103 OKF0201 OKF0202 OKF0203 OKF0301 OKF0302 OKF0303 OKF0304 OKF0305 OKF0306 OKF0307 OKF0308 OKF0309 OKF0310" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --config --format --json --list-rules --severity --treat-all-warnings-as-errors --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    index)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --check --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    search)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        --limit | --tag | --type) return ;;
+        --scope)
+            __okf_words "project personal registered all" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --limit --scope --tag --type --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        ;;
+    register)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    unregister)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    registry)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        if [ -z "$sub" ]; then
+            __okf_words "list prune" "$cur"
+            return
+        fi
+        ;;
+    inbox)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --fail-if-any --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    candidates)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    verify)
+        case "$prev" in
+        --by) return ;;
+        --config)
             __okf_files "$cur"
+            return
             ;;
-        index)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --check --format --json --verbose -v" "$cur"; return ;;
-            esac
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --by --config --dry-run --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    capture)
+        case "$prev" in
+        --at | --by | --captured-at | --source-last-modified | --title | --url) return ;;
+        --concept)
             __okf_files "$cur"
+            return
             ;;
-        search)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-                --limit|--tag|--type) return ;;
-                --scope) __okf_words "project personal registered all" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --limit --scope --tag --type --verbose -v" "$cur"; return ;;
-            esac
+        --form)
+            __okf_words "flat packet" "$cur"
+            return
             ;;
-        register)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --verbose -v" "$cur"; return ;;
-            esac
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --at --by --captured-at --concept --form --json --source-last-modified --title --url" "$cur"
+            return
+            ;;
+        esac
+        if [ -z "$sub" ]; then
+            __okf_words "add close" "$cur"
+            return
+        fi
+        __okf_files "$cur"
+        ;;
+    generated)
+        case "$prev" in
+        --at | --by) return ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --at --by --dry-run" "$cur"
+            return
+            ;;
+        esac
+        if [ -z "$sub" ]; then
+            __okf_words "stamp" "$cur"
+            return
+        fi
+        __okf_files "$cur"
+        ;;
+    bundle)
+        case "$prev" in
+        --bundle | --generated-at) return ;;
+        --format)
+            __okf_words "dir tar.gz zip" "$cur"
+            return
+            ;;
+        --out | -o | --verify)
             __okf_files "$cur"
+            return
             ;;
-        unregister)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --verbose -v" "$cur"; return ;;
-            esac
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --bundle --format --generated-at --lint --out -o --verify --verbose -v" "$cur"
+            return
+            ;;
+        esac
+        __okf_files "$cur"
+        ;;
+    site)
+        case "$prev" in
+        --format)
+            __okf_words "json text" "$cur"
+            return
+            ;;
+        --name) return ;;
+        --out | -o)
             __okf_files "$cur"
+            return
             ;;
-        registry)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --verbose -v" "$cur"; return ;;
-            esac
-            if [ -z "$sub" ]; then
-                __okf_words "list prune" "$cur"
-                return
-            fi
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --format --json --name --out -o --single-file --verbose -v" "$cur"
+            return
             ;;
-        inbox)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --fail-if-any --format --json --verbose -v" "$cur"; return ;;
-            esac
+        esac
+        __okf_files "$cur"
+        ;;
+    skills)
+        case "$prev" in
+        --dir)
             __okf_files "$cur"
+            return
             ;;
-        candidates)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --verbose -v" "$cur"; return ;;
-            esac
-            __okf_files "$cur"
+        --host)
+            __okf_words "all claude generic pi" "$cur"
+            return
             ;;
-        verify)
-            case "$prev" in
-                --by) return ;;
-                --config) __okf_files "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --by --config --dry-run --verbose -v" "$cur"; return ;;
-            esac
-            __okf_files "$cur"
+        --scope)
+            __okf_words "project user" "$cur"
+            return
             ;;
-        capture)
-            case "$prev" in
-                --at|--by|--captured-at|--source-last-modified|--title|--url) return ;;
-                --concept) __okf_files "$cur"; return ;;
-                --form) __okf_words "flat packet" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --at --by --captured-at --concept --form --json --source-last-modified --title --url" "$cur"; return ;;
-            esac
-            if [ -z "$sub" ]; then
-                __okf_words "add close" "$cur"
-                return
-            fi
-            __okf_files "$cur"
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --dir --force --host --names --no-agents-md --scope" "$cur"
+            return
             ;;
-        generated)
-            case "$prev" in
-                --at|--by) return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --at --by --dry-run" "$cur"; return ;;
-            esac
-            if [ -z "$sub" ]; then
-                __okf_words "stamp" "$cur"
-                return
-            fi
-            __okf_files "$cur"
+        esac
+        if [ -z "$sub" ]; then
+            __okf_words "install list path" "$cur"
+            return
+        fi
+        if [ "$sub" = "path" ]; then
+            __okf_skills "$cur" "${COMP_WORDS[0]}"
+        fi
+        ;;
+    mcp)
+        case "$prev" in
+        --scope)
+            __okf_words "project personal registered all" "$cur"
+            return
             ;;
-        bundle)
-            case "$prev" in
-                --bundle|--generated-at) return ;;
-                --format) __okf_words "dir tar.gz zip" "$cur"; return ;;
-                --out|-o|--verify) __okf_files "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --bundle --format --generated-at --lint --out -o --verify --verbose -v" "$cur"; return ;;
-            esac
-            __okf_files "$cur"
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --scope --verbose -v" "$cur"
+            return
             ;;
-        site)
-            case "$prev" in
-                --format) __okf_words "json text" "$cur"; return ;;
-                --name) return ;;
-                --out|-o) __okf_files "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --format --json --name --out -o --single-file --verbose -v" "$cur"; return ;;
-            esac
-            __okf_files "$cur"
+        esac
+        __okf_files "$cur"
+        ;;
+    upgrade)
+        case "$prev" in
+        --channel)
+            __okf_words "rc stable" "$cur"
+            return
             ;;
-        skills)
-            case "$prev" in
-                --dir) __okf_files "$cur"; return ;;
-                --host) __okf_words "all claude generic pi" "$cur"; return ;;
-                --scope) __okf_words "project user" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --dir --force --host --names --no-agents-md --scope" "$cur"; return ;;
-            esac
-            if [ -z "$sub" ]; then
-                __okf_words "install list path" "$cur"
-                return
-            fi
-            if [ "$sub" = "path" ]; then
-                __okf_skills "$cur" "${COMP_WORDS[0]}"
-            fi
+        --format)
+            __okf_words "json text" "$cur"
+            return
             ;;
-        mcp)
-            case "$prev" in
-                --scope) __okf_words "project personal registered all" "$cur"; return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --scope --verbose -v" "$cur"; return ;;
-            esac
-            __okf_files "$cur"
+        --version) return ;;
+        esac
+        case "$cur" in
+        -*)
+            __okf_words "--help -h --channel --check --dry-run --format --json --version" "$cur"
+            return
             ;;
-        upgrade)
-            case "$prev" in
-                --channel) __okf_words "rc stable" "$cur"; return ;;
-                --format) __okf_words "json text" "$cur"; return ;;
-                --version) return ;;
-            esac
-            case "$cur" in
-                -*) __okf_words "--help -h --channel --check --dry-run --format --json --version" "$cur"; return ;;
-            esac
+        esac
+        ;;
+    completion)
+        case "$cur" in
+        -*)
+            __okf_words "--help -h" "$cur"
+            return
             ;;
-        completion)
-            case "$cur" in
-                -*) __okf_words "--help -h" "$cur"; return ;;
-            esac
-            __okf_words "bash fish pwsh zsh" "$cur"
+        esac
+        __okf_words "bash fish pwsh zsh" "$cur"
+        ;;
+    help)
+        ;;
+    version)
+        case "$cur" in
+        -*)
+            __okf_words "--verbose -v" "$cur"
+            return
             ;;
-        help)
-            ;;
-        version)
-            case "$cur" in
-                -*) __okf_words "--verbose -v" "$cur"; return ;;
-            esac
-            ;;
+        esac
+        ;;
     esac
 }
 
