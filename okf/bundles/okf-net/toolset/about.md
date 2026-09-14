@@ -3,7 +3,7 @@ type: Guide
 title: About the Toolset Domain
 description: How okf-net is built — layering, lint severities, search semantics, index generation, vault resolution, distribution, and running the tool on its own knowledge.
 tags: [okf-net, architecture, domain]
-generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T07:15:18Z }
+generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T08:07:20Z }
 sources:
   - id: decisions
     resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
@@ -37,7 +37,7 @@ cites them.[^decisions]
   receives, why the archive is byte-reproducible, and what becomes of a link
   that leaves the bundle.
 - [A capability describes itself](capability-describes-itself.md) — why the
-  bundle carries a concept for a command shipped in the same change, what the
+  bundle carries a concept for a command that shipped before it, what the
   command's own output proves about it, and what it leaves for a person.
 
 [^decisions]: okf-net — Architecture Decisions, "Repo layout".

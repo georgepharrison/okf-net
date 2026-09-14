@@ -3,7 +3,7 @@ type: Playbook
 title: Tagging Discipline
 description: The bundle's tag vocabulary, what each facet is for, and how a new tag gets added — in the same change as the concept that needs it.
 tags: [okf-net, tags, governance, lint, conventions]
-generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T07:15:18Z }
+generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T08:04:59Z }
 sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/3fcbb9f828c2f23d109c855ee403c3a4c81f3a96/okf/SPEC.md
@@ -78,11 +78,20 @@ describes itself](../toolset/capability-describes-itself.md). It is not
 `meta`, and not `dogfood`, and the difference is the claim each word is willing
 to carry. `meta` is a document about the bundle — an `about.md`, this page.
 `dogfood` is a document about this project, which is what most of the bundle is.
-`selfdoc` is a document the bundle's own tool produced *and can be re-checked
-by running*: its `generated` stamp came from `okf generated stamp`, and the
-concept's whole subject is that the tool reaches this file. That is a claim a
-reader can verify in one command, which is why it needs its own word rather
-than a loan from the two that cannot make it.
+`selfdoc` is a document whose *own tooling wrote its machine-owned records* —
+its `generated` stamp came from `okf generated stamp`, not from a hand — and
+whose subject is that the tool reaches this file. That is a claim a reader can
+re-check in one command, which is why it needs its own word rather than a loan
+from the two that cannot make it.
+
+It is honest to say this word joins exactly one concept today, which is the
+criterion below would rather it did not meet. The reason it is added anyway is
+that the vocabulary is grouped by facet and a reviewer should see the facet a
+word belongs in rather than have it invented later under pressure; the audit
+above already concedes the bundle is climbing out of singletons. So treat
+`selfdoc` as a word that must earn its place by being used again — if the next
+self-stamped concept does not need it, that is the moment to retire it rather
+than the moment to defend it.
 
 **Scope is not optional.** Every concept in this bundle carries `okf` or
 `okf-net`, because the single most useful filter over a bundle that documents
