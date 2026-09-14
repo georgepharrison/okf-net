@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: A Capability Describes Itself
-description: Why this bundle carries a concept for a command written in the same change, how its generation stamp proves it was written by the tool it documents, and what that self-run demonstrates and does not.
+description: Why this bundle carries a concept for a command that shipped before it, how its stamp line was written by the tool it documents, and what that self-run demonstrates and does not.
 tags: [okf-net, dogfood, meta, selfdoc, trust, verification, provenance, cli]
 sources:
   - id: issue-81
@@ -15,19 +15,19 @@ sources:
     author: "human:ringo"
     last_modified: 2026-09-13
   - id: decisions
-    resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/dev/docs/decisions.md
+    resource: https://gitlab.tychostation.dev/ringo/okf-net/-/blob/345c5243b76703aac6244b66e6ebf6f273e77da2/docs/decisions.md
     title: okf-net — Architecture Decisions (running log)
     author: "human:ringo"
-    last_modified: 2026-09-14
-generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T07:50:56Z }
+    last_modified: 2026-08-14
+generated: { by: "pi/qwen3.8-flash-next", at: 2026-09-14T08:20:35Z }
 ---
 
 The `okf candidates` feature arrived with a work item that asked for something stranger than
-documentation: the repository's own bundle had to gain a concept describing the command **in
-the change that shipped it**, and that concept had to show up in the command's own output as
-an unverified candidate.[^issue-81] It is the same self-hosting claim the vault makes in its
-README, run against the change rather than against a fixture: the tool is exercised on its own
-work, so the demonstration cannot be staged.
+documentation: the repository's own bundle had to gain a concept describing the command, and that
+concept had to show up in the command's own output as an unverified candidate.[^issue-81] The
+command shipped in earlier work items; this concept is the last of them, and it is the same
+self-hosting claim the vault makes in its README, run against the change rather than against a
+fixture: the tool is exercised on its own work, so the demonstration cannot be staged.
 
 # The concept is the test
 
@@ -44,26 +44,44 @@ So the concept lives in `toolset/`, beside the other concepts about how okf-net 
 the inventory lists it. The eligibility question it answers is the narrow one — **is there at
 least one structurally recognizable verification event in this file's `verified` block?** — and
 the answer for every concept in this bundle is no, because nobody has ever run `okf verify`
-here.[^issue-71] [The eligibility contract and the exit-code semantics are the trust domain's
-to state](../trust/candidates-and-completeness.md); what this concept holds is what the
-self-run proves and what it leaves open.
+here.[^issue-71]
 
-# The stamp is written, not typed
+The contract that question is decided by is short enough to state here, and is stated here as
+well as argued in [the trust domain's account of it](../trust/candidates-and-completeness.md):
 
-`generated` on this concept was not typed by the author who wrote the prose. It was written by
-the verb it documents:
+- **A candidate** is a concept whose history is *provably* absent: no `verified` key, an explicit
+  `null`, or `[]`. Nothing else qualifies.
+- **Not listed** is any event naming a non-empty author — a person, a process, a producer. A
+  garbage timestamp still names somebody, and somebody is the answer.
+- **Quarantined** is a file the scan could not classify: a `verified` block that claims
+  verification but cannot be read as events (a scalar, an empty mapping, a mapping naming no
+  author, a sequence with junk in it), or a file whose frontmatter could not be read at all.
+  A quarantine is named on standard error, never listed, and makes the run exit 1.
+
+The exit codes are the contract a pipeline branches on, and they say nothing about how long the
+list is: **0** means the enumeration completed whatever its length, **1** means at least one
+concept in scope could not be classified so the inventory is incomplete, and **2** means a usage
+or environment failure.[^issue-71]
+
+# The stamp line is written, not typed
+
+The `generated` line on this concept was not typed by the author who wrote the prose. It was
+written by the verb it documents:
 
 ```sh
 mise run cli -- generated stamp okf/bundles/okf-net/toolset/capability-describes-itself.md \
   --by <producer>/<version>
 ```
 
-That is a convention the vault holds everywhere, and here it is load-bearing rather than tidy.
-A hand-typed timestamp would prove only that somebody could type one; the claim this concept
-makes about its own freshness — and every stale and drift check downstream of
-`generated.at`[^decisions] — rests on the instant having come from the tool. `okf verify`
-refuses an actor equal to a concept's `generated.by`, and `okf lint` reports the pairing as
-`OKF0201`, so the actor written here also fixes what a verifier is allowed to say later about
+Be exact about what that establishes. **The verb owns the line's structure and the instant; it
+does not own the prose beside it** — the capture discipline gives hashes, timestamps and stamps to
+the tool and leaves the judgement of what is worth keeping to the author, and a stamp is a claim
+about the *instant of a write*, not about who composed the sentences. What a hand-typed stamp
+would corrupt is the instant: `generated.at` older than the content is a false freshness signal,
+and it is the input to every stale and drift check downstream.[^decisions] The convention here is
+that the verb writes it, so the instant is the run's clock rather than somebody's recollection of
+it. `okf verify` refuses an actor equal to a concept's `generated.by`, and `okf lint` reports the
+pairing as `OKF0201`, so the actor written here also fixes what a verifier may later say about
 this file.
 
 **The stamp is the reason the concept is on the inbox and not the reason it is on the
@@ -82,11 +100,11 @@ Verification history is a list of events, each naming an actor and optionally an
 the eligibility verdict asks only whether that list holds anything recognizable. The trust tier
 derives from the same block but answers a different question — *who* vouches — and lands on
 `unverified` here because there is nothing to derive from.[^decisions] The two agree about this
-file by accident rather than by design. A `verified: {}` block derives `machine-confirmed` to
-§5.3 while the scanner refuses to classify the concept at all. **That asymmetry is designed and
-not a defect**.[^issue-71] What keeps a disagreeing tier from being a hole is designed too, and
-is not luck: such a concept is named on the incomplete list either way — so a tier can mislead a
-reader about who vouched, and still cannot hide a concept from review.
+file by accident rather than by design. **The scanner refuses to classify a block it cannot read
+as events and that refusal is designed rather than a defect**[^issue-71] — the same block still
+derives `machine-confirmed` to §5.3. What keeps a disagreeing tier from being a hole is designed
+too, and is not luck: such a concept is named on the incomplete list either way — so a tier can
+mislead a reader about who vouched, and still cannot hide a concept from review.
 
 **This concept does not claim that the tier and the enumeration agree, and it does not claim
 that they will be reconciled.** Issue #84 owns that question; until it decides, one surface

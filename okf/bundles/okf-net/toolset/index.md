@@ -3,7 +3,7 @@
 # Concept
 
 * [Bundling and Distribution](bundling-and-distribution.md) - The bundler ships bundles/ and nothing else, deterministically, with a manifest attesting what shipped and which links now dangle.
-* [A Capability Describes Itself](capability-describes-itself.md) - Why this bundle carries a concept for a command written in the same change, how its generation stamp proves it was written by the tool it documents, and what that self-run demonstrates and does not.
+* [A Capability Describes Itself](capability-describes-itself.md) - Why this bundle carries a concept for a command that shipped before it, how its stamp line was written by the tool it documents, and what that self-run demonstrates and does not.
 * [Index Generation and Drift](index-generation-and-drift.md) - Generated indexes carry a marker, only marked files can drift, and five states describe every index on disk.
 * [Library, CLI, and MCP Layering](library-cli-mcp-layering.md) - All logic lives in internal Okf.Core; the CLI and MCP server are thin adapters, and Core is not a distributed NuGet API.
 * [Vaults, Registry, and Configuration](vault-registry-and-config.md) - How okf-net finds bundles, why the personal vault is just a registry entry, and which configuration layer wins.
